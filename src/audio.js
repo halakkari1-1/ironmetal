@@ -60,27 +60,36 @@ function tone(freq, dur, { type = 'sine', gain = 0.3, to = null, delay = 0, out 
   return g;
 }
 
-// Distorted guitar power chord (root, fifth, octave through a fuzz and a speaker-cabinet filter).
-function guitar(t, freq, dur, { muted = false, pan = 0, gain = 0.16, out = musicBus } = {}) {
-  const mix = ctx.createGain(); mix.gain.value = 1;
-  const oscs = [];
-  for (const [m, det] of [[1, -7], [1, 7], [1.5, 0], [2, 4]]) {
-    const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = freq * m; o.detune.value = det;
-    o.connect(mix); oscs.push(o);
-  }
-  const pre = ctx.createGain(); pre.gain.value = 3.2;
-  const shaper = ctx.createWaveShaper(); shaper.curve = CURVE; shaper.oversample = '2x';
+// Distorted guitar. Each output/pan pair gets ONE shared amp chain (fuzz + speaker-cabinet filter);
+// a note only adds three oscillators and an envelope, which keeps the CPU cost low on phones.
+const amps = new Map();
+function amp(out, pan) {
+  const key = `${pan}|${out === musicBus ? 'm' : 's'}`;
+  if (amps.has(key)) return amps.get(key);
+  const input = ctx.createGain(); input.gain.value = 3.2;
+  const shaper = ctx.createWaveShaper(); shaper.curve = CURVE; shaper.oversample = 'none';
   const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 100;
   const scoop = ctx.createBiquadFilter(); scoop.type = 'peaking'; scoop.frequency.value = 650; scoop.Q.value = 0.9; scoop.gain.value = -7;
-  const cab = ctx.createBiquadFilter(); cab.type = 'lowpass'; cab.frequency.value = muted ? 1300 : 3600; cab.Q.value = 0.8;
+  const cab = ctx.createBiquadFilter(); cab.type = 'lowpass'; cab.frequency.value = 3400; cab.Q.value = 0.8;
+  const level = ctx.createGain(); level.gain.value = 0.16;
+  input.connect(shaper); shaper.connect(hp); hp.connect(scoop); scoop.connect(cab); cab.connect(level);
+  if (ctx.createStereoPanner) { const p = ctx.createStereoPanner(); p.pan.value = pan; level.connect(p); p.connect(out); } else level.connect(out);
+  if (reverb) { const send = ctx.createGain(); send.gain.value = 0.18; level.connect(send); send.connect(reverb); }
+  amps.set(key, input);
+  return input;
+}
+function guitar(t, freq, dur, { muted = false, pan = 0, gain = 1, out = musicBus } = {}) {
   const env = ctx.createGain();
-  env.gain.setValueAtTime(0.0001, t); env.gain.exponentialRampToValueAtTime(gain, t + 0.005);
-  env.gain.setValueAtTime(gain, t + dur * 0.8); env.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  const p = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
-  mix.connect(pre); pre.connect(shaper); shaper.connect(hp); hp.connect(scoop); scoop.connect(cab); cab.connect(env);
-  if (p) { p.pan.value = pan; env.connect(p); p.connect(out); } else env.connect(out);
-  if (!muted && reverb) { const s = ctx.createGain(); s.gain.value = 0.25; env.connect(s); s.connect(reverb); }
-  for (const o of oscs) { o.start(t); o.stop(t + dur + 0.02); }
+  const peak = (muted ? 0.55 : 0.8) * gain;
+  env.gain.setValueAtTime(0.0001, t); env.gain.exponentialRampToValueAtTime(peak, t + 0.005);
+  env.gain.setValueAtTime(peak, t + dur * 0.75); env.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  let last = env;
+  if (muted) { const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 700; env.connect(lp); last = lp; }
+  last.connect(amp(out, pan));
+  for (const [m, det] of [[1, -6], [1.5, 0], [2, 5]]) {
+    const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = freq * m; o.detune.value = det;
+    o.connect(env); o.start(t); o.stop(t + dur + 0.02);
+  }
 }
 
 function kick(t, out, g = 0.9) {
@@ -143,7 +152,7 @@ const music = {
     musicBus.gain.setTargetAtTime(musicOn ? level : 0, ctx.currentTime, 0.4);
     if (this.playing) return;
     this.playing = true; this.next = ctx.currentTime + 0.1; this.step = 0; this.bar = 0;
-    this.timer = setInterval(() => this.schedule(), 25);
+    this.timer = setInterval(() => this.schedule(), 50);
   },
   stop(fade = 0.6) {
     if (!ctx || !this.playing) return;
@@ -152,7 +161,8 @@ const music = {
   },
   schedule() {
     if (ctx.state !== 'running') return;
-    while (this.next < ctx.currentTime + 0.15) { this.play(this.next); this.next += STEP; this.step++; if (this.step === 16) { this.step = 0; this.bar = (this.bar + 1) % SONG.length; } }
+    if (this.next < ctx.currentTime - 0.2) this.next = ctx.currentTime + 0.05; // skip ahead after a long stall instead of bursting
+    while (this.next < ctx.currentTime + 0.35) { this.play(this.next); this.next += STEP; this.step++; if (this.step === 16) { this.step = 0; this.bar = (this.bar + 1) % SONG.length; } }
   },
   play(t) {
     const [barId, feel] = SONG[this.bar], bar = BARS[barId], s = this.step, n = bar[s];
@@ -185,10 +195,11 @@ const music = {
 };
 
 const ok = () => ctx && sfxOn && ctx.state === 'running';
-let lastGun = 0;
+let lastGun = 0, boomTimes = [];
+function boomSlot() { const n = ctx.currentTime; boomTimes = boomTimes.filter((t) => n - t < 0.35); if (boomTimes.length >= 3) return false; boomTimes.push(n); return true; }
 
 export const sfx = {
-  unlock() { init(); if (ctx && ctx.state !== 'running') ctx.resume(); },
+  unlock() { init(); if (ctx && ctx.state !== 'running') ctx.resume().catch(() => {}); },
   setEnabled(v) { sfxOn = v; if (sfxBus) sfxBus.gain.value = v ? 0.85 : 0; },
   setMusic(v) { musicOn = v; if (musicBus && music.playing) musicBus.gain.setTargetAtTime(v ? music.level : 0, ctx.currentTime, 0.2); },
   music,
@@ -204,7 +215,7 @@ export const sfx = {
   },
   rocket(vol = 1) { if (!ok()) return; noise(0.7, { type: 'bandpass', freq: 500, q: 1.2, gain: 0.45 * vol, attack: 0.03, sweepTo: 2600 }); tone(70, 0.25, { type: 'sawtooth', gain: 0.18 * vol, to: 38 }); },
   explosion(size = 1, vol = 1) {
-    if (!ok()) return; const v = Math.min(1, vol);
+    if (!ok() || !boomSlot()) return; const v = Math.min(1, vol);
     noise(1.6 * size, { type: 'lowpass', freq: 1100, gain: 1.0 * v, attack: 0.004, sweepTo: 55 });
     noise(0.3, { type: 'highpass', freq: 2200, gain: 0.4 * v });
     tone(58, 1.0 * size, { type: 'sine', gain: 0.85 * v, to: 22 });
@@ -221,7 +232,7 @@ export const sfx = {
   hit() { if (!ok()) return; noise(0.05, { type: 'highpass', freq: 4000, gain: 0.25 }); tone(1400, 0.04, { type: 'square', gain: 0.05, to: 700 }); },
   hurt() { if (!ok()) return; noise(0.15, { type: 'lowpass', freq: 500, gain: 0.4 }); tone(120, 0.12, { type: 'square', gain: 0.12, to: 70 }); },
   pickup() { if (!ok()) return; [0, 0.06, 0.12].forEach((d, i) => tone(520 * (1 + i * 0.26), 0.14, { type: 'triangle', gain: 0.18, delay: d })); },
-  powerup() { if (!ok()) return; [0, 0.05, 0.1, 0.15, 0.2].forEach((d, i) => tone(220 * Math.pow(1.26, i), 0.2, { type: 'square', gain: 0.1, delay: d })); guitar(ctx.currentTime + 0.25, E2 * 2, 0.6, { gain: 0.12, out: sfxBus }); },
+  powerup() { if (!ok()) return; [0, 0.05, 0.1, 0.15, 0.2].forEach((d, i) => tone(220 * Math.pow(1.26, i), 0.2, { type: 'square', gain: 0.1, delay: d })); guitar(ctx.currentTime + 0.25, E2 * 2, 0.6, { gain: 0.8, out: sfxBus }); },
   special() { if (!ok()) return; tone(80, 0.5, { type: 'sawtooth', gain: 0.2, to: 400 }); noise(0.5, { type: 'bandpass', freq: 400, gain: 0.3, sweepTo: 3000 }); },
   shield() { if (!ok()) return; tone(200, 0.6, { type: 'sine', gain: 0.25, to: 800 }); tone(400, 0.6, { type: 'triangle', gain: 0.1, to: 1200 }); },
   flame() { if (!ok()) return; noise(0.25, { type: 'bandpass', freq: 700, q: 0.6, gain: 0.25 }); },
@@ -229,10 +240,10 @@ export const sfx = {
   whistle(vol = 1) { if (!ok()) return; tone(2400, 0.8, { type: 'sine', gain: 0.12 * vol, to: 700, attack: 0.2 }); },
   alarm() { if (!ok()) return; [0, 0.28, 0.56].forEach((d) => { tone(740, 0.2, { type: 'square', gain: 0.08, delay: d }); tone(560, 0.2, { type: 'square', gain: 0.08, delay: d + 0.14 }); }); },
   wind() { if (!ok()) return; noise(6, { type: 'bandpass', freq: 400, q: 0.8, gain: 0.25, attack: 1.5, sweepTo: 900 }); },
-  streak(n = 2) { if (!ok()) return; const t = ctx.currentTime; guitar(t, E2, 0.5 + n * 0.1, { gain: 0.14, out: sfxBus, pan: -0.4 }); guitar(t + 0.005, E2 * 1.002, 0.5 + n * 0.1, { gain: 0.14, out: sfxBus, pan: 0.4 }); crash(t, sfxBus, 0.18); kick(t, sfxBus, 0.8); },
+  streak(n = 2) { if (!ok()) return; const t = ctx.currentTime; guitar(t, E2, 0.5 + n * 0.1, { out: sfxBus, pan: -0.4 }); guitar(t + 0.005, E2 * 1.002, 0.5 + n * 0.1, { out: sfxBus, pan: 0.4 }); crash(t, sfxBus, 0.18); kick(t, sfxBus, 0.8); },
   countdown(final) { if (!ok()) return; if (final) { this.streak(3); } else { tone(440, 0.18, { type: 'square', gain: 0.15 }); kick(ctx.currentTime, sfxBus, 0.6); } },
-  win() { if (!ok()) return; const t = ctx.currentTime; [0, 3, 5, 7].forEach((s, i) => guitar(t + i * 0.18, E2 * Math.pow(2, s / 12), i === 3 ? 1.4 : 0.2, { gain: 0.13, out: sfxBus })); crash(t + 0.54, sfxBus); },
-  lose() { if (!ok()) return; const t = ctx.currentTime; [0, -1, -2].forEach((s, i) => guitar(t + i * 0.3, E2 * Math.pow(2, s / 12), i === 2 ? 1.6 : 0.3, { gain: 0.13, out: sfxBus })); },
+  win() { if (!ok()) return; const t = ctx.currentTime; [0, 3, 5, 7].forEach((s, i) => guitar(t + i * 0.18, E2 * Math.pow(2, s / 12), i === 3 ? 1.4 : 0.2, { out: sfxBus })); crash(t + 0.54, sfxBus); },
+  lose() { if (!ok()) return; const t = ctx.currentTime; [0, -1, -2].forEach((s, i) => guitar(t + i * 0.3, E2 * Math.pow(2, s / 12), i === 2 ? 1.6 : 0.3, { out: sfxBus })); },
 
   engineStart() {
     if (!ctx || engine) return;
@@ -260,3 +271,5 @@ export const sfx = {
     setTimeout(() => { try { e.o1.stop(); e.o2.stop(); } catch (_) { /* already stopped */ } }, 400);
   },
 };
+
+document.addEventListener('visibilitychange', () => { if (!document.hidden && ctx && ctx.state !== 'running') ctx.resume().catch(() => {}); });
