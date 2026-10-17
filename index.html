@@ -1,0 +1,290 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>IronMetal: Wasteland Wars</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0e0d0b">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Stencil+One&family=Saira+Condensed:wght@400;600;800&family=Saira:wght@400;500&display=swap">
+<style>
+/* Layout: full-bleed 3D stage; UI floats on top as angled steel plates, landscape-first */
+:root{
+  --ink:#0e0d0b; --plate:#17150f; --plate2:#211e17; --edge:#3a342a; --fg:#ece5d6; --muted:#9a9282; --dim:#6a6356;
+  --rust:#e0682c; --rust-dk:#8e3a14; --hazard:#f0b429; --blood:#d8382c; --toxic:#7cc441; --steel:#8c949c;
+  --display:"Saira Stencil One","Impact",sans-serif; --ui:"Saira Condensed","Arial Narrow",sans-serif; --body:"Saira",system-ui,sans-serif;
+  --cut:14px; color-scheme:dark;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0;overflow:hidden;background:var(--ink);color:var(--fg);font-family:var(--body);user-select:none;-webkit-user-select:none;touch-action:none}
+#view{position:fixed;inset:0;width:100%;height:100%;display:block}
+.screen{position:fixed;inset:0;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:max(12px,env(safe-area-inset-top,0px)) max(12px,env(safe-area-inset-bottom,0px));pointer-events:none}
+.screen > *{pointer-events:auto}
+.screen.passthru > *{pointer-events:none}
+.screen.passthru .live{pointer-events:auto}
+
+/* plates and buttons */
+.plate{background:linear-gradient(180deg,var(--plate2),var(--plate));border:1px solid var(--edge);clip-path:polygon(var(--cut) 0,100% 0,100% calc(100% - var(--cut)),calc(100% - var(--cut)) 100%,0 100%,0 var(--cut))}
+.btn{font:800 18px/1 var(--ui);letter-spacing:.08em;text-transform:uppercase;color:var(--fg);background:var(--plate2);border:1px solid var(--edge);padding:12px 18px;cursor:pointer;clip-path:polygon(10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%,0 10px);transition:transform .08s,background .15s}
+.btn:hover{background:#2a261d}.btn:active{transform:scale(.97)}
+.btn:focus-visible{outline:2px solid var(--hazard);outline-offset:2px}
+.btn.primary{background:var(--rust);border-color:#ff8a4c;color:#1a0b03}
+.btn.primary:hover{background:#f0763a}
+.btn.ghost{background:transparent}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.eyebrow{font:600 12px var(--ui);letter-spacing:.24em;text-transform:uppercase;color:var(--muted)}
+.hazard-bar{height:6px;background:repeating-linear-gradient(135deg,var(--hazard) 0 10px,#151209 10px 20px)}
+.num{font-variant-numeric:tabular-nums}
+
+/* top bar */
+.topbar{position:absolute;top:max(12px,env(safe-area-inset-top,0px));left:max(16px,env(safe-area-inset-left,0px));right:max(16px,env(safe-area-inset-right,0px));display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.logo{line-height:.86}
+.logo b{display:block;font:400 clamp(26px,4.2vw,44px) var(--display);letter-spacing:.02em;color:var(--fg);text-shadow:0 2px 0 #000}
+.logo b span{color:var(--rust)}
+.logo i{display:block;font:800 clamp(10px,1.2vw,13px) var(--ui);font-style:normal;letter-spacing:.42em;color:var(--hazard);margin-top:6px}
+.chips{display:flex;gap:8px;align-items:center}
+.chip{display:flex;align-items:center;gap:8px;padding:8px 14px;font:800 20px var(--ui);letter-spacing:.04em}
+.chip svg{width:20px;height:20px;flex:none}
+.iconbtn{width:44px;height:44px;padding:0;display:grid;place-items:center}
+.iconbtn svg{width:20px;height:20px}
+
+/* car info panel */
+.carpanel{position:absolute;left:max(16px,env(safe-area-inset-left,0px));top:50%;transform:translateY(-46%);width:min(330px,34vw);padding:16px 18px 18px}
+.carpanel h2{font:800 clamp(26px,3.2vw,38px)/.95 var(--ui);letter-spacing:.02em;text-transform:uppercase;margin:4px 0 2px;text-wrap:balance}
+.driver{font:500 13px var(--body);color:var(--muted);margin-bottom:12px}
+.stat{display:grid;grid-template-columns:78px 1fr 26px;align-items:center;gap:8px;margin:6px 0;font:600 13px var(--ui);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.bar{height:8px;background:#0b0a08;border:1px solid var(--edge);position:relative;overflow:hidden}
+.bar > i{position:absolute;inset:0 auto 0 0;background:var(--fg)}
+.bar > i.up{background:var(--toxic);left:auto}
+.stat .num{color:var(--fg);text-align:right}
+.special{margin-top:12px;padding:10px 12px;background:#0f0e0a;border-left:3px solid var(--rust)}
+.special b{display:block;font:800 16px var(--ui);letter-spacing:.06em;text-transform:uppercase;color:var(--rust)}
+.special span{font:400 13px/1.4 var(--body);color:var(--muted)}
+
+/* bottom action row */
+.actions{position:absolute;bottom:max(14px,env(safe-area-inset-bottom,0px));right:max(16px,env(safe-area-inset-right,0px));display:flex;gap:10px;align-items:flex-end}
+.play{font-size:clamp(28px,3.6vw,40px);padding:16px 40px 14px;letter-spacing:.14em;position:relative}
+.play small{display:block;font:600 11px var(--ui);letter-spacing:.3em;margin-top:4px;opacity:.75}
+
+/* garage browsing */
+.arrows{position:absolute;inset:auto 0 50%;display:flex;justify-content:space-between;padding:0 max(16px,env(safe-area-inset-right,0px)) 0 calc(min(330px,34vw) + 36px);pointer-events:none}
+.arrows .btn{pointer-events:auto;width:52px;height:64px;font-size:28px;padding:0}
+.storybox{position:absolute;right:max(16px,env(safe-area-inset-right,0px));top:96px;width:min(300px,30vw);padding:14px 16px}
+.storybox p{font:400 13px/1.55 var(--body);color:#cfc6b4;margin:6px 0 0}
+.pricetag{display:flex;align-items:center;gap:10px;font:800 26px var(--ui)}
+.lock{color:var(--hazard)}
+.counter{font:800 14px var(--ui);letter-spacing:.2em;color:var(--muted)}
+
+/* upgrades */
+.uplist{position:absolute;right:max(16px,env(safe-area-inset-right,0px));top:calc(max(12px,env(safe-area-inset-top,0px)) + 62px);bottom:max(14px,env(safe-area-inset-bottom,0px));width:min(360px,38vw);padding:14px 16px;display:flex;flex-direction:column;gap:8px;overflow-y:auto}
+.actions.left{right:auto;bottom:auto;top:max(12px,env(safe-area-inset-top,0px));left:max(16px,env(safe-area-inset-left,0px))}
+#menu.sub .topbar .logo{visibility:hidden}
+.uprow{display:grid;grid-template-columns:1fr auto;gap:4px 10px;align-items:center;padding:8px 0;border-bottom:1px solid #2a261e}
+.uprow:last-child{border:0}
+.uprow b{font:800 16px var(--ui);letter-spacing:.08em;text-transform:uppercase}
+.uprow small{grid-column:1;font:400 12px var(--body);color:var(--muted)}
+.pips{grid-column:1;display:flex;gap:4px}
+.pips i{width:22px;height:7px;background:#0b0a08;border:1px solid var(--edge);transform:skewX(-20deg)}
+.pips i.on{background:var(--toxic);border-color:#9be05c}
+.uprow .btn{grid-row:1/4;grid-column:2;font-size:15px;padding:10px 12px;min-width:92px;display:flex;align-items:center;gap:6px;justify-content:center}
+.uprow .btn svg{width:14px;height:14px}
+
+/* modal sheet (history, map select, results, pause) */
+.sheet{position:absolute;inset:0;display:grid;place-items:center;background:rgba(6,5,4,.78);backdrop-filter:blur(3px)}
+.sheet .plate{width:min(860px,100%);max-height:calc(100% - 8px);overflow:auto;padding:18px 20px 20px}
+.sheet h3{font:800 clamp(24px,3vw,34px) var(--ui);letter-spacing:.06em;text-transform:uppercase;margin:2px 0 12px}
+.row{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.maps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:8px 0 14px}
+.mapcard{position:relative;cursor:pointer;border:1px solid var(--edge);background:#0f0e0a;padding:0 0 12px;text-align:left;color:var(--fg);clip-path:polygon(12px 0,100% 0,100% calc(100% - 12px),calc(100% - 12px) 100%,0 100%,0 12px);font:inherit}
+.mapcard .art{height:86px;position:relative;overflow:hidden}
+.mapcard b{display:block;font:800 20px var(--ui);letter-spacing:.06em;text-transform:uppercase;margin:10px 12px 2px}
+.mapcard em{display:block;font:600 11px var(--ui);letter-spacing:.16em;text-transform:uppercase;color:var(--hazard);font-style:normal;margin:0 12px 6px}
+.mapcard span{display:block;font:400 12px/1.45 var(--body);color:var(--muted);margin:0 12px}
+.mapcard[aria-pressed="true"]{border-color:var(--rust);box-shadow:inset 0 0 0 2px var(--rust)}
+.seg{display:flex;border:1px solid var(--edge)}
+.seg button{font:800 15px var(--ui);letter-spacing:.1em;text-transform:uppercase;background:transparent;color:var(--muted);border:0;padding:11px 16px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--fg);color:var(--ink)}
+.seg button small{display:block;font:600 10px var(--ui);letter-spacing:.12em;opacity:.7;margin-top:2px}
+.hist{width:100%;border-collapse:collapse;font:600 14px var(--ui);letter-spacing:.06em}
+.hist th{font:600 11px var(--ui);letter-spacing:.2em;text-transform:uppercase;color:var(--muted);text-align:left;padding:6px 8px;border-bottom:1px solid var(--edge)}
+.hist td{padding:9px 8px;border-bottom:1px solid #26221a;text-transform:uppercase}
+.w{color:var(--toxic)}.l{color:var(--blood)}
+.totals{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px}
+.tot{background:#0f0e0a;padding:10px 12px;border:1px solid #26221a}
+.tot b{display:block;font:800 26px var(--ui)}
+.empty{padding:22px 4px;color:var(--muted);font:400 14px var(--body)}
+
+/* HUD */
+#hud .hp{position:absolute;top:max(12px,env(safe-area-inset-top,0px));left:max(16px,env(safe-area-inset-left,0px));width:min(300px,34vw)}
+#hud .hp .name{font:800 15px var(--ui);letter-spacing:.12em;text-transform:uppercase;display:flex;justify-content:space-between}
+#hud .hpbar{height:14px;background:#0b0a08;border:1px solid #4a4234;margin-top:4px;position:relative;transform:skewX(-14deg)}
+#hud .hpbar i{position:absolute;inset:0 auto 0 0;background:var(--toxic);transition:width .15s}
+#hud .hpbar i.low{background:var(--blood)}
+#hud .kills{margin-top:6px;font:800 14px var(--ui);letter-spacing:.14em;color:var(--hazard)}
+#hud .center{position:absolute;top:max(12px,env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);text-align:center}
+#hud .enemies{font:800 22px var(--ui);letter-spacing:.1em;padding:4px 16px}
+#hud .enemies small{font:600 11px var(--ui);letter-spacing:.24em;color:var(--muted);display:block}
+#feed{margin-top:8px;display:flex;flex-direction:column;gap:4px;align-items:center}
+#feed div{font:700 13px var(--ui);letter-spacing:.08em;text-transform:uppercase;background:rgba(10,9,7,.7);padding:4px 10px;animation:fade 3.5s forwards}
+#feed b{color:var(--rust)}
+@keyframes fade{0%,80%{opacity:1}100%{opacity:0}}
+#mini{position:absolute;top:max(12px,env(safe-area-inset-top,0px));right:max(68px,calc(env(safe-area-inset-right,0px) + 56px));width:118px;height:118px;border:1px solid var(--edge);background:rgba(10,9,7,.65)}
+#pausebtn{position:absolute;top:max(12px,env(safe-area-inset-top,0px));right:max(16px,env(safe-area-inset-right,0px))}
+#stick{position:absolute;left:0;bottom:0;width:48%;height:70%}
+#stickbase{position:absolute;width:130px;height:130px;border-radius:50%;border:2px solid rgba(236,229,214,.35);background:rgba(10,9,7,.3);transform:translate(-50%,-50%);display:none}
+#stickknob{position:absolute;width:56px;height:56px;border-radius:50%;background:rgba(236,229,214,.85);left:50%;top:50%;transform:translate(-50%,-50%)}
+.fire{position:absolute;right:max(20px,calc(env(safe-area-inset-right,0px) + 12px));bottom:max(18px,env(safe-area-inset-bottom,0px));width:248px;height:200px}
+.fbtn{position:absolute;border-radius:50%;display:grid;place-items:center;font:800 13px var(--ui);letter-spacing:.12em;color:var(--fg);border:2px solid rgba(236,229,214,.4);background:rgba(14,13,11,.55);touch-action:none;cursor:pointer}
+.fbtn.on{background:rgba(224,104,44,.55);border-color:var(--rust)}
+#bGun{width:108px;height:108px;right:0;bottom:0;border-color:var(--rust);font-size:16px}
+#bRocket{width:76px;height:76px;right:118px;bottom:8px}
+#bSpecial{width:76px;height:76px;right:22px;bottom:118px}
+#bRocket em,#bSpecial em{position:absolute;bottom:-6px;right:-4px;font:800 13px var(--ui);font-style:normal;background:var(--hazard);color:#171106;padding:1px 6px}
+#bSpecial .cd{position:absolute;inset:-4px;width:calc(100% + 8px);height:calc(100% + 8px);border-radius:50%;pointer-events:none}
+.keys{position:absolute;left:50%;bottom:max(12px,env(safe-area-inset-bottom,0px));transform:translateX(-50%);font:600 12px var(--ui);letter-spacing:.14em;color:var(--muted);text-transform:uppercase;background:rgba(10,9,7,.6);padding:6px 12px}
+#big{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none}
+#big span{font:400 clamp(60px,12vw,140px) var(--display);color:var(--fg);text-shadow:0 4px 0 #000,0 0 40px rgba(224,104,44,.6);animation:pop .7s ease-out}
+#big span.win{color:var(--hazard)}#big span.lose{color:var(--blood)}
+@keyframes pop{0%{transform:scale(1.8);opacity:0}40%{opacity:1}100%{transform:scale(1)}}
+#toast{position:absolute;left:50%;top:38%;transform:translateX(-50%);font:800 20px var(--ui);letter-spacing:.12em;color:var(--toxic);text-shadow:0 2px 0 #000;pointer-events:none}
+#vignette{position:fixed;inset:0;pointer-events:none;box-shadow:inset 0 0 120px 30px rgba(216,56,44,0);transition:box-shadow .25s}
+.ehp{position:absolute;width:56px;height:6px;background:#0b0a08;border:1px solid #000;transform:translate(-50%,-50%);pointer-events:none}
+.ehp i{position:absolute;inset:0 auto 0 0;background:var(--blood)}
+.ehp.far b{display:none}
+.ehp b{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);font:700 10px var(--ui);letter-spacing:.1em;white-space:nowrap;color:#e9dfcc;text-shadow:0 1px 0 #000;text-transform:uppercase}
+
+/* results */
+.res h3{font:400 clamp(44px,7vw,72px)/1 var(--display)!important;letter-spacing:.02em!important}
+.reslines{display:grid;gap:6px;margin:10px 0 16px;font:600 16px var(--ui);letter-spacing:.08em;text-transform:uppercase}
+.reslines div{display:flex;justify-content:space-between;border-bottom:1px solid #26221a;padding:6px 0}
+.reslines .total{font-size:24px;color:var(--hazard);border:0}
+
+/* loader + rotate */
+#loader{position:fixed;inset:0;display:grid;place-items:center;background:var(--ink);z-index:20;transition:opacity .5s}
+#loader .logo{text-align:center}
+#loader .load{width:220px;height:4px;background:#26221a;margin:22px auto 0;overflow:hidden}
+#loader .load i{display:block;height:100%;width:30%;background:var(--rust);animation:load 1s infinite ease-in-out}
+@keyframes load{0%{transform:translateX(-100%)}100%{transform:translateX(340%)}}
+#rotate{position:fixed;inset:0;display:none;place-items:center;text-align:center;background:var(--ink);z-index:30;padding:24px}
+#rotate b{font:800 24px var(--ui);letter-spacing:.1em;text-transform:uppercase;display:block;margin:14px 0 6px}
+#rotate p{color:var(--muted);font:400 14px var(--body);margin:0}
+@media (orientation:portrait) and (pointer:coarse){#rotate.need{display:grid}}
+@media (max-height:520px){.carpanel{padding:12px 14px;transform:translateY(-42%)}.carpanel h2{font-size:26px}.stat{margin:3px 0}.driver{margin-bottom:6px}.special{margin-top:8px;padding:7px 10px}.special span{font-size:12px}.storybox{top:80px}.maps .art{height:56px}.mapcard span{display:none}.uplist{padding:8px 12px;gap:0}.uprow{padding:4px 0}.uprow small{display:none}.uprow b{font-size:14px}.uprow .btn{padding:7px 10px;font-size:14px}}
+@media (max-width:720px){.maps{grid-template-columns:1fr}.totals{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+[hidden]{display:none!important}
+</style>
+
+<canvas id="view"></canvas>
+<div id="vignette"></div>
+
+<div id="loader">
+  <div class="logo"><b>IRON<span>METAL</span></b><i>WASTELAND WARS</i><div class="load"><i></i></div></div>
+</div>
+<div id="rotate"><div><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#e0682c" stroke-width="1.6"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M3 8a9 9 0 0 1 4-4M21 16a9 9 0 0 1-4 4"/></svg><b>Turn your phone</b><p>IronMetal is played in landscape.</p></div></div>
+
+<!-- MENU / GARAGE / UPGRADES share the car panel -->
+<div id="menu" class="screen" hidden>
+  <div class="topbar">
+    <div class="logo"><b>IRON<span>METAL</span></b><i>WASTELAND WARS</i></div>
+    <div class="chips">
+      <div class="chip plate" title="Scrap points"><svg viewBox="0 0 24 24" fill="none" stroke="#f0b429" stroke-width="2"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg><span id="points" class="num">0</span></div>
+      <button class="btn iconbtn" id="btnHistory" aria-label="Battle history"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 3"/></svg></button>
+      <button class="btn iconbtn" id="btnSound" aria-label="Sound"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9h4l5-4v14l-5-4H4z"/><path id="snd" d="M16 9a4 4 0 0 1 0 6M19 6a8 8 0 0 1 0 12"/></svg></button>
+    </div>
+  </div>
+
+  <div class="carpanel plate" id="carpanel">
+    <div class="eyebrow" id="cpEyebrow">Your ride</div>
+    <h2 id="cpName">Rustbucket</h2>
+    <div class="driver" id="cpDriver">Driver</div>
+    <div id="cpStats"></div>
+    <div class="special"><b id="cpSpecial">Nitro</b><span id="cpSpecialDesc"></span></div>
+  </div>
+
+  <!-- main -->
+  <div id="mainActions" class="actions">
+    <button class="btn" id="btnUpgrade">Upgrade</button>
+    <button class="btn" id="btnGarage">Garage</button>
+    <button class="btn primary play" id="btnPlay">Play<small>Enter the arena</small></button>
+  </div>
+
+  <!-- garage -->
+  <div id="garageUI" hidden>
+    <div class="storybox plate">
+      <div class="row"><span class="eyebrow">Driver file</span><span class="counter num" id="gCount">1 / 8</span></div>
+      <p id="gStory"></p>
+    </div>
+    <div class="arrows"><button class="btn" id="gPrev" aria-label="Previous car">&lsaquo;</button><button class="btn" id="gNext" aria-label="Next car">&rsaquo;</button></div>
+    <div class="actions">
+      <button class="btn ghost" id="gBack">Back</button>
+      <div class="pricetag plate" id="gPrice" style="padding:10px 16px"></div>
+      <button class="btn primary play" id="gAction">Select</button>
+    </div>
+  </div>
+
+  <!-- upgrades -->
+  <div id="upgradeUI" hidden>
+    <div class="uplist plate" id="upList"></div>
+    <div class="actions left"><button class="btn" id="uBack">&lsaquo; Back</button></div>
+  </div>
+</div>
+
+<!-- battle setup -->
+<div id="setup" class="screen" hidden>
+  <div class="sheet"><div class="plate">
+    <div class="row"><div><div class="eyebrow">Iron Cup qualifier</div><h3>Choose your arena</h3></div><button class="btn ghost" id="sBack">Back</button></div>
+    <div class="maps" id="mapList"></div>
+    <div class="row">
+      <div><div class="eyebrow" style="margin-bottom:6px">Difficulty</div><div class="seg" id="diffSeg"></div></div>
+      <button class="btn primary play" id="sFight">Fight<small id="sReward">Win: 100 pts</small></button>
+    </div>
+  </div></div>
+</div>
+
+<!-- history -->
+<div id="history" class="screen" hidden>
+  <div class="sheet"><div class="plate">
+    <div class="row"><div><div class="eyebrow">Service record</div><h3>Battle history</h3></div><button class="btn ghost" id="hBack">Close</button></div>
+    <div class="totals" id="hTotals"></div>
+    <div id="hList"></div>
+  </div></div>
+</div>
+
+<!-- HUD -->
+<div id="hud" class="screen passthru" hidden>
+  <div class="hp"><div class="name"><span id="hName">Car</span><span id="hHp" class="num">100</span></div><div class="hpbar"><i id="hBar"></i></div><div class="kills" id="hKills">0 KILLS</div></div>
+  <div class="center"><div class="enemies plate num" id="hEnemies">3<small>enemies left</small></div><div id="feed"></div></div>
+  <canvas id="mini" width="236" height="236"></canvas>
+  <button class="btn iconbtn live" id="pausebtn" aria-label="Pause"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14"/><rect x="14" y="5" width="4" height="14"/></svg></button>
+  <div id="stick" class="live"><div id="stickbase"><div id="stickknob"></div></div></div>
+  <div class="fire live" id="fireBtns">
+    <div class="fbtn" id="bGun">FIRE</div>
+    <div class="fbtn" id="bRocket">RKT<em id="hRockets">6</em></div>
+    <div class="fbtn" id="bSpecial"><canvas class="cd" id="cdRing" width="160" height="160"></canvas><span id="hSpecialLbl">SPEC</span></div>
+  </div>
+  <div class="keys" id="keys">W A S D drive · Space fire · F rocket · E special · Esc pause</div>
+  <div id="ehps"></div>
+  <div id="toast"></div>
+  <div id="big"></div>
+</div>
+
+<!-- pause -->
+<div id="pause" class="screen" hidden>
+  <div class="sheet"><div class="plate" style="width:min(380px,100%);text-align:center">
+    <div class="eyebrow">Match paused</div><h3>Pit stop</h3>
+    <div style="display:grid;gap:10px"><button class="btn primary" id="pResume">Resume</button><button class="btn" id="pQuit">Leave the arena</button></div>
+  </div></div>
+</div>
+
+<!-- results -->
+<div id="results" class="screen" hidden>
+  <div class="sheet"><div class="plate res" style="width:min(460px,100%)">
+    <div class="eyebrow" id="rMap">Scrapyard · Rookie</div>
+    <h3 id="rTitle">Victory</h3>
+    <div class="reslines" id="rLines"></div>
+    <div class="row"><button class="btn" id="rGarage">Garage</button><button class="btn primary" id="rAgain">Fight again</button></div>
+  </div></div>
+</div>
+
+<script type="importmap">{"imports":{"three":"./vendor/three/build/three.module.js","three/addons/":"./vendor/three/examples/jsm/"}}</script>
+<script type="module" src="./src/main.js"></script>
