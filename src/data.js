@@ -132,3 +132,16 @@ export const DIFFICULTY = [
 
 export const KILL_REWARD = 30;
 export const START_POINTS = 300;
+
+// Daily contracts: three per day, picked from these templates with a seed from the date.
+export const CONTRACTS = [
+  { id: 'kills', text: 'Wreck {n} cars', goals: [5, 8, 12], reward: 22 },
+  { id: 'rocketKills', text: 'Wreck {n} cars with rockets', goals: [2, 3, 5], reward: 55 },
+  { id: 'barrels', text: 'Blow up {n} fuel barrels', goals: [4, 6, 10], reward: 30 },
+  { id: 'airdrops', text: 'Grab {n} airdrops', goals: [1, 2, 3], reward: 110 },
+  { id: 'streak', text: 'Score a Double Wreck', goals: [1], reward: 180 },
+  { id: 'bounty', text: 'Claim {n} bounties', goals: [1, 2], reward: 120 },
+  { id: 'winMap', text: 'Win a match on {map}', goals: [1], reward: 200 },
+  { id: 'winVet', text: 'Win on Veteran or Warlord', goals: [1], reward: 260 },
+  { id: 'wave', text: 'Reach wave {n} in Survival', goals: [4, 6, 8], reward: 45 },
+];

@@ -64,6 +64,9 @@ Controls: on-screen joystick and buttons on touch screens; W A S D, Space (fire)
 
 - [x] Garage with 8 cars, upgrades, battle history
 - [x] Three arenas, AI opponents, specials, pickups, sound
+- [x] Bloom lighting, textured fire and smoke, flying debris and wrecks, scorch marks
+- [x] Procedural metal soundtrack and fire logo
+- [x] Variety: kill streaks, bounty target, airdrops (Railgun, Napalm, Mini Nuke), arena events (artillery, tank rupture, sandstorm), daily contracts, Survival mode
 - [ ] Android build (wrap with Capacitor, build the APK in GitHub Actions)
 - [ ] Remake the seven procedural cars in Meshy to match the Warhorse
 - [ ] Music, more arenas, daily challenges

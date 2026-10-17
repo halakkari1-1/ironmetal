@@ -2,7 +2,11 @@
 import * as THREE from 'three';
 import { CARS, UPGRADES, MAX_UPGRADE, MAPS, DIFFICULTY, KILL_REWARD, carStats, upgradeCost } from './data.js';
 import { buildCar, preloadWarhorse } from './cars3d.js';
-import { Game } from './game.js';
+import { Game, POWERS } from './game.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { save } from './save.js';
 import { sfx } from './audio.js';
 
@@ -17,6 +21,45 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+// Bloom makes fire, muzzle flashes and lights glow. One composer is shared by the showroom and the arena.
+const composer = new EffectComposer(renderer);
+const renderPass = new RenderPass(new THREE.Scene(), new THREE.PerspectiveCamera());
+const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.55, 0.4, 0.86);
+composer.addPass(renderPass); composer.addPass(bloom); composer.addPass(new OutputPass());
+function draw(scene, camera) { renderPass.scene = scene; renderPass.camera = camera; composer.render(); }
+
+// Animated fire behind the logo (classic cellular fire, drawn into a small canvas and blurred by CSS).
+class FireLogo {
+  constructor(canvas) {
+    this.c = canvas; this.g = canvas.getContext('2d'); this.w = canvas.width; this.h = canvas.height;
+    this.px = new Uint8Array(this.w * this.h); this.img = this.g.createImageData(this.w, this.h);
+    this.pal = [];
+    for (let i = 0; i < 37; i++) {
+      const t = i / 36;
+      const r = Math.min(255, t * 3 * 255), gg = Math.min(255, Math.max(0, (t * 3 - 1) * 255)), b = Math.min(255, Math.max(0, (t * 3 - 2) * 255));
+      this.pal.push([r, gg * 0.85, b * 0.6, i === 0 ? 0 : Math.min(255, 60 + t * 300)]);
+    }
+    for (let x = 0; x < this.w; x++) this.px[(this.h - 1) * this.w + x] = 36;
+    this.embers = [];
+  }
+  step() {
+    const { w, h, px } = this;
+    for (let x = 0; x < w; x++) px[(h - 1) * w + x] = Math.random() < 0.85 ? 36 : 30;
+    for (let y = 1; y < h; y++) for (let x = 0; x < w; x++) {
+      const src = y * w + x, v = px[src];
+      const r = (Math.random() * 3) | 0, dst = src - w - r + 1;
+      if (dst >= 0) px[dst] = Math.max(0, v - (r & 1) - (Math.random() < 0.35 ? 1 : 0));
+    }
+    const d = this.img.data;
+    for (let i = 0; i < px.length; i++) { const c = this.pal[px[i]]; d[i * 4] = c[0]; d[i * 4 + 1] = c[1]; d[i * 4 + 2] = c[2]; d[i * 4 + 3] = c[3] * (1 - (Math.floor(i / w) / h) * 0.15); }
+    this.g.putImageData(this.img, 0, 0);
+    if (Math.random() < 0.35) this.embers.push({ x: Math.random() * w, y: h - 4, vx: (Math.random() - 0.5) * 0.6, vy: -0.6 - Math.random() * 0.9, l: 1 });
+    this.embers = this.embers.filter((e) => { e.x += e.vx; e.y += e.vy; e.l -= 0.015; this.g.fillStyle = `rgba(255,${150 + Math.random() * 80},60,${e.l})`; this.g.fillRect(e.x, e.y, 1.5, 1.5); return e.l > 0 && e.y > 0; });
+  }
+}
+const fires = [new FireLogo($('logoFire')), new FireLogo($('loaderFire'))];
+let fireT = 0;
 
 // ---------- garage showroom ----------
 class Showroom {
@@ -87,7 +130,7 @@ class Showroom {
     this.camera.lookAt(this.camX, 1.3, 0);
     this.dust.rotation.y += dt * 0.02;
   }
-  render() { renderer.render(this.scene, this.camera); }
+  render() { draw(this.scene, this.camera); }
 }
 
 const room = new Showroom();
@@ -95,11 +138,11 @@ let game = null;
 let mode = 'menu';
 let ui = 'main'; // main | garage | upgrade
 let browseI = 0;
-let setupMap = MAPS[0], setupDiff = DIFFICULTY[0];
+let setupMap = MAPS[0], setupDiff = DIFFICULTY[0], setupMode = 'deathmatch';
 let lastConfig = null;
 
 // ---------- screens ----------
-function show(id) { for (const s of ['menu', 'setup', 'history', 'hud', 'pause', 'results']) $(s).hidden = s !== id && !(id === 'pause' && s === 'hud'); }
+function show(id) { for (const s of ['menu', 'setup', 'history', 'contracts', 'hud', 'pause', 'results']) $(s).hidden = s !== id && !(id === 'pause' && s === 'hud'); }
 
 function statRows(car, up, compareTo = null) {
   const s = car.stats, rows = [['Speed', 'speed', s.speed], ['Armor', 'armor', s.armor], ['Guns', 'gun', s.gun], ['Rockets', 'rocket', s.rocket]];
@@ -182,15 +225,33 @@ const MAP_SHAPES = {
   refinery: '<rect x="20" y="14" width="40" height="44" fill="#4b4f55"/><rect x="20" y="14" width="40" height="4" fill="#d9a521"/><rect x="74" y="26" width="30" height="32" fill="#3e4247"/><rect x="150" y="40" width="90" height="4" fill="#2a2d31"/><rect x="150" y="30" width="90" height="4" fill="#2a2d31"/><circle cx="130" cy="52" r="6" fill="#b8321e"/><circle cx="142" cy="52" r="6" fill="#b8321e"/>',
   dustbowl: '<path d="M20 58 L32 18 L44 58Z" fill="#7a5a38"/><path d="M150 58 L158 28 L170 58Z" fill="#8a6a44"/><path d="M90 58 L96 36 L104 58Z" fill="#6e5032"/><rect x="190" y="42" width="40" height="16" fill="#9a8a72"/>',
 };
+const MODES = [
+  { id: 'deathmatch', name: 'Deathmatch', desc: 'Last car running wins. Bounty, airdrops, arena events.' },
+  { id: 'survival', name: 'Survival', desc: 'Endless waves that all hunt you. How far can you go?' },
+];
 function renderSetup() {
+  $('modeSeg').innerHTML = MODES.map((m) => `<button data-mode="${m.id}" aria-pressed="${m.id === setupMode}"><b>${m.name}</b><span>${m.desc}</span></button>`).join('');
+  const surv = setupMode === 'survival';
+  $('diffBox').hidden = surv; $('bestBox').hidden = !surv;
+  $('bestWave').textContent = `Wave ${save.get().best.wave}`;
   $('mapList').innerHTML = MAPS.map((m) => `<button class="mapcard" data-map="${m.id}" aria-pressed="${m === setupMap}">
     <div class="art" style="background:${MAP_ART[m.id]}"><svg viewBox="0 0 250 60" preserveAspectRatio="xMidYMax slice" style="position:absolute;inset:0;width:100%;height:100%">${MAP_SHAPES[m.id]}</svg></div>
     <b>${m.name}</b><em>${m.tag}</em><span>${m.desc}</span></button>`).join('');
   $('diffSeg').innerHTML = DIFFICULTY.map((d) => `<button data-diff="${d.id}" aria-pressed="${d === setupDiff}">${d.name}<small>${d.enemies} enemies</small></button>`).join('');
-  $('sReward').textContent = `Win: ${fmt(setupDiff.base)} + ${fmt(KILL_REWARD * setupDiff.reward)}/kill`;
+  $('sReward').textContent = surv ? `${fmt(KILL_REWARD * 1.2)}/kill + wave bonuses` : `Win: ${fmt(setupDiff.base)} + ${fmt(KILL_REWARD * setupDiff.reward)}/kill`;
 }
+$('modeSeg').addEventListener('click', (e) => { const b = e.target.closest('[data-mode]'); if (!b) return; setupMode = b.dataset.mode; sfx.click(); renderSetup(); });
 $('mapList').addEventListener('click', (e) => { const b = e.target.closest('[data-map]'); if (!b) return; setupMap = MAPS.find((m) => m.id === b.dataset.map); sfx.click(); renderSetup(); });
 $('diffSeg').addEventListener('click', (e) => { const b = e.target.closest('[data-diff]'); if (!b) return; setupDiff = DIFFICULTY.find((d) => d.id === b.dataset.diff); sfx.click(); renderSetup(); });
+
+function renderContracts() {
+  const list = save.contracts();
+  $('cList').innerHTML = list.map((c) => `<div class="contract ${c.done ? 'done' : ''}"><div><b>${c.text}</b><div class="eyebrow num" style="margin-top:3px">${c.done ? 'Complete' : `${c.progress} / ${c.goal}`}</div></div>
+    <div class="reward num">${c.done ? '&check;' : '+' + fmt(c.reward)}</div><div class="prog"><i style="width:${(c.progress / c.goal) * 100}%"></i></div></div>`).join('');
+  const h = new Date(); const left = 24 - h.getHours();
+  $('cDay').textContent = `New contracts in ${left} ${left === 1 ? 'hour' : 'hours'}`;
+}
+function refreshBadge() { const n = save.contracts().filter((c) => !c.done).length; $('cBadge').hidden = !n; $('cBadge').textContent = n; }
 
 function renderHistory() {
   const st = save.get(), h = st.history;
@@ -198,7 +259,7 @@ function renderHistory() {
   $('hTotals').innerHTML = [['Matches', st.stats.matches], ['Wins', st.stats.wins], ['Win rate', rate + '%'], ['Kills', st.stats.kills]]
     .map(([k, v]) => `<div class="tot"><span class="eyebrow">${k}</span><b class="num">${typeof v === 'number' ? fmt(v) : v}</b></div>`).join('');
   $('hList').innerHTML = h.length ? `<table class="hist"><thead><tr><th>Result</th><th>Arena</th><th>Car</th><th>Kills</th><th style="text-align:right">Points</th></tr></thead><tbody>${h.map((e) =>
-    `<tr><td class="${e.result === 'win' ? 'w' : 'l'}">${e.result === 'win' ? 'Victory' : e.result === 'quit' ? 'Left' : 'Wrecked'}</td><td>${e.map} · ${e.diff}</td><td>${e.car}</td><td class="num">${e.kills}</td><td class="num" style="text-align:right">+${fmt(e.points)}</td></tr>`).join('')}</tbody></table>`
+    `<tr><td class="${e.result === 'win' ? 'w' : 'l'}">${e.result === 'win' ? 'Victory' : e.result === 'quit' ? 'Left' : e.result === 'survival' ? 'Wave ' + e.wave : 'Wrecked'}</td><td>${e.map} · ${e.diff}</td><td>${e.car}</td><td class="num">${e.kills}</td><td class="num" style="text-align:right">+${fmt(e.points)}</td></tr>`).join('')}</tbody></table>`
     : '<div class="empty">No battles yet. Your record starts with the first match.</div>';
 }
 
@@ -210,11 +271,25 @@ const hud = {
     $('hSpecialLbl').textContent = g.player.data.special.name.split(' ')[0].toUpperCase().slice(0, 6);
     $('keys').hidden = isTouch; $('fireBtns').hidden = !isTouch; $('stick').hidden = !isTouch;
     $('feed').innerHTML = ''; $('big').innerHTML = ''; $('toast').textContent = '';
-    $('ehps').innerHTML = g.cars.filter((c) => !c.isPlayer).map((c, i) => `<div class="ehp" id="ehp${i}"><b>${c.data.name}</b><i></i></div>`).join('');
-    g.cars.filter((c) => !c.isPlayer).forEach((c, i) => { c.hpEl = $(`ehp${i}`); c.hpFill = c.hpEl.querySelector('i'); });
+    $('ehps').innerHTML = ''; $('announce').innerHTML = '';
+    this.ensureEnemyBars(g);
   },
+  ensureEnemyBars(g) {
+    for (const c of g.cars) {
+      if (c.isPlayer || c.hpEl) continue;
+      const el = document.createElement('div'); el.className = 'ehp'; el.innerHTML = `<b>${c.data.name}</b><i></i>`;
+      $('ehps').appendChild(el); c.hpEl = el; c.hpFill = el.querySelector('i'); c.hpName = el.querySelector('b');
+    }
+    for (const el of [...$('ehps').children]) if (!g.cars.some((c) => c.hpEl === el)) el.remove();
+  },
+  announce(title, sub = '', tone = '') {
+    const a = $('announce');
+    a.innerHTML = `<div class="a ${tone}"><b>${title}</b>${sub ? `<span>${sub}</span>` : ''}</div>`;
+  },
+  feedText(t) { const d = document.createElement('div'); d.textContent = t; $('feed').prepend(d); setTimeout(() => d.remove(), 3600); },
+  whiteout() { const w = $('whiteout'); w.classList.remove('go'); void w.offsetWidth; w.classList.add('go'); },
   countdown(t) { $('big').innerHTML = `<span>${t}</span>`; if (t === 'FIGHT') setTimeout(() => { if ($('big').textContent === 'FIGHT') $('big').innerHTML = ''; }, 800); },
-  banner(t) { $('big').innerHTML = `<span class="${t === 'VICTORY' ? 'win' : 'lose'}">${t}</span>`; },
+  banner(t, win) { $('announce').innerHTML = ''; $('big').innerHTML = `<span class="${win ? 'win' : 'lose'}">${t}</span>`; },
   hurt(a) { const v = $('vignette'); v.style.boxShadow = `inset 0 0 120px 40px rgba(216,56,44,${Math.min(0.75, 0.2 + a / 30)})`; clearTimeout(this.vt); this.vt = setTimeout(() => (v.style.boxShadow = ''), 160); },
   feed(k, v) {
     const d = document.createElement('div');
@@ -229,8 +304,11 @@ const hud = {
     $('hHp').textContent = Math.ceil(Math.max(0, p.hp));
     $('hKills').textContent = `${p.kills} ${p.kills === 1 ? 'KILL' : 'KILLS'}`;
     const left = g.cars.filter((c) => !c.isPlayer && c.alive).length;
-    $('hEnemies').innerHTML = `${left}<small>${left === 1 ? 'enemy left' : 'enemies left'}</small>`;
-    $('hRockets').textContent = p.rockets;
+    $('hEnemies').innerHTML = g.mode === 'survival' ? `W${g.wave || 0} · ${left}<small>wave · hostiles</small>` : `${left}<small>${left === 1 ? 'enemy left' : 'enemies left'}</small>`;
+    const rb = $('bRocket');
+    if (p.power) { rb.classList.add('power'); rb.firstChild.textContent = POWERS[p.power.type].short; $('hRockets').textContent = p.power.ammo; }
+    else { rb.classList.remove('power'); rb.firstChild.textContent = 'RKT'; $('hRockets').textContent = p.rockets; }
+    if (!isTouch) $('keys').textContent = p.power ? `F fires the ${POWERS[p.power.type].name} (${p.power.ammo})` : 'W A S D drive · Space fire · F rocket · E special · Esc pause';
     // special cooldown ring
     const cd = $('cdRing'), cx = cd.getContext('2d'), k = p.specialOn ? 1 : 1 - Math.max(0, p.specialCd) / p.stats.specialCooldown;
     cx.clearRect(0, 0, 160, 160); cx.lineWidth = 8;
@@ -242,12 +320,15 @@ const hud = {
     m.clearRect(0, 0, W, W);
     m.fillStyle = 'rgba(140,130,110,.35)';
     for (const o of g.arena.obstacles) { if (o.dead) continue; if (o.kind === 'box') m.fillRect((o.x - o.hw + half) * sc, (o.z - o.hd + half) * sc, o.hw * 2 * sc, o.hd * 2 * sc); else { m.beginPath(); m.arc((o.x + half) * sc, (o.z + half) * sc, Math.max(2, o.r * sc), 0, 7); m.fill(); } }
+    for (const s of g.strikes) { m.strokeStyle = 'rgba(255,60,40,.9)'; m.lineWidth = 2; m.beginPath(); m.arc((s.x + half) * sc, (s.z + half) * sc, s.r * sc, 0, 7); m.stroke(); }
+    for (const d of g.drops) { m.fillStyle = '#7fc4ff'; m.fillRect((d.x + half) * sc - 5, (d.z + half) * sc - 5, 10, 10); }
     for (const pk of g.pickups) if (pk.respawn <= 0) { m.fillStyle = pk.type === 'health' ? '#5dff7a' : '#ffb347'; m.fillRect((pk.x + half) * sc - 3, (pk.z + half) * sc - 3, 6, 6); }
     for (const c of g.cars) {
       if (!c.alive) continue;
       const x = (c.x + half) * sc, y = (c.z + half) * sc;
       m.save(); m.translate(x, y); m.rotate(-c.heading + Math.PI);
-      m.fillStyle = c.isPlayer ? '#f0b429' : '#d8382c';
+      m.fillStyle = c.isPlayer ? '#f0b429' : c.bounty ? '#ffd23a' : '#d8382c';
+      if (c.bounty) { m.strokeStyle = '#ffd23a'; m.lineWidth = 2; m.beginPath(); m.arc(0, 0, 11, 0, 7); m.stroke(); }
       m.beginPath(); m.moveTo(0, -9); m.lineTo(6, 6); m.lineTo(-6, 6); m.closePath(); m.fill(); m.restore();
     }
     // enemy health bars
@@ -258,25 +339,31 @@ const hud = {
       v.set(c.x, 4.4, c.z).project(g.camera);
       const on = v.z < 1 && Math.abs(v.x) < 1.1 && Math.abs(v.y) < 1.1;
       c.hpEl.hidden = !on;
-      if (on) { c.hpEl.classList.toggle('far', Math.hypot(c.x - g.player.x, c.z - g.player.z) > 38); c.hpEl.style.left = `${(v.x * 0.5 + 0.5) * w}px`; c.hpEl.style.top = `${(-v.y * 0.5 + 0.5) * h}px`; c.hpFill.style.width = `${Math.max(0, c.hp / c.maxHp) * 100}%`; }
+      if (on) { c.hpEl.classList.toggle('far', !c.bounty && Math.hypot(c.x - g.player.x, c.z - g.player.z) > 38); c.hpName.textContent = c.bounty ? `\u2605 ${c.data.name} \u2605` : c.data.name; c.hpName.style.color = c.bounty ? '#ffd23a' : ''; c.hpFill.style.background = c.bounty ? '#ffc23a' : ''; c.hpEl.style.left = `${(v.x * 0.5 + 0.5) * w}px`; c.hpEl.style.top = `${(-v.y * 0.5 + 0.5) * h}px`; c.hpFill.style.width = `${Math.max(0, c.hp / c.maxHp) * 100}%`; }
     }
   },
   onEnd(r) {
-    const cfg = lastConfig, d = cfg.diff;
-    const killPts = Math.round(r.kills * KILL_REWARD * d.reward);
+    const cfg = lastConfig, d = cfg.diff, surv = r.mode === 'survival';
+    const killPts = Math.round(r.kills * KILL_REWARD * (surv ? 1.2 : d.reward));
     const winPts = r.result === 'win' ? d.base : 0;
-    const showPts = r.result === 'win' ? 0 : 10;
-    const total = winPts + killPts + showPts;
-    save.record({ date: new Date().toISOString(), map: cfg.map.name, diff: d.name, car: cfg.car.name, result: r.result, kills: r.kills, points: total });
-    $('rMap').textContent = `${cfg.map.name} · ${d.name} · ${cfg.car.name}`;
-    $('rTitle').textContent = r.result === 'win' ? 'Victory' : 'Wrecked';
-    $('rTitle').style.color = r.result === 'win' ? 'var(--hazard)' : 'var(--blood)';
+    const showPts = r.result === 'loss' ? 10 : 0;
+    const bonus = r.stats.bonus.reduce((a, b) => a + b.pts, 0);
+    const total = winPts + killPts + showPts + bonus;
+    const prevBest = save.get().best.wave;
+    save.record({ date: new Date().toISOString(), map: cfg.map.name, diff: surv ? 'Survival' : d.name, car: cfg.car.name, result: r.result, kills: r.kills, points: total, wave: surv ? r.stats.wave : 0 });
+    const doneC = save.applyContracts({ result: r.result, map: cfg.map.id, diff: surv ? 'survival' : d.id, stats: r.stats });
+    $('rMap').textContent = `${cfg.map.name} · ${surv ? 'Survival' : d.name} · ${cfg.car.name}`;
+    $('rTitle').textContent = surv ? `Wave ${r.stats.wave}` : r.result === 'win' ? 'Victory' : 'Wrecked';
+    $('rTitle').style.color = r.result === 'win' || (surv && r.stats.wave > prevBest) ? 'var(--hazard)' : 'var(--blood)';
     const mins = Math.floor(r.time / 60), secs = String(Math.floor(r.time % 60)).padStart(2, '0');
-    $('rLines').innerHTML = [
-      ['Time in arena', `${mins}:${secs}`], ['Kills', `${r.kills} × ${fmt(KILL_REWARD * d.reward)}`],
-      r.result === 'win' ? ['Victory bonus', `+${fmt(winPts)}`] : ['Show-up pay', `+${showPts}`],
-    ].map(([a, b]) => `<div><span>${a}</span><span class="num">${b}</span></div>`).join('') + `<div class="total"><span>Scrap earned</span><span class="num">+${fmt(total)}</span></div>`;
+    const lines = [['Time in arena', `${mins}:${secs}`], ['Kills', `${r.kills} \u00d7 ${fmt(KILL_REWARD * (surv ? 1.2 : d.reward))}`]];
+    if (surv && r.stats.wave > prevBest) lines.push(['New personal best', `Wave ${r.stats.wave}`]);
+    if (r.result === 'win') lines.push(['Victory bonus', `+${fmt(winPts)}`]); else if (showPts) lines.push(['Show-up pay', `+${showPts}`]);
+    for (const b of r.stats.bonus) lines.push([b.label, `+${fmt(b.pts)}`]);
+    $('rLines').innerHTML = lines.map(([a, b]) => `<div><span>${a}</span><span class="num">${b}</span></div>`).join('') + `<div class="total"><span>Scrap earned</span><span class="num">+${fmt(total)}</span></div>`;
+    $('rContracts').innerHTML = doneC.map((c) => `<div class="contract done"><div><b>Contract complete</b><div class="eyebrow">${c.text}</div></div><div class="reward num">+${fmt(c.reward)}</div></div>`).join('');
     show('results'); mode = 'results';
+    sfx.music.start(0.45);
   },
 };
 
@@ -289,6 +376,7 @@ async function startMatch(cfg) {
   game = new Game(renderer, hud);
   game.resize(window.innerWidth, window.innerHeight);
   game.start(cfg);
+  sfx.music.start(save.get().music ? 0.16 : 0);
   game.resize(window.innerWidth, window.innerHeight);
   mode = 'game';
   $('loader').hidden = true;
@@ -297,7 +385,8 @@ async function startMatch(cfg) {
 
 function toMenu() {
   if (game) { game.dispose(); game = null; }
-  mode = 'menu'; show('menu'); setUI('main');
+  mode = 'menu'; show('menu'); setUI('main'); refreshBadge();
+  sfx.music.start(0.5);
   $('rotate').classList.remove('need');
   input.reset();
 }
@@ -360,7 +449,8 @@ addEventListener('pointerup', () => { dragX = null; room.dragging = false; });
 
 // ---------- buttons ----------
 const on = (id, fn) => $(id).addEventListener('click', (e) => { sfx.unlock(); fn(e); });
-document.addEventListener('pointerdown', () => sfx.unlock(), { once: false, passive: true });
+document.addEventListener('pointerdown', () => { sfx.unlock(); if (!sfx.music.playing && mode === 'menu' && save.get().music) sfx.music.start(0.5); }, { passive: true });
+addEventListener('keydown', () => { sfx.unlock(); if (!sfx.music.playing && mode === 'menu' && save.get().music) sfx.music.start(0.5); });
 on('btnPlay', () => { sfx.confirm(); renderSetup(); show('setup'); });
 on('btnGarage', () => { sfx.click(); setUI('garage'); });
 on('btnUpgrade', () => { sfx.click(); setUI('upgrade'); });
@@ -374,15 +464,18 @@ on('gAction', () => {
   else if (save.buy(car)) sfx.purchase(); else sfx.denied();
   renderGarage(); refreshPoints();
 });
+on('btnContracts', () => { sfx.click(); renderContracts(); show('contracts'); });
+on('cBack', () => { sfx.click(); show('menu'); refreshBadge(); });
+on('btnMusic', () => { const st = save.get(); st.music = !st.music; save.write(); sfx.setMusic(st.music); $('mus').style.display = st.music ? 'none' : ''; if (st.music) sfx.music.start(0.5); sfx.click(); });
 on('btnHistory', () => { sfx.click(); renderHistory(); show('history'); });
 on('hBack', () => { sfx.click(); show('menu'); });
 on('btnSound', () => { const st = save.get(); st.sound = !st.sound; save.write(); sfx.setEnabled(st.sound); $('snd').style.display = st.sound ? '' : 'none'; sfx.click(); });
 on('sBack', () => { sfx.click(); show('menu'); });
-on('sFight', () => { sfx.confirm(); const car = save.selectedCar(); startMatch({ car, upgrades: save.upgrades(car.id), map: setupMap, diff: setupDiff }); });
+on('sFight', () => { sfx.confirm(); const car = save.selectedCar(); startMatch({ car, upgrades: save.upgrades(car.id), map: setupMap, diff: setupDiff, mode: setupMode }); });
 on('pausebtn', () => pause());
 on('pResume', () => resume());
 on('pQuit', () => {
-  if (game && !game.over) { game.quit(); save.record({ date: new Date().toISOString(), map: lastConfig.map.name, diff: lastConfig.diff.name, car: lastConfig.car.name, result: 'quit', kills: game.player.kills, points: 0 }); }
+  if (game && !game.over) { game.quit(); save.record({ date: new Date().toISOString(), map: lastConfig.map.name, diff: lastConfig.mode === 'survival' ? 'Survival' : lastConfig.diff.name, car: lastConfig.car.name, result: 'quit', kills: game.player.kills, points: 0 }); }
   toMenu();
 });
 on('rGarage', () => toMenu());
@@ -396,6 +489,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden && mod
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
   renderer.setSize(w, h, false);
+  composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(w, h);
   room.resize(w, h);
   if (game) game.resize(w, h);
 }
@@ -404,14 +498,18 @@ addEventListener('resize', resize);
 let last = performance.now();
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
-  if (mode === 'game') { input.apply(); game.update(dt); game.render(); }
-  else if ((mode === 'paused' || mode === 'results') && game) game.render();
+  if (mode === 'game') { input.apply(); game.update(dt); draw(game.scene, game.camera); }
+  else if ((mode === 'paused' || mode === 'results') && game) draw(game.scene, game.camera);
   else { room.update(dt); room.render(); }
+  fireT += dt;
+  if (fireT > 1 / 30) { fireT = 0; if (!$('menu').hidden || !$('loader').hidden) for (const f of fires) if (f.c.offsetParent) f.step(); }
   requestAnimationFrame(frame);
 }
 
 // ---------- boot ----------
-sfx.setEnabled(save.get().sound);
+sfx.setEnabled(save.get().sound); sfx.setMusic(save.get().music);
+$('mus').style.display = save.get().music ? 'none' : '';
+refreshBadge();
 $('snd').style.display = save.get().sound ? '' : 'none';
 resize();
 show('menu'); setUI('main');

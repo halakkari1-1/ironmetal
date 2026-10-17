@@ -37,10 +37,15 @@ html,body{height:100%;margin:0;overflow:hidden;background:var(--ink);color:var(-
 
 /* top bar */
 .topbar{position:absolute;top:max(12px,env(safe-area-inset-top,0px));left:max(16px,env(safe-area-inset-left,0px));right:max(16px,env(safe-area-inset-right,0px));display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
-.logo{line-height:.86}
-.logo b{display:block;font:400 clamp(26px,4.2vw,44px) var(--display);letter-spacing:.02em;color:var(--fg);text-shadow:0 2px 0 #000}
-.logo b span{color:var(--rust)}
-.logo i{display:block;font:800 clamp(10px,1.2vw,13px) var(--ui);font-style:normal;letter-spacing:.42em;color:var(--hazard);margin-top:6px}
+.logo{line-height:.86;position:relative;display:inline-block;padding:0 6px}
+.logo .fire{position:absolute;left:-6%;bottom:18%;width:112%;height:150%;pointer-events:none;filter:blur(1.5px);mix-blend-mode:screen}
+.logo b{position:relative;display:block;font:400 clamp(28px,4.4vw,48px) var(--display);letter-spacing:.02em;
+  background:linear-gradient(180deg,#f4f1ea 0%,#b9b6ae 38%,#5f5d58 52%,#d9d5cc 66%,#8a8780 100%);-webkit-background-clip:text;background-clip:text;color:transparent;
+  filter:drop-shadow(0 2px 0 #000) drop-shadow(0 0 10px rgba(255,90,20,.55));animation:glow 2.4s infinite}
+.logo b span{background:linear-gradient(180deg,#fff3c4 0%,#ffc240 28%,#ff6a1a 58%,#b3200c 86%,#5a0c04 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.logo i{position:relative;display:block;font:800 clamp(10px,1.2vw,13px) var(--ui);font-style:normal;letter-spacing:.42em;color:var(--hazard);margin-top:6px;text-shadow:0 0 8px rgba(255,140,30,.6)}
+@keyframes glow{0%,100%{filter:drop-shadow(0 2px 0 #000) drop-shadow(0 0 10px rgba(255,90,20,.55))}45%{filter:drop-shadow(0 2px 0 #000) drop-shadow(0 0 18px rgba(255,120,30,.85))}70%{filter:drop-shadow(0 2px 0 #000) drop-shadow(0 0 8px rgba(255,70,10,.5))}}
+#loader .logo b{font-size:clamp(46px,9vw,96px)}#loader .logo i{font-size:clamp(12px,1.8vw,18px);text-align:center}
 .chips{display:flex;gap:8px;align-items:center}
 .chip{display:flex;align-items:center;gap:8px;padding:8px 14px;font:800 20px var(--ui);letter-spacing:.04em}
 .chip svg{width:20px;height:20px;flex:none}
@@ -145,6 +150,29 @@ html,body{height:100%;margin:0;overflow:hidden;background:var(--ink);color:var(-
 #big span{font:400 clamp(60px,12vw,140px) var(--display);color:var(--fg);text-shadow:0 4px 0 #000,0 0 40px rgba(224,104,44,.6);animation:pop .7s ease-out}
 #big span.win{color:var(--hazard)}#big span.lose{color:var(--blood)}
 @keyframes pop{0%{transform:scale(1.8);opacity:0}40%{opacity:1}100%{transform:scale(1)}}
+#announce{position:absolute;left:50%;top:26%;transform:translateX(-50%);text-align:center;pointer-events:none}
+#announce .a{animation:ann 2.4s forwards}
+#announce b{display:block;font:400 clamp(30px,5vw,54px)/1 var(--display);letter-spacing:.03em;color:var(--fg);text-shadow:0 3px 0 #000,0 0 26px rgba(255,100,30,.7)}
+#announce span{display:inline-block;margin-top:6px;font:800 14px var(--ui);letter-spacing:.18em;text-transform:uppercase;background:rgba(10,9,7,.75);padding:4px 12px;color:var(--fg)}
+#announce .gold b{color:#ffc23a}#announce .red b{color:#ff5a3a}#announce .blue b{color:#7fc4ff;text-shadow:0 3px 0 #000,0 0 26px rgba(80,160,255,.8)}#announce .green b{color:#8ee05a}#announce .kill b{font-size:clamp(22px,3vw,32px);color:#ffb08a}
+@keyframes ann{0%{opacity:0;transform:scale(1.6)}12%{opacity:1;transform:scale(1)}80%{opacity:1}100%{opacity:0;transform:translateY(-10px)}}
+#whiteout{position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none}
+#whiteout.go{animation:wo 1.6s ease-out}
+@keyframes wo{0%{opacity:.95}100%{opacity:0}}
+#bRocket.power{border-color:#7fc4ff;background:rgba(40,90,160,.5)}
+#bRocket.power em{background:#7fc4ff}
+.badge{position:absolute;top:-6px;right:-6px;background:var(--rust);color:#1a0b03;font:800 12px var(--ui);min-width:20px;height:20px;border-radius:10px;display:grid;place-items:center;padding:0 5px}
+.contract{display:grid;grid-template-columns:1fr auto;gap:6px 14px;align-items:center;padding:12px 0;border-bottom:1px solid #26221a}
+.contract b{font:800 17px var(--ui);letter-spacing:.06em;text-transform:uppercase}
+.contract .reward{font:800 18px var(--ui);color:var(--hazard)}
+.contract .prog{grid-column:1/3;height:8px;background:#0b0a08;border:1px solid var(--edge);position:relative}
+.contract .prog i{position:absolute;inset:0 auto 0 0;background:var(--rust)}
+.contract.done b{color:var(--toxic)}.contract.done .prog i{background:var(--toxic)}
+.modes{display:flex;gap:10px;margin:4px 0 6px}
+.modes button{flex:1;text-align:left;border:1px solid var(--edge);background:#0f0e0a;color:var(--fg);padding:10px 14px;cursor:pointer;font:inherit;clip-path:polygon(10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%,0 10px)}
+.modes button b{display:block;font:800 18px var(--ui);letter-spacing:.08em;text-transform:uppercase}
+.modes button span{font:400 12px var(--body);color:var(--muted)}
+.modes button[aria-pressed="true"]{border-color:var(--rust);box-shadow:inset 0 0 0 2px var(--rust)}
 #toast{position:absolute;left:50%;top:38%;transform:translateX(-50%);font:800 20px var(--ui);letter-spacing:.12em;color:var(--toxic);text-shadow:0 2px 0 #000;pointer-events:none}
 #vignette{position:fixed;inset:0;pointer-events:none;box-shadow:inset 0 0 120px 30px rgba(216,56,44,0);transition:box-shadow .25s}
 .ehp{position:absolute;width:56px;height:6px;background:#0b0a08;border:1px solid #000;transform:translate(-50%,-50%);pointer-events:none}
@@ -169,6 +197,7 @@ html,body{height:100%;margin:0;overflow:hidden;background:var(--ink);color:var(-
 #rotate p{color:var(--muted);font:400 14px var(--body);margin:0}
 @media (orientation:portrait) and (pointer:coarse){#rotate.need{display:grid}}
 @media (max-height:520px){.carpanel{padding:12px 14px;transform:translateY(-42%)}.carpanel h2{font-size:26px}.stat{margin:3px 0}.driver{margin-bottom:6px}.special{margin-top:8px;padding:7px 10px}.special span{font-size:12px}.storybox{top:80px}.maps .art{height:56px}.mapcard span{display:none}.uplist{padding:8px 12px;gap:0}.uprow{padding:4px 0}.uprow small{display:none}.uprow b{font-size:14px}.uprow .btn{padding:7px 10px;font-size:14px}}
+@media (max-height:520px){.sheet .plate{padding:10px 16px 12px}.sheet h3{font-size:22px;margin:0 0 6px}.modes{margin:0 0 4px}.modes button{padding:6px 12px}.modes button b{font-size:15px}.modes button span{display:none}.maps{margin:6px 0 8px;gap:8px}.maps .art{height:40px}.mapcard{padding-bottom:6px}.mapcard b{font-size:15px;margin:6px 10px 0}.mapcard em{font-size:9px;margin:0 10px}.seg button{padding:7px 12px;font-size:13px}.sheet .play{padding:10px 26px 8px;font-size:24px}.contract{padding:8px 0}}
 @media (max-width:720px){.maps{grid-template-columns:1fr}.totals{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 [hidden]{display:none!important}
@@ -176,20 +205,23 @@ html,body{height:100%;margin:0;overflow:hidden;background:var(--ink);color:var(-
 
 <canvas id="view"></canvas>
 <div id="vignette"></div>
+<div id="whiteout"></div>
 
 <div id="loader">
-  <div class="logo"><b>IRON<span>METAL</span></b><i>WASTELAND WARS</i><div class="load"><i></i></div></div>
+  <div><div class="logo"><canvas class="fire" id="loaderFire" width="160" height="60"></canvas><b>IRON<span>METAL</span></b><i>WASTELAND WARS</i></div><div class="load"><i></i></div></div>
 </div>
 <div id="rotate"><div><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#e0682c" stroke-width="1.6"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M3 8a9 9 0 0 1 4-4M21 16a9 9 0 0 1-4 4"/></svg><b>Turn your phone</b><p>IronMetal is played in landscape.</p></div></div>
 
 <!-- MENU / GARAGE / UPGRADES share the car panel -->
 <div id="menu" class="screen" hidden>
   <div class="topbar">
-    <div class="logo"><b>IRON<span>METAL</span></b><i>WASTELAND WARS</i></div>
+    <div class="logo"><canvas class="fire" id="logoFire" width="160" height="60"></canvas><b>IRON<span>METAL</span></b><i>WASTELAND WARS</i></div>
     <div class="chips">
       <div class="chip plate" title="Scrap points"><svg viewBox="0 0 24 24" fill="none" stroke="#f0b429" stroke-width="2"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg><span id="points" class="num">0</span></div>
+      <button class="btn iconbtn" id="btnContracts" aria-label="Daily contracts" style="position:relative"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h9l4 4v14H6z"/><path d="M9 12l2 2 4-4"/></svg><span class="badge" id="cBadge" hidden>0</span></button>
       <button class="btn iconbtn" id="btnHistory" aria-label="Battle history"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 3"/></svg></button>
-      <button class="btn iconbtn" id="btnSound" aria-label="Sound"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9h4l5-4v14l-5-4H4z"/><path id="snd" d="M16 9a4 4 0 0 1 0 6M19 6a8 8 0 0 1 0 12"/></svg></button>
+      <button class="btn iconbtn" id="btnMusic" aria-label="Music"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/><path id="mus" d="M3 3l18 18" style="display:none"/></svg></button>
+      <button class="btn iconbtn" id="btnSound" aria-label="Sound effects"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9h4l5-4v14l-5-4H4z"/><path id="snd" d="M16 9a4 4 0 0 1 0 6M19 6a8 8 0 0 1 0 12"/></svg></button>
     </div>
   </div>
 
@@ -232,10 +264,11 @@ html,body{height:100%;margin:0;overflow:hidden;background:var(--ink);color:var(-
 <!-- battle setup -->
 <div id="setup" class="screen" hidden>
   <div class="sheet"><div class="plate">
-    <div class="row"><div><div class="eyebrow">Iron Cup qualifier</div><h3>Choose your arena</h3></div><button class="btn ghost" id="sBack">Back</button></div>
+    <div class="row"><div><div class="eyebrow">Iron Cup qualifier</div><h3>Choose your battle</h3></div><button class="btn ghost" id="sBack">Back</button></div>
+    <div class="modes" id="modeSeg"></div>
     <div class="maps" id="mapList"></div>
     <div class="row">
-      <div><div class="eyebrow" style="margin-bottom:6px">Difficulty</div><div class="seg" id="diffSeg"></div></div>
+      <div id="diffBox"><div class="eyebrow" style="margin-bottom:6px">Difficulty</div><div class="seg" id="diffSeg"></div></div><div id="bestBox" hidden><div class="eyebrow">Your best</div><div style="font:800 28px var(--ui)" id="bestWave">Wave 0</div></div>
       <button class="btn primary play" id="sFight">Fight<small id="sReward">Win: 100 pts</small></button>
     </div>
   </div></div>
@@ -247,6 +280,14 @@ html,body{height:100%;margin:0;overflow:hidden;background:var(--ink);color:var(-
     <div class="row"><div><div class="eyebrow">Service record</div><h3>Battle history</h3></div><button class="btn ghost" id="hBack">Close</button></div>
     <div class="totals" id="hTotals"></div>
     <div id="hList"></div>
+  </div></div>
+</div>
+
+<!-- contracts -->
+<div id="contracts" class="screen" hidden>
+  <div class="sheet"><div class="plate" style="width:min(560px,100%)">
+    <div class="row"><div><div class="eyebrow" id="cDay">Resets at midnight</div><h3>Daily contracts</h3></div><button class="btn ghost" id="cBack">Close</button></div>
+    <div id="cList"></div>
   </div></div>
 </div>
 
@@ -264,6 +305,7 @@ html,body{height:100%;margin:0;overflow:hidden;background:var(--ink);color:var(-
   </div>
   <div class="keys" id="keys">W A S D drive · Space fire · F rocket · E special · Esc pause</div>
   <div id="ehps"></div>
+  <div id="announce"></div>
   <div id="toast"></div>
   <div id="big"></div>
 </div>
@@ -282,6 +324,7 @@ html,body{height:100%;margin:0;overflow:hidden;background:var(--ink);color:var(-
     <div class="eyebrow" id="rMap">Scrapyard · Rookie</div>
     <h3 id="rTitle">Victory</h3>
     <div class="reslines" id="rLines"></div>
+    <div id="rContracts"></div>
     <div class="row"><button class="btn" id="rGarage">Garage</button><button class="btn primary" id="rAgain">Fight again</button></div>
   </div></div>
 </div>
