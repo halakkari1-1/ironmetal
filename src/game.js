@@ -1029,14 +1029,27 @@ export class Game {
 
   // ---------- camera ----------
   snapCamera() { this.updateCamera(1, true); }
+  setCamMode(m) { this.camMode = m; this.camModeT = 0.4; }
   updateCamera(dt, snap = false) {
     const p = this.player, fx = Math.sin(p.heading), fz = Math.cos(p.heading);
-    const back = this.camera.aspect < 1 ? 17 : 13, up = this.camera.aspect < 1 ? 11 : 7.5;
-    const speedPull = clamp(Math.abs(p.speed) / 40, 0, 1) * 2.5;
-    const want = new THREE.Vector3(p.x - fx * (back + speedPull), up + speedPull * 0.3, p.z - fz * (back + speedPull));
-    const look = new THREE.Vector3(p.x + fx * 6, 1.5, p.z + fz * 6);
-    const k = snap ? 1 : 1 - Math.exp(-dt * 4.5);
-    this.camPos.lerp(want, k); this.camLook.lerp(look, snap ? 1 : 1 - Math.exp(-dt * 7));
+    // camera modes: 'near' chase (default), 'far' chase (wide view), 'hood' (on the bonnet, looking ahead)
+    const dm = p.mesh.userData.dims || { L: 5.2, H: 2.2 }, size = Math.max(1, dm.L / 5.2), portrait = this.camera.aspect < 1;
+    let mode = this.camMode || 'near'; if (mode === 'hood' && !p.alive) mode = 'near';
+    const speedPull = clamp(Math.abs(p.speed) / 40, 0, 1) * (mode === 'far' ? 2.5 : 1.5);
+    let want, look, k;
+    if (mode === 'hood') {
+      const h = dm.H * 0.95 + 0.3, f = dm.L * 0.02; // just over the roof: the front of the car stays in view
+      want = new THREE.Vector3(p.x + fx * f, h, p.z + fz * f);
+      look = new THREE.Vector3(p.x + fx * 30, h - 2.6, p.z + fz * 30);
+      k = snap ? 1 : 1 - Math.exp(-dt * 30); // locked to the car
+    } else {
+      const back = (mode === 'far' ? (portrait ? 17 : 13) : (portrait ? 12 : 8.5)) * size, up = (mode === 'far' ? (portrait ? 11 : 7.5) : (portrait ? 7.5 : 4.6)) * Math.sqrt(size);
+      want = new THREE.Vector3(p.x - fx * (back + speedPull), up + speedPull * 0.3, p.z - fz * (back + speedPull));
+      look = new THREE.Vector3(p.x + fx * (mode === 'far' ? 6 : 8), mode === 'far' ? 1.5 : 1.8, p.z + fz * (mode === 'far' ? 6 : 8));
+      k = snap ? 1 : 1 - Math.exp(-dt * (mode === 'far' ? 4.5 : 6));
+    }
+    if (this.camModeT > 0) { this.camModeT -= dt; k = Math.max(k, 0.25); } // quick glide when switching
+    this.camPos.lerp(want, k); this.camLook.lerp(look, snap || mode === 'hood' ? Math.max(k, 1 - Math.exp(-dt * 20)) : 1 - Math.exp(-dt * 7));
     this.camera.position.copy(this.camPos);
     if (this.shake > 0) {
       const s = this.shake * this.shake * 1.2;

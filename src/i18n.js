@@ -58,7 +58,8 @@ const AR = {
   // HUD
   'FIRE': 'نار', 'RKT': 'صاروخ', 'SPEC': 'قدرة', 'KILL': 'قتلة', 'KILLS': 'قتلات', 'enemy left': 'عدو باقي', 'enemies left': 'أعداء باقيين',
   'wave · hostiles': 'موجة · أعداء', 'You': 'إنت', 'you': 'إنت', '{k} wrecked {v}': '{k} حطّم {v}', '{v} crashed out': '{v} تحطم لحالو',
-  'W A S D drive · Space fire · F rocket · E special · Esc pause': 'W A S D سواقة · Space نار · F صاروخ · E قدرة · Esc إيقاف',
+  'W A S D drive · Space fire · F rocket · E special · C camera · Esc pause': 'W A S D سواقة · Space نار · F صاروخ · E قدرة · C كاميرا · Esc إيقاف',
+  'Camera: near': 'الكاميرا: قريبة', 'Camera: far': 'الكاميرا: بعيدة', 'Camera: hood': 'الكاميرا: بوز السيارة', 'NEAR': 'قريب', 'FAR': 'بعيد', 'HOOD': 'بوز', 'Camera': 'الكاميرا',
   'F fires the {p} ({n})': 'F بيطلق {p} ({n})', 'Lives': 'الأرواح',
   'BACK IN THE FIGHT': 'رجعت عالمعركة', 'Last life': 'آخر روح', '{n} lives left': 'باقيلك {n} أرواح',
   'YOU TAKE THE CROWN': 'التاج إلك', 'NEW LEADER': 'متصدر جديد', 'Every car is hunting you now': 'كل السيارات عم تلاحقك هلأ', '{car} has the most kills': '{car} معو أكتر قتلات',

@@ -406,7 +406,7 @@ const hud = {
     const rb = $('bRocket');
     if (p.power) { rb.classList.add('power'); rb.firstChild.textContent = t(POWERS[p.power.type].short); $('hRockets').textContent = p.power.ammo; }
     else { rb.classList.remove('power'); rb.firstChild.textContent = t('RKT'); $('hRockets').textContent = p.rockets; }
-    if (!isTouch) $('keys').textContent = p.power ? t('F fires the {p} ({n})', { p: t(POWERS[p.power.type].name), n: p.power.ammo }) : t('W A S D drive · Space fire · F rocket · E special · Esc pause');
+    if (!isTouch) $('keys').textContent = p.power ? t('F fires the {p} ({n})', { p: t(POWERS[p.power.type].name), n: p.power.ammo }) : t('W A S D drive · Space fire · F rocket · E special · C camera · Esc pause');
     // special cooldown ring
     // ability button: blue ring = active (time left), orange = recharging (seconds shown), green = ready, dim = can't use now
     const sp = p.data.special, active = !!p.specialOn, blocked = !p.alive || p.skidT > 0 || g.state !== 'fight';
@@ -486,6 +486,8 @@ async function startMatch(cfg) {
   game = new Game(renderer, hud);
   game.resize(window.innerWidth, window.innerHeight);
   game.start(cfg);
+  game.camMode = save.get().camera || 'near';
+  game.snapCamera(); updateCamBtn();
   sfx.music.start(0.16, 'game');
   game.resize(window.innerWidth, window.innerHeight);
   mode = 'game';
@@ -532,6 +534,7 @@ addEventListener('keydown', (e) => {
     if (e.code === 'Escape' || e.code === 'KeyP') { pause(); return; }
     if (!e.repeat && e.code === 'KeyF') game.playerRocket();
     if (!e.repeat && e.code === 'KeyE') game.playerSpecial();
+    if (!e.repeat && e.code === 'KeyC') cycleCamera();
     input.keys.add(e.code);
     if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
   } else if (mode === 'paused' && (e.code === 'Escape' || e.code === 'KeyP')) resume();
@@ -600,6 +603,15 @@ on('btnSound', () => { const st = save.get(); st.sound = !st.sound; save.write()
 on('sBack', () => { sfx.click(); show('menu'); });
 on('sFight', () => { sfx.confirm(); const car = save.selectedCar(); startMatch({ car, upgrades: save.upgrades(car.id), map: setupMap, diff: setupDiff, mode: setupMode }); });
 on('pausebtn', () => pause());
+// camera button: near chase -> far chase -> hood, remembered between matches
+const CAMS = ['near', 'far', 'hood'];
+function cycleCamera() {
+  const st = save.get(), next = CAMS[(CAMS.indexOf(st.camera || 'near') + 1) % CAMS.length];
+  st.camera = next; save.write(); if (game) game.setCamMode(next); updateCamBtn(); sfx.click();
+  hud.toast(t({ near: 'Camera: near', far: 'Camera: far', hood: 'Camera: hood' }[next]));
+}
+function updateCamBtn() { const m = save.get().camera || 'near'; $('cambtn').dataset.mode = m; $('camLbl').textContent = t({ near: 'NEAR', far: 'FAR', hood: 'HOOD' }[m]); }
+$('cambtn').addEventListener('pointerdown', (e) => { e.stopPropagation(); cycleCamera(); });
 function toastMenu(msg) { const el = $('menuToast'); el.textContent = msg; el.classList.remove('go'); void el.offsetWidth; el.classList.add('go'); }
 on('pResume', () => resume());
 on('pQuit', () => {

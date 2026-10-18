@@ -198,12 +198,14 @@ html.ar .chip{padding:5px 6px 5px 16px}html.ar .chip .lbl{letter-spacing:0;font-
 @keyframes fade{0%,80%{opacity:1}100%{opacity:0}}
 #mini{position:absolute;top:max(12px,env(safe-area-inset-top,0px));right:max(68px,calc(env(safe-area-inset-right,0px) + 56px));width:118px;height:118px;border:1px solid var(--glass-line);background:rgba(10,9,7,.45);border-radius:12px;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
 #pausebtn{position:absolute;top:max(12px,env(safe-area-inset-top,0px));right:max(16px,env(safe-area-inset-right,0px))}
+#cambtn{position:absolute;top:calc(max(12px,env(safe-area-inset-top,0px)) + 54px);right:max(16px,env(safe-area-inset-right,0px));flex-direction:column;gap:0;width:44px;height:50px;border-radius:12px}
+#cambtn svg{width:18px;height:18px}#cambtn span{font:800 9px var(--ui);letter-spacing:.06em;margin-top:2px}html.ar #cambtn span{font-size:10px;letter-spacing:0}
 #stick{position:absolute;left:0;bottom:0;width:48%;height:70%}
 #stickbase{position:absolute;width:130px;height:130px;border-radius:50%;border:2px solid rgba(236,229,214,.35);background:rgba(10,9,7,.3);transform:translate(-50%,-50%);display:none}
 #stickknob{position:absolute;width:56px;height:56px;border-radius:50%;background:rgba(236,229,214,.85);left:50%;top:50%;transform:translate(-50%,-50%)}
 .fire,#hud .fire.live{position:absolute;inset:0;pointer-events:none}
 .fire .fbtn,#hud .fire .fbtn{pointer-events:auto;transform:translate(-50%,-50%)}
-#hud #pausebtn{z-index:3}
+#hud #pausebtn,#hud #cambtn{z-index:3}
 .fbtn{position:absolute;border-radius:50%;display:grid;place-items:center;font:800 13px var(--ui);letter-spacing:.12em;color:var(--fg);border:2px solid rgba(236,229,214,.35);background:rgba(20,18,14,.4);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);box-shadow:inset 0 1px 0 rgba(255,240,215,.12);touch-action:none;cursor:pointer}
 .fbtn.on{background:rgba(224,104,44,.55);border-color:var(--rust)}
 #bGun,#eGun{border-color:var(--rust)}
@@ -282,7 +284,7 @@ html.ar .chip{padding:5px 6px 5px 16px}html.ar .chip .lbl{letter-spacing:0;font-
 @media (max-width:720px){.totals{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (min-width:1180px) and (min-height:740px){#menu,#setup,#history,#contracts,#settings,#results,#pause{zoom:1.18}#hud .hp,#hud .center,#mini,#pausebtn{zoom:1.2}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
-#hud .plate,#hud .fbtn,#hud #mini,#hud .btn{-webkit-backdrop-filter:none;backdrop-filter:none}#hud .plate{background:rgba(20,18,14,.55)}
+#hud .plate,#hud .fbtn,#hud #mini,#hud .btn,#hud #cambtn{-webkit-backdrop-filter:none;backdrop-filter:none}#hud .plate{background:rgba(20,18,14,.55)}
 [hidden]{display:none!important}
 </style>
 
@@ -408,6 +410,7 @@ html.ar .chip{padding:5px 6px 5px 16px}html.ar .chip .lbl{letter-spacing:0;font-
   <div class="hp"><div class="name"><span id="hName">Car</span><span id="hHp" class="num">100</span></div><div class="hpbar"><i id="hBar"></i></div><div class="kills" id="hKills">0 KILLS</div><span id="hLives"></span><div id="hTimer" class="num" hidden>5:00</div></div>
   <div class="center"><div class="enemies plate num" id="hEnemies">3<small>enemies left</small></div><div id="feed"></div></div>
   <canvas id="mini" width="236" height="236"></canvas>
+  <button class="btn iconbtn live" id="cambtn" data-t-aria aria-label="Camera"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8h3l2-3h8l2 3h3v11H3z"/><circle cx="12" cy="13" r="3.5"/></svg><span id="camLbl">NEAR</span></button>
   <button class="btn iconbtn live" id="pausebtn" data-t-aria aria-label="Pause"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14"/><rect x="14" y="5" width="4" height="14"/></svg></button>
   <div id="stick" class="live"><div id="stickbase"><div id="stickknob"></div></div></div>
   <div class="fire live" id="fireBtns">
@@ -415,7 +418,7 @@ html.ar .chip{padding:5px 6px 5px 16px}html.ar .chip .lbl{letter-spacing:0;font-
     <div class="fbtn" id="bRocket">RKT<em id="hRockets">6</em></div>
     <div class="fbtn" id="bSpecial" data-state="ready"><canvas class="cd" id="cdRing" width="160" height="160"></canvas><span class="abl"><i id="hSpecialIc"></i><span id="hSpecialLbl">SPEC</span></span><b id="hSpecialCd" class="num"></b></div>
   </div>
-  <div class="keys" id="keys">W A S D drive · Space fire · F rocket · E special · Esc pause</div>
+  <div class="keys" id="keys">W A S D drive · Space fire · F rocket · E special · C camera · Esc pause</div>
   <div id="ehps"></div>
   <div id="announce"></div>
   <div id="toast"></div>
