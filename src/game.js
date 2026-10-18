@@ -304,12 +304,12 @@ export class Game {
     if (ram) c.speed = Math.min(maxS, c.speed + acc * 4 * dt);
     else if (c.throttle > 0.05) c.speed += acc * c.throttle * dt * (c.speed < 0 ? 2 : 1);
     else if (c.throttle < -0.05) c.speed += acc * c.throttle * dt * (c.speed > 0 ? 1.8 : 0.7);
-    else c.speed -= c.speed * Math.min(1, 1.4 * dt);
+    else c.speed -= c.speed * Math.min(1, 2.2 * dt); // lets go of the stick: the car settles quickly
     c.speed = clamp(c.speed, -s.maxSpeed * 0.45, maxS);
     if (!ram && c.speed > s.maxSpeed * (nitro ? 1.75 : 1)) c.speed -= (c.speed - s.maxSpeed) * 2 * dt;
     // steering eases in and out instead of snapping, which keeps the car stable on a touch stick
-    c.steerS = (c.steerS || 0) + (c.steer - (c.steerS || 0)) * Math.min(1, dt * (c.isPlayer ? 9 : 12));
-    const turnScale = clamp(c.speed / 6, -1, 1) * (1 - 0.25 * clamp(Math.abs(c.speed) / maxS, 0, 1));
+    c.steerS = (c.steerS || 0) + (c.steer - (c.steerS || 0)) * Math.min(1, dt * (c.isPlayer ? 20 : 12));
+    const turnScale = clamp(c.speed / 4, -1, 1) * (1 - 0.25 * clamp(Math.abs(c.speed) / maxS, 0, 1));
     c.heading = wrap(c.heading + c.steerS * s.turn * 1.15 * turnScale * dt);
     const fx = Math.sin(c.heading), fz = Math.cos(c.heading);
     c.x += (fx * c.speed + c.kx) * dt; c.z += (fz * c.speed + c.kz) * dt;

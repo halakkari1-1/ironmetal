@@ -239,11 +239,11 @@ $('modeSeg').addEventListener('click', (e) => { const b = e.target.closest('[dat
 $('mapList').addEventListener('click', (e) => { const b = e.target.closest('[data-map]'); if (!b) return; setupMap = MAPS.find((m) => m.id === b.dataset.map); sfx.click(); renderSetup(); });
 $('diffSeg').addEventListener('click', (e) => { const b = e.target.closest('[data-diff]'); if (!b) return; setupDiff = DIFFICULTY.find((d) => d.id === b.dataset.diff); sfx.click(); renderSetup(); });
 
-const SCHEMES = [['direction', 'Direction', 'Point the stick where you want to go'], ['classic', 'Classic', 'Up to drive, left and right to steer'], ['autogas', 'Auto gas', 'The car drives itself; you only steer']];
+const SCHEMES = [['classic', 'Classic', 'Up to drive, down to reverse, left and right to steer'], ['direction', 'Direction', 'Point the stick where you want to go'], ['autogas', 'Auto gas', 'The car drives itself; you only steer']];
 function renderSettings() {
   const st = save.get();
-  $('steerSeg').innerHTML = SCHEMES.map(([id, l]) => `<button data-steer="${id}" aria-pressed="${(st.scheme || 'direction') === id}">${t(l)}</button>`).join('');
-  $('steerNote').textContent = t(SCHEMES.find((x) => x[0] === (st.scheme || 'direction'))[2]);
+  $('steerSeg').innerHTML = SCHEMES.map(([id, l]) => `<button data-steer="${id}" aria-pressed="${(st.scheme || 'classic') === id}">${t(l)}</button>`).join('');
+  $('steerNote').textContent = t(SCHEMES.find((x) => x[0] === (st.scheme || 'classic'))[2]);
   $('volMaster').value = Math.round(st.volume.master * 100); $('volMusic').value = Math.round(st.volume.music * 100); $('volSfx').value = Math.round(st.volume.sfx * 100);
   $('gfxSeg').innerHTML = [['auto', 'Auto'], ['high', 'High'], ['medium', 'Medium'], ['low', 'Low']].map(([id, l]) => `<button data-gfx="${id}" aria-pressed="${st.graphics === id}">${t(l)}</button>`).join('');
   $('ctlSeg').innerHTML = [[0.85, 'Small'], [1, 'Normal'], [1.2, 'Large']].map(([v, l]) => `<button data-ctl="${v}" aria-pressed="${+st.controls === v}">${t(l)}</button>`).join('');
@@ -474,7 +474,7 @@ const input = {
     const k = this.keys;
     let th = (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0);
     let st = (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0) - (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0);
-    const scheme = save.get().scheme || 'direction', p = game.player;
+    const scheme = save.get().scheme || 'classic', p = game.player;
     if (this.stickId !== null) {
       const mag = Math.min(1, Math.hypot(this.jx, this.jy));
       if (scheme === 'direction') { // point where you want to go; the car turns there by itself
@@ -486,7 +486,7 @@ const input = {
           if (Math.abs(diff) > 2.6 && Math.abs(p.speed) < 3) { th = -0.8 * mag; st = -st; } // target right behind: back up and swing round
         }
       } else if (scheme === 'autogas') { st = -this.jx; th = this.jy > 0.55 ? -1 : 1; }
-      else { th = -this.jy; st = -this.jx; }
+      else { th = Math.abs(this.jy) < 0.2 ? 0 : -this.jy; st = -Math.sign(this.jx) * Math.min(1, Math.abs(this.jx) * 1.5); } // classic: up drives, down reverses, sideways turns
     } else if (scheme === 'autogas' && isTouch && game.state === 'fight') { th = 1; st = 0; }
     game.setInput(th, st, this.gun || k.has('Space'));
   },

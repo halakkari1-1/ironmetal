@@ -1,12 +1,30 @@
-// All game audio is synthesized with the Web Audio API: sound effects and a procedural metal soundtrack.
-// The game ships with no audio files.
+// Sound effects and the in-match metal riff are synthesized with the Web Audio API.
+// The lobby plays a recorded track (assets/music/lobby.mp3) on a plain <audio> element: it decodes on the
+// browser's media thread, so a busy frame never makes it stutter.
 
 let ctx = null, master = null, sfxBus = null, musicBus = null, reverb = null, noiseBuf = null;
 let sfxOn = true, musicOn = true;
 let vol = { master: 0.8, music: 0.6, sfx: 0.9 };
 // Optional recorded track for the lobby: drop an MP3 at assets/music/lobby.mp3 and it replaces the synthesized riff there.
 const TRACK_URL = new URL('../assets/music/lobby.mp3', import.meta.url).href;
-let track = null, trackGain = null, trackReady = false;
+let trackReady = false, trackFade = null;
+const track = (() => { try { const a = new Audio(); a.loop = true; a.preload = 'auto'; a.src = TRACK_URL; return a; } catch (e) { return null; } })();
+if (track) {
+  track.addEventListener('canplaythrough', () => { trackReady = true; if (music.playing && music.where === 'lobby') music.start(music.level, 'lobby'); }, { once: true });
+  track.addEventListener('error', () => { trackReady = false; });
+}
+const trackTarget = () => (musicOn ? Math.min(1, vol.master * vol.music * music.level * 1.9) : 0);
+// Fades the element's own volume; pauses it once silent so it costs nothing in matches.
+function fadeTrack(to, ms = 600) {
+  if (!track) return;
+  clearInterval(trackFade);
+  if (to > 0 && track.paused) { track.volume = 0; track.play().catch(() => {}); }
+  const from = track.volume, t0 = performance.now();
+  trackFade = setInterval(() => {
+    const k = Math.min(1, (performance.now() - t0) / ms); track.volume = Math.max(0, Math.min(1, from + (to - from) * k));
+    if (k >= 1) { clearInterval(trackFade); if (to === 0) track.pause(); }
+  }, 40);
+}
 let engine = null;
 
 function makeCurve(k) {
@@ -35,13 +53,6 @@ function init() {
   reverb = ctx.createConvolver(); reverb.buffer = ir;
   const wet = ctx.createGain(); wet.gain.value = 0.22; reverb.connect(wet); wet.connect(master);
   CURVE = makeCurve(420);
-  try {
-    track = new Audio(); track.loop = true; track.preload = 'auto'; track.src = TRACK_URL;
-    track.addEventListener('canplaythrough', () => { trackReady = true; if (music.playing && music.where === 'lobby') music.start(music.level, 'lobby'); }, { once: true });
-    track.addEventListener('error', () => { trackReady = false; });
-    trackGain = ctx.createGain(); trackGain.gain.value = 0;
-    ctx.createMediaElementSource(track).connect(trackGain); trackGain.connect(musicBus);
-  } catch (e) { track = null; }
 }
 const musicTarget = (level) => (musicOn ? level * vol.music * 1.4 : 0);
 
@@ -164,17 +175,14 @@ const music = {
     musicBus.gain.setTargetAtTime(musicTarget(level), ctx.currentTime, 0.4);
     const useTrack = where === 'lobby' && trackReady && track;
     this.synth = !useTrack;
-    if (track) {
-      if (useTrack) { trackGain.gain.setTargetAtTime(1, ctx.currentTime, 0.5); if (track.paused) track.play().catch(() => {}); }
-      else { trackGain.gain.setTargetAtTime(0, ctx.currentTime, 0.3); setTimeout(() => { if (!this.playing || this.synth) track.pause(); }, 1200); }
-    }
+    fadeTrack(useTrack ? trackTarget() : 0, useTrack ? 900 : 400);
     if (this.playing) return;
     this.playing = true; this.next = ctx.currentTime + 0.1; this.step = 0; this.bar = 0;
     this.timer = setInterval(() => this.schedule(), 50);
   },
   stop(fade = 0.6) {
     if (!ctx || !this.playing) return;
-    musicBus.gain.setTargetAtTime(0, ctx.currentTime, fade / 3);
+    musicBus.gain.setTargetAtTime(0, ctx.currentTime, fade / 3); fadeTrack(0, fade * 1000);
     setTimeout(() => { if (musicBus.gain.value < 0.02) { clearInterval(this.timer); this.playing = false; } }, fade * 1000 + 200);
   },
   schedule() {
@@ -219,9 +227,10 @@ function boomSlot() { const n = ctx.currentTime; boomTimes = boomTimes.filter((t
 export const sfx = {
   unlock() { init(); if (ctx && ctx.state !== 'running') ctx.resume().catch(() => {}); },
   setEnabled(v) { sfxOn = v; if (sfxBus) sfxBus.gain.value = v ? 0.85 * vol.sfx : 0; },
-  setMusic(v) { musicOn = v; if (musicBus && music.playing) musicBus.gain.setTargetAtTime(musicTarget(music.level), ctx.currentTime, 0.2); },
+  setMusic(v) { musicOn = v; if (musicBus && music.playing) musicBus.gain.setTargetAtTime(musicTarget(music.level), ctx.currentTime, 0.2); if (music.playing && !music.synth) fadeTrack(trackTarget(), 300); },
   setVolumes(v) {
     vol = { ...vol, ...v };
+    if (track && music.playing && !music.synth) { clearInterval(trackFade); track.volume = trackTarget(); }
     if (!ctx) return;
     master.gain.setTargetAtTime(vol.master, ctx.currentTime, 0.05);
     sfxBus.gain.setTargetAtTime(sfxOn ? 0.85 * vol.sfx : 0, ctx.currentTime, 0.05);
@@ -298,7 +307,7 @@ export const sfx = {
 };
 
 document.addEventListener('visibilitychange', () => {
-  if (!ctx) return;
-  if (document.hidden) { if (track && !track.paused) track.pause(); }
-  else { if (ctx.state !== 'running') ctx.resume().catch(() => {}); if (track && music.playing && !music.synth) track.play().catch(() => {}); }
+  if (document.hidden) { if (track && !track.paused) track.pause(); return; }
+  if (ctx && ctx.state !== 'running') ctx.resume().catch(() => {});
+  if (track && music.playing && !music.synth) { track.volume = trackTarget(); track.play().catch(() => {}); }
 });

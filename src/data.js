@@ -93,8 +93,8 @@ export function carStats(car, up = {}) {
   const s = car.stats;
   const m = (k) => 1 + 0.12 * (up[k] || 0);
   return {
-    maxSpeed: (15 + s.speed * 1.6) * (1 + 0.06 * (up.speed || 0)),
-    accel: (14 + s.speed * 1.4) * m('speed'),
+    maxSpeed: (12.5 + s.speed * 1.35) * (1 + 0.06 * (up.speed || 0)), // a little slower than before, easier to aim
+    accel: (20 + s.speed * 1.6) * m('speed'), // but quicker off the line
     turn: 2.2 + s.speed * 0.06,
     hp: Math.round((70 + s.armor * 15) * m('armor')),
     gunDmg: (1.1 + s.gun * 0.2) * m('gun'),

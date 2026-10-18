@@ -45,7 +45,7 @@ const AR = {
   'Win a match on {map}': 'اربح معركة بـ{map}', 'Win on Veteran or Warlord': 'اربح على محترف أو أمير حرب', 'Reach wave {n} in Survival': 'وصال للموجة {n} بالبقاء',
   // settings
   'Steering': 'التوجيه', 'Direction': 'اتجاهي', 'Classic': 'كلاسيكي', 'Auto gas': 'بنزين تلقائي',
-  'Point the stick where you want to go': 'وجّه العصا للمكان يلي بدك تروح عليه', 'Up to drive, left and right to steer': 'لفوق لتمشي، يمين ويسار لتلف', 'The car drives itself; you only steer': 'السيارة بتمشي لحالها وإنت بس بتلف',
+  'Point the stick where you want to go': 'وجّه العصا للمكان يلي بدك تروح عليه', 'Up to drive, down to reverse, left and right to steer': 'لفوق لتمشي، لتحت لترجع، يمين ويسار لتلف', 'The car drives itself; you only steer': 'السيارة بتمشي لحالها وإنت بس بتلف',
   'Button layout': 'ترتيب الأزرار', 'Move and resize the touch buttons': 'حرّك أزرار اللمس وغيّر حجمها', 'Edit': 'تعديل',
   'Volume': 'الصوت', 'Master': 'العام', 'Effects': 'المؤثرات', 'Graphics': 'الرسوميات', 'Auto': 'تلقائي', 'High': 'عالي', 'Medium': 'متوسط', 'Low': 'منخفض',
   'Auto: now {q}, adjusts to keep the game smooth': 'تلقائي: هلأ {q}، وبيتعدل ليضل اللعب ناعم', 'Fixed quality': 'جودة ثابتة',
