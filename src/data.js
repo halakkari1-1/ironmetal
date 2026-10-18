@@ -1,78 +1,113 @@
-// Static game data: cars, drivers, specials, maps, difficulty and economy.
+// Static game data: vehicles and their abilities, maps, difficulty and economy.
 
 export const LORE =
   'Twenty years after the oil ran dry, the old refineries became arenas. ' +
   'Every season the wasteland clans send their machines to the Iron Cup. ' +
   'Win, and you eat. Lose, and the scrappers strip what is left of you.';
 
-// stats are 1..10 and map to real values in carStats()
+// The nine official vehicles. Everything the game needs about a car lives in its entry, so a new car
+// is a new entry plus a model file in assets/models/<id>.js.
+// stats are 1..10 and map to real values in carStats(); handling is turning response.
+// model: length is the in-game length in metres; muzzles/rocket are points in the model's normalized box
+//   (x: -1 left .. 1 right, y: 0 ground .. 1 roof, z: -1 rear .. 1 front).
+// special: the ability. duration in seconds, cooldown in seconds, radius in metres where it applies.
+// sound: engine timbre (base pitch Hz, waveform, grit 0..1), gun pitch, ability voice; files are optional
+//   recordings in assets/sfx/ that replace the synthesized sound when present.
 export const CARS = [
   {
-    id: 'rustbucket', name: 'Rustbucket', price: 0,
-    driver: 'Sami "Spanner" Haddad',
-    story: 'A mechanic who rebuilt his father\'s sedan from three wrecks and a prayer. ' +
-      'It rattles, it leaks, and it has never once failed to start.',
-    stats: { speed: 6, armor: 5, gun: 5, rocket: 4 },
-    special: { id: 'nitro', name: 'Nitro Burst', desc: 'Doubles top speed for 3 seconds.', cooldown: 9 },
+    id: 'ghost', name: 'WASTELAND GHOST', price: 0, cls: 'medium',
+    desc: 'Ghost of the wasteland. A practical, balanced survival machine that leans on its guns and a short smoke cover to slip out of bad fights.',
+    descAr: 'شبح الأراضي المقفرة. مركبة نجاة قتالية عملية ومتوازنة، تعتمد على أسلحتها الأساسية والتمويه المؤقت لتجاوز المواجهات الصعبة.',
+    strong: 'Balanced, flexible, easy to drive', weak: 'Not the best at speed, armor or damage',
+    stats: { speed: 6, armor: 6, gun: 5, rocket: 6, handling: 6 },
+    model: { length: 5.2, muzzles: [[0.05, 0.98, 0.15]], rocket: [0, 0.95, -0.1] },
+    special: { id: 'smoke', name: 'Smoke Screen', desc: 'Drops a smoke cloud: enemies lose track of you for 3.5 s and you get a burst of speed.', cooldown: 13, duration: 3.5, radius: 9 },
+    sound: { engine: { base: 46, wave: 'sawtooth', grit: 0.75 }, gun: 1, ability: 'smoke', files: { engine: null, ability: null } },
   },
   {
-    id: 'stinger', name: 'Dune Stinger', price: 900,
-    driver: 'Layla Qasim',
-    story: 'Raised by smugglers on the salt flats, Layla drives like the ground is on fire. ' +
-      'Her buggy weighs nothing and forgives nothing.',
-    stats: { speed: 9, armor: 3, gun: 5, rocket: 4 },
-    special: { id: 'ram', name: 'Ram Charge', desc: 'Lunges forward. Anything you hit takes heavy damage.', cooldown: 8 },
+    id: 'venom', name: 'QUEEN VENOM', price: 1500, cls: 'sports',
+    desc: 'Queen of speed and evasion. Lives on quick dashes and hit-and-run attacks, but takes less punishment than the heavy machines.',
+    descAr: 'ملكة السرعة والمراوغة. تعتمد على الاندفاع السريع والهجمات الخاطفة، لكنها أقل تحملاً للضرر من المركبات الثقيلة.',
+    strong: 'Speed and agility', weak: 'Low durability',
+    stats: { speed: 10, armor: 5, gun: 6, rocket: 5, handling: 9 },
+    model: { length: 4.7, muzzles: [[0.25, 0.95, 0.2], [-0.25, 0.95, 0.2]], rocket: [0, 0.95, -0.2] },
+    special: { id: 'dash', name: 'Venom Dash', desc: 'A 1.3 s burst at double speed that also halves incoming damage, to dodge or reposition.', cooldown: 6, duration: 1.3 },
+    sound: { engine: { base: 78, wave: 'square', grit: 0.25 }, gun: 1.25, ability: 'dash', files: { engine: null, ability: null } },
   },
   {
-    id: 'bulldog', name: 'Bulldog', price: 1800,
-    driver: 'Old Man Fares',
-    story: 'Fares towed wrecks off the highway for forty years. ' +
-      'Now he builds them. The crane on his back has lifted heavier things than your car.',
-    stats: { speed: 4, armor: 8, gun: 5, rocket: 5 },
-    special: { id: 'shockwave', name: 'Shockwave', desc: 'Slams the ground, throwing nearby cars back and hurting them.', cooldown: 11 },
+    id: 'toxic', name: 'TOXIC VIPER', price: 2000, cls: 'sports',
+    desc: 'The poisoned viper. Controls space with short-lived toxic zones that wear down anyone who stays inside.',
+    descAr: 'الأفعى السامة. تتحكم بمساحة المعركة عبر مناطق سامة مؤقتة تضعف الخصوم الذين يبقون داخلها.',
+    strong: 'Area control, forces enemies to move', weak: 'Damage over time can be escaped',
+    stats: { speed: 8, armor: 6, gun: 6, rocket: 5, handling: 8 },
+    model: { length: 4.8, muzzles: [[0.3, 0.95, 0.1], [-0.3, 0.95, 0.1]], rocket: [0, 0.95, -0.2] },
+    special: { id: 'toxic', name: 'Toxic Cloud', desc: 'Throws a toxic cloud 9 m ahead: 9 m wide, burns 14 HP per second for 6 s.', cooldown: 9, duration: 6, radius: 9 },
+    sound: { engine: { base: 70, wave: 'square', grit: 0.4 }, gun: 1.15, ability: 'toxic', files: { engine: null, ability: null } },
   },
   {
-    id: 'hellfire', name: 'Hellfire', price: 3000,
-    driver: 'Nadia "Torch" Saleh',
-    story: 'She lost her garage to a raider fire and kept the flamethrower that started it. ' +
-      'Nobody in the arena wants to be close to her bumper.',
-    stats: { speed: 7, armor: 5, gun: 6, rocket: 5 },
-    special: { id: 'flame', name: 'Flamethrower', desc: 'Sprays fire ahead for 3 seconds, burning everything in the cone.', cooldown: 12 },
+    id: 'megalodon', name: 'MEGALODON', price: 2500, cls: 'medium',
+    desc: 'The sea predator. Rams and surges to throw enemies off balance, sending them skidding out of control.',
+    descAr: 'المفترس البحري. يستخدم هجمات الصدم والاندفاع لإرباك الخصوم ودفعهم إلى الانزلاق وفقدان السيطرة مؤقتاً.',
+    strong: 'Surge and disruption', weak: 'Must get close; weak at long range',
+    stats: { speed: 7, armor: 6, gun: 6, rocket: 5, handling: 7 },
+    model: { length: 5.3, muzzles: [[0.2, 0.92, 0.25], [-0.2, 0.92, 0.25]], rocket: [0, 0.9, -0.2] },
+    special: { id: 'riptide', name: 'Riptide', desc: 'A surge forward that blasts a wave ahead (14 m cone): pushes cars away and makes them skid for 1.5 s.', cooldown: 8, duration: 1.5, radius: 14 },
+    sound: { engine: { base: 58, wave: 'sawtooth', grit: 0.35 }, gun: 1.05, ability: 'riptide', files: { engine: null, ability: null } },
   },
   {
-    id: 'maiden', name: 'Iron Maiden', price: 4500,
-    driver: 'Brother Yusuf',
-    story: 'A former convoy guard who armored an aid van until it stopped looking like one. ' +
-      'He prays before every match and reloads during the prayer.',
-    stats: { speed: 4, armor: 10, gun: 6, rocket: 5 },
-    special: { id: 'shield', name: 'Iron Shield', desc: 'Blocks all damage for 4 seconds.', cooldown: 14 },
+    id: 'siren', name: 'BLUE SIREN', price: 3000, cls: 'armored',
+    desc: 'Field control unit. Electric pulses jam enemy guns and slow them down for a moment.',
+    descAr: 'وحدة السيطرة الميدانية. تستخدم النبضات الكهربائية لتعطيل الخصوم وإبطاء حركتهم مؤقتاً.',
+    strong: 'Disables enemies, solid armor', weak: 'Slower and less agile than sports cars',
+    stats: { speed: 6, armor: 7, gun: 6, rocket: 6, handling: 6 },
+    model: { length: 5.4, muzzles: [[0.3, 0.97, 0.1], [-0.3, 0.97, 0.1]], rocket: [0, 0.97, -0.25] },
+    special: { id: 'pulse', name: 'Shock Pulse', desc: 'Electric pulse, 16 m around you: enemies are slowed 50% and their guns jam for 2.5 s.', cooldown: 12, duration: 2.5, radius: 16 },
+    sound: { engine: { base: 52, wave: 'sawtooth', grit: 0.3 }, gun: 1, ability: 'zap', files: { engine: null, ability: null } },
   },
   {
-    id: 'viper', name: 'Viper', price: 6500,
-    driver: 'Karim Zein',
-    story: 'An ex-racer banned from every track that still exists. ' +
-      'The Viper is fast, low, and carries missiles that find you on their own.',
-    stats: { speed: 9, armor: 4, gun: 6, rocket: 8 },
-    special: { id: 'homing', name: 'Seeker Missiles', desc: 'Fires three missiles that hunt the nearest enemies.', cooldown: 10 },
+    id: 'reaper', name: 'YELLOW REAPER', price: 3500, cls: 'tracked',
+    desc: 'The yellow reaper. A heavy breaching machine that charges and crashes through enemy defenses.',
+    descAr: 'الحصادة الصفراء. مركبة اقتحام ثقيلة تعتمد على الاندفاع والاصطدام لتدمير دفاعات الخصوم.',
+    strong: 'Head-on attacks, close fights', weak: 'Slow, poor turning',
+    stats: { speed: 4, armor: 8, gun: 6, rocket: 6, handling: 3 },
+    model: { length: 6.0, muzzles: [[0.25, 0.98, -0.1], [-0.25, 0.98, -0.1]], rocket: [0, 0.98, -0.3] },
+    special: { id: 'ram', name: 'Reaper Charge', desc: 'A 1.4 s charge: anything you hit takes heavy damage and is thrown aside.', cooldown: 9, duration: 1.4 },
+    sound: { engine: { base: 34, wave: 'sawtooth', grit: 0.85 }, gun: 0.85, ability: 'charge', files: { engine: null, ability: null } },
   },
   {
-    id: 'juggernaut', name: 'Juggernaut', price: 9500,
-    driver: 'The Brothers Antar',
-    story: 'Two brothers, one rig, no brakes. ' +
-      'They haul a trailer full of mines and they are not shy about unloading it.',
-    stats: { speed: 5, armor: 9, gun: 7, rocket: 7 },
-    special: { id: 'mines', name: 'Mine Layer', desc: 'Drops three proximity mines behind you.', cooldown: 10 },
+    id: 'rex', name: 'REX RAMPAGE', price: 4000, cls: 'monster',
+    desc: 'Dinosaur fury. Lives on charges, mechanical strikes and heavy collisions against nearby enemies.',
+    descAr: 'غضب الديناصور. يعتمد على الاندفاع والضربات الميكانيكية والاصطدامات القوية لإلحاق الضرر بالخصوم القريبين.',
+    strong: 'Close combat, good durability', weak: 'Clumsy turning, must get close',
+    stats: { speed: 6, armor: 7, gun: 6, rocket: 5, handling: 5 },
+    model: { length: 5.8, muzzles: [[0.2, 0.98, 0.1], [-0.2, 0.98, 0.1]], rocket: [0, 1, -0.1] },
+    special: { id: 'whip', name: 'Tail Whip', desc: 'Spins its tail: everything within 10 m takes damage and is knocked back.', cooldown: 10, radius: 10 },
+    sound: { engine: { base: 40, wave: 'sawtooth', grit: 0.7 }, gun: 0.95, ability: 'roar', files: { engine: null, ability: null } },
   },
   {
-    id: 'warhorse', name: 'Wasteland Warhorse', price: 16000,
-    driver: 'Hussain "The Engineer"',
-    story: 'Built in secret from refinery steel and stolen military parts, the Warhorse is the machine every clan whispers about. ' +
-      'Its driver designed the arena it fights in.',
-    stats: { speed: 7, armor: 8, gun: 9, rocket: 9 },
-    special: { id: 'barrage', name: 'Rocket Barrage', desc: 'Unleashes eight rockets in a wide fan.', cooldown: 12 },
-    model: 'warhorse',
+    id: 'titan', name: 'BLOOD TITAN', price: 4500, cls: 'tank',
+    desc: 'The red titan. Huge firepower and heavy shots, but its main gun needs good timing and a longer recharge.',
+    descAr: 'العملاق الأحمر. يمتلك قوة نارية مرتفعة وضربات ثقيلة، لكن أسلحته الرئيسية تحتاج إلى توقيت جيد وفترات إعادة شحن أطول.',
+    strong: 'Damage and explosive attacks', weak: 'Slow, long recharge',
+    stats: { speed: 4, armor: 8, gun: 7, rocket: 7, handling: 4 },
+    model: { length: 6.4, muzzles: [[0.35, 0.85, 0.3], [-0.35, 0.85, 0.3]], rocket: [0, 0.9, 0.5] },
+    special: { id: 'shell', name: 'Titan Shell', desc: 'Main cannon: a slow, huge shell (85 damage, 11 m blast). A red line shows its path, so it can be dodged.', cooldown: 11, radius: 11 },
+    sound: { engine: { base: 32, wave: 'square', grit: 0.6 }, gun: 0.8, ability: 'cannon', files: { engine: null, ability: null } },
+  },
+  {
+    id: 'colossus', name: 'IRON COLOSSUS', price: 5000, cls: 'heavy',
+    desc: 'The armored giant. Soaks up huge damage and dominates with heavy weapons, at the cost of slow movement and acceleration.',
+    descAr: 'العملاق المدرع. يتحمل أضراراً كبيرة ويستخدم تسليحه الثقيل للسيطرة على ساحة المعركة، مقابل بطء الحركة والتسارع.',
+    strong: 'High health and armor', weak: 'Slow, hard to turn',
+    stats: { speed: 3, armor: 9, gun: 6, rocket: 6, handling: 3 },
+    model: { length: 7.0, muzzles: [[0.3, 0.98, 0.25], [-0.3, 0.98, 0.25]], rocket: [0, 0.98, -0.2] },
+    special: { id: 'shield', name: 'Bulwark', desc: 'Raises a shield that cuts incoming damage by 70% for 5 s.', cooldown: 16, duration: 5 },
+    sound: { engine: { base: 28, wave: 'sawtooth', grit: 0.55 }, gun: 0.75, ability: 'shield', files: { engine: null, ability: null } },
   },
 ];
+// Old roster ids map to the car that replaced them, so saved ownership and upgrades carry over.
+export const LEGACY_IDS = { rustbucket: 'ghost', stinger: 'venom', hellfire: 'toxic', bulldog: 'reaper', maiden: 'colossus', viper: 'siren', juggernaut: 'titan', warhorse: 'ghost' };
+export const LEGACY_REFUND = { warhorse: 16000 };
 
 export const UPGRADES = [
   { id: 'gun', name: 'Machine Gun', desc: 'Bullet damage' },
@@ -95,7 +130,7 @@ export function carStats(car, up = {}) {
   return {
     maxSpeed: (12.5 + s.speed * 1.35) * (1 + 0.06 * (up.speed || 0)), // a little slower than before, easier to aim
     accel: (20 + s.speed * 1.6) * m('speed'), // but quicker off the line
-    turn: 2.2 + s.speed * 0.06,
+    turn: 1.9 + (s.handling || 6) * 0.11,
     hp: Math.round((70 + s.armor * 15) * m('armor')),
     gunDmg: (1.1 + s.gun * 0.2) * m('gun'),
     rocketDmg: (22 + s.rocket * 3) * m('rocket'),
@@ -135,8 +170,8 @@ export const MAPS = [
 ];
 
 export const DIFFICULTY = [
-  { id: 'easy', name: 'Rookie', enemies: 3, dmg: 0.5, accuracy: 0.45, aggression: 0.6, focus: 1.15, level: 0, hp: 0.75, maxPrice: 1800, reward: 1, base: 100 },
-  { id: 'normal', name: 'Veteran', enemies: 4, dmg: 0.72, accuracy: 0.65, aggression: 0.8, focus: 0.95, level: 1, hp: 0.9, maxPrice: 4500, reward: 1.6, base: 160 },
+  { id: 'easy', name: 'Rookie', enemies: 3, dmg: 0.5, accuracy: 0.45, aggression: 0.6, focus: 1.15, level: 0, hp: 0.75, maxPrice: 2500, reward: 1, base: 100 },
+  { id: 'normal', name: 'Veteran', enemies: 4, dmg: 0.72, accuracy: 0.65, aggression: 0.8, focus: 0.95, level: 1, hp: 0.9, maxPrice: 4000, reward: 1.6, base: 160 },
   { id: 'hard', name: 'Warlord', enemies: 5, dmg: 0.9, accuracy: 0.85, aggression: 1, focus: 0.8, level: 2, hp: 1, maxPrice: 99999, reward: 2.5, base: 250 },
 ];
 

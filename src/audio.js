@@ -26,6 +26,16 @@ function fadeTrack(to, ms = 600) {
   }, 40);
 }
 let engine = null;
+const buffers = {}; // optional recorded sounds, by file name
+const R0 = (a, b) => a + Math.random() * (b - a);
+function loadFile(name) {
+  buffers[name] = null;
+  fetch(new URL(`../assets/sfx/${name}`, import.meta.url).href).then((r) => (r.ok ? r.arrayBuffer() : Promise.reject())).then((ab) => ctx.decodeAudioData(ab)).then((b) => { buffers[name] = b; }).catch(() => { delete buffers[name]; });
+}
+function playFile(name, vol) {
+  const b = buffers[name]; if (!b) return false;
+  const s = ctx.createBufferSource(), g = ctx.createGain(); s.buffer = b; g.gain.value = Math.min(1, vol); s.connect(g); g.connect(sfxBus); s.start(); return true;
+}
 
 function makeCurve(k) {
   const n = 2048, c = new Float32Array(n), deg = Math.PI / 180;
@@ -241,12 +251,32 @@ export const sfx = {
   confirm() { if (!ok()) return; tone(110, 0.15, { type: 'sawtooth', gain: 0.18, to: 220 }); noise(0.2, { type: 'bandpass', freq: 1500, gain: 0.15 }); },
   denied() { if (!ok()) return; tone(140, 0.18, { type: 'square', gain: 0.15, to: 90 }); },
   purchase() { if (!ok()) return; [0, 0.07, 0.14].forEach((d, i) => tone(300 + i * 150, 0.15, { type: 'square', gain: 0.1, delay: d })); noise(0.4, { type: 'highpass', freq: 5000, gain: 0.08, delay: 0.1 }); },
-  gun(vol = 1) {
+  gun(vol = 1, pitch = 1) { // pitch < 1: heavier calibre (Colossus, Titan); > 1: light rifles (Venom)
     if (!ok()) return; const n = ctx.currentTime; if (n - lastGun < 0.045) return; lastGun = n;
-    noise(0.08, { type: 'bandpass', freq: 1500, q: 0.7, gain: 0.4 * vol });
-    noise(0.04, { type: 'highpass', freq: 4000, gain: 0.15 * vol });
-    tone(95, 0.07, { type: 'square', gain: 0.2 * vol, to: 45 });
+    noise(0.08 / Math.sqrt(pitch), { type: 'bandpass', freq: 1500 * pitch, q: 0.7, gain: 0.4 * vol });
+    noise(0.04, { type: 'highpass', freq: 4000 * pitch, gain: 0.15 * vol });
+    tone(95 * pitch, 0.07 / pitch, { type: 'square', gain: 0.2 * vol * (pitch < 1 ? 1.3 : 1), to: 45 * pitch });
   },
+  // Each vehicle's ability has its own voice. A recorded file (car.sound.files.ability) replaces it when present.
+  ability(kind, vol = 1, file = null) {
+    if (!ok()) return;
+    if (file && playFile(file, vol)) return;
+    const v = Math.min(1, vol);
+    switch (kind) {
+      case 'smoke': noise(1.4, { type: 'lowpass', freq: 2400, gain: 0.4 * v, attack: 0.02, sweepTo: 300 }); tone(160, 0.3, { type: 'triangle', gain: 0.12 * v, to: 60 }); break;
+      case 'dash': tone(180, 0.45, { type: 'sawtooth', gain: 0.18 * v, to: 900 }); noise(0.5, { type: 'bandpass', freq: 800, gain: 0.3 * v, sweepTo: 5000 }); break;
+      case 'toxic': for (let i = 0; i < 6; i++) tone(R0(300, 700), 0.09, { type: 'sine', gain: 0.12 * v, to: R0(800, 1400), delay: i * 0.06 }); noise(1, { type: 'bandpass', freq: 1800, q: 2, gain: 0.18 * v, attack: 0.1 }); break;
+      case 'riptide': noise(1.1, { type: 'lowpass', freq: 300, gain: 0.5 * v, attack: 0.05, sweepTo: 2500 }); tone(70, 0.6, { type: 'sine', gain: 0.3 * v, to: 40 }); break;
+      case 'zap': for (let i = 0; i < 8; i++) tone(R0(600, 2400), 0.05, { type: 'square', gain: 0.07 * v, delay: i * 0.035 }); noise(0.4, { type: 'highpass', freq: 3000, gain: 0.25 * v }); tone(120, 0.4, { type: 'sawtooth', gain: 0.12 * v, to: 60 }); break;
+      case 'charge': tone(55, 0.8, { type: 'sawtooth', gain: 0.25 * v, to: 140 }); noise(0.8, { type: 'lowpass', freq: 500, gain: 0.35 * v, sweepTo: 1500 }); break;
+      case 'roar': tone(110, 0.9, { type: 'sawtooth', gain: 0.22 * v, to: 55 }); tone(165, 0.9, { type: 'square', gain: 0.08 * v, to: 70 }); noise(0.9, { type: 'bandpass', freq: 600, q: 1.5, gain: 0.35 * v, sweepTo: 250 }); break;
+      case 'cannon': tone(48, 0.7, { type: 'sine', gain: 0.5 * v, to: 28 }); noise(0.6, { type: 'lowpass', freq: 900, gain: 0.55 * v, sweepTo: 120 }); break;
+      case 'shield': tone(200, 0.6, { type: 'sine', gain: 0.25 * v, to: 800 }); tone(400, 0.6, { type: 'triangle', gain: 0.1 * v, to: 1200 }); break;
+      default: tone(80, 0.5, { type: 'sawtooth', gain: 0.2 * v, to: 400 }); noise(0.5, { type: 'bandpass', freq: 400, gain: 0.3 * v, sweepTo: 3000 });
+    }
+  },
+  ready() { if (!ok()) return; tone(660, 0.08, { type: 'triangle', gain: 0.1 }); tone(990, 0.12, { type: 'triangle', gain: 0.1, delay: 0.07 }); }, // ability recharged
+  abilityEnd() { if (!ok()) return; tone(520, 0.15, { type: 'sine', gain: 0.07, to: 260 }); },
   rocket(vol = 1) { if (!ok()) return; noise(0.7, { type: 'bandpass', freq: 500, q: 1.2, gain: 0.45 * vol, attack: 0.03, sweepTo: 2600 }); tone(70, 0.25, { type: 'sawtooth', gain: 0.18 * vol, to: 38 }); },
   explosion(size = 1, vol = 1) {
     if (!ok() || !boomSlot()) return; const v = Math.min(1, vol);
@@ -279,31 +309,49 @@ export const sfx = {
   win() { if (!ok()) return; const t = ctx.currentTime; [0, 3, 5, 7].forEach((s, i) => guitar(t + i * 0.18, E2 * Math.pow(2, s / 12), i === 3 ? 1.4 : 0.2, { out: sfxBus })); crash(t + 0.54, sfxBus); },
   lose() { if (!ok()) return; const t = ctx.currentTime; [0, -1, -2].forEach((s, i) => guitar(t + i * 0.3, E2 * Math.pow(2, s / 12), i === 2 ? 1.6 : 0.3, { out: sfxBus })); },
 
-  engineStart() {
+  // The player's engine. profile = { base: idle pitch Hz, wave, grit 0..1 } from the car's data: sports cars idle high
+  // and sharp, armour idles deep, tracked and battered machines add a rattling, gritty layer. A recorded loop
+  // (car.sound.files.engine) replaces the synth when present, pitched by speed.
+  engineStart(profile = {}, file = null) {
     if (!ctx || engine) return;
-    const o1 = ctx.createOscillator(), o2 = ctx.createOscillator();
-    o1.type = 'sawtooth'; o2.type = 'square';
+    const p = { base: 45, wave: 'sawtooth', grit: 0.4, ...profile };
     const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 500;
     const g = ctx.createGain(); g.gain.value = 0;
-    o1.connect(f); o2.connect(f); f.connect(g); g.connect(sfxBus);
-    o1.start(); o2.start();
-    engine = { o1, o2, f, g };
+    f.connect(g); g.connect(sfxBus);
+    const e = { f, g, p, srcs: [] };
+    if (file && buffers[file]) {
+      const b = ctx.createBufferSource(); b.buffer = buffers[file]; b.loop = true; b.connect(f); b.start(); e.loop = b; e.srcs.push(b); f.frequency.value = 12000;
+    } else {
+      const o1 = ctx.createOscillator(), o2 = ctx.createOscillator(); o1.type = p.wave; o2.type = 'square';
+      o1.connect(f); o2.connect(f); o1.start(); o2.start(); e.o1 = o1; e.o2 = o2; e.srcs.push(o1, o2);
+      // grit: filtered noise whose level wobbles with an LFO (piston knock / track rattle)
+      const n = ctx.createBufferSource(); n.buffer = noiseBuf; n.loop = true;
+      const nf = ctx.createBiquadFilter(); nf.type = 'bandpass'; nf.frequency.value = 220 + p.base * 3; nf.Q.value = 1.2;
+      const ng = ctx.createGain(); ng.gain.value = 0.22 * p.grit;
+      const lfo = ctx.createOscillator(), lg = ctx.createGain(); lfo.frequency.value = 8; lg.gain.value = 0.18 * p.grit; lfo.connect(lg); lg.connect(ng.gain);
+      n.connect(nf); nf.connect(ng); ng.connect(f); n.start(); lfo.start(); e.lfo = lfo; e.srcs.push(n, lfo);
+    }
+    engine = e;
   },
   engineSet(throttle, speedFrac) {
     if (!engine) return;
-    const t = ctx.currentTime;
-    const base = 45 + speedFrac * 70 + throttle * 15;
+    const t = ctx.currentTime, b = engine.p.base;
+    if (engine.loop) { engine.loop.playbackRate.setTargetAtTime(0.7 + speedFrac * 0.9 + throttle * 0.15, t, 0.08); engine.g.gain.setTargetAtTime(0.12 + throttle * 0.1, t, 0.1); return; }
+    const base = b + speedFrac * b * 1.55 + throttle * b * 0.33;
     engine.o1.frequency.setTargetAtTime(base, t, 0.08);
     engine.o2.frequency.setTargetAtTime(base * 0.5, t, 0.08);
-    engine.f.frequency.setTargetAtTime(300 + speedFrac * 900 + throttle * 300, t, 0.1);
+    engine.lfo.frequency.setTargetAtTime(6 + speedFrac * 22, t, 0.1);
+    engine.f.frequency.setTargetAtTime(250 + b * 3 + speedFrac * 900 + throttle * 300, t, 0.1);
     engine.g.gain.setTargetAtTime(0.05 + throttle * 0.05, t, 0.1);
   },
   engineStop() {
     if (!engine) return;
     const e = engine; engine = null;
     e.g.gain.setTargetAtTime(0, ctx.currentTime, 0.1);
-    setTimeout(() => { try { e.o1.stop(); e.o2.stop(); } catch (_) { /* already stopped */ } }, 400);
+    setTimeout(() => { for (const s of e.srcs) { try { s.stop(); } catch (_) { /* already stopped */ } } }, 400);
   },
+  // Loads optional recorded sounds (paths relative to assets/sfx/). Missing files are simply skipped.
+  preloadFiles(list) { init(); for (const f of list) if (f && !(f in buffers)) loadFile(f); },
 };
 
 document.addEventListener('visibilitychange', () => {

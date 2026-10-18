@@ -1,7 +1,7 @@
 // Balance sim: the player car is driven by the same AI as the enemies. Reports win rate per difficulty.
 import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs';
 
-const [base, carId = 'rustbucket', lvl = '0', runs = '8'] = process.argv.slice(2);
+const [base, carId = 'ghost', lvl = '0', runs = '8'] = process.argv.slice(2);
 const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 const page = await browser.newPage({ viewport: { width: 640, height: 360 } });
 const errors = [];

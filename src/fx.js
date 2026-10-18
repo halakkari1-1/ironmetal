@@ -137,7 +137,8 @@ export class FX {
     scene.add(this.smoke.points, this.fire.points, this.hot.points);
     this.lights = [0, 1, 2].map(() => { const l = new THREE.PointLight(0xff9a40, 0, 55, 1.5); scene.add(l); return { l, t: 0 }; });
     this.li = 0;
-    this.rings = []; this.debris = []; this.scorches = [];
+    for (const l of this.lines || []) this.scene.remove(l.m);
+    this.rings = []; this.debris = []; this.scorches = []; this.lines = [];
     this.debrisGeo = [new THREE.BoxGeometry(0.5, 0.18, 0.4), new THREE.BoxGeometry(0.3, 0.3, 0.7), new THREE.TetrahedronGeometry(0.35), new THREE.CylinderGeometry(0.25, 0.25, 0.15, 6)];
     this.debrisMat = [new THREE.MeshStandardMaterial({ color: 0x2a2724, metalness: 0.7, roughness: 0.5, flatShading: true }), new THREE.MeshStandardMaterial({ color: 0x5a3018, metalness: 0.4, roughness: 0.8, flatShading: true })];
     this.scorchGeo = new THREE.PlaneGeometry(1, 1);
@@ -242,7 +243,35 @@ export class FX {
     for (let i = 0; i < n; i++) { const t = i / n; this.hot.spawn(ax + (bx - ax) * t, ay + (by - ay) * t, az + (bz - az) * t, 0, 0, 0, 0.18, 1.1, 0.2, [0.5, 0.85, 1, 1], [0.2, 0.4, 1, 0]); }
   }
 
+  // ---------- ability effects ----------
+  toxic(x, z) { // green poison haze hugging the ground
+    this.smoke.spawn(x + R(-0.8, 0.8), R(0.3, 1.2), z + R(-0.8, 0.8), R(-0.6, 0.6), R(0.4, 1.4), R(-0.6, 0.6), R(1.2, 2), R(1.6, 2.4), R(4, 6), [0.35, 0.95, 0.2, 0.32], [0.2, 0.55, 0.1, 0], -0.1, 0.6);
+    if (Math.random() < 0.35) this.hot.spawn(x + R(-1, 1), R(0.2, 0.8), z + R(-1, 1), 0, R(1, 2.5), 0, R(0.4, 0.8), 0.6, 0.15, [0.6, 1, 0.3, 1], [0.2, 0.9, 0.1, 0]);
+  }
+  smokeScreen(x, z, r) { // thick grey cover around the car
+    const a = Math.random() * 6.28, d = Math.sqrt(Math.random()) * r;
+    this.smoke.spawn(x + Math.cos(a) * d, R(0.4, 1.8), z + Math.sin(a) * d, R(-1.2, 1.2), R(0.3, 1.2), R(-1.2, 1.2), R(2.2, 3.2), R(2, 3), R(5, 7), [0.6, 0.6, 0.58, 0.42], [0.5, 0.5, 0.48, 0], -0.1, 0.5);
+  }
+  trailColor(x, y, z, c) { this.hot.spawn(x + R(-0.4, 0.4), y, z + R(-0.4, 0.4), R(-0.5, 0.5), R(0, 0.8), R(-0.5, 0.5), 0.35, 1.4, 0.3, [c[0], c[1], c[2], 1], [c[0] * 0.6, c[1] * 0.4, c[2] * 0.8, 0]); }
+  zap(x, y, z) { // little electric crackle on a jammed car
+    for (let i = 0; i < 5; i++) this.hot.spawn(x + R(-1, 1), y + R(-0.4, 0.6), z + R(-1, 1), R(-6, 6), R(-2, 4), R(-6, 6), R(0.06, 0.14), 0.5, 0.1, [0.6, 0.85, 1, 1], [0.3, 0.5, 1, 0]);
+  }
+  wave(x, z, heading, len) { // Megalodon's surge: a spray front rolling forward
+    const fx = Math.sin(heading), fz = Math.cos(heading), rx = Math.cos(heading), rz = -Math.sin(heading);
+    for (let i = 0; i < 46; i++) {
+      const side = R(-1, 1) * len * 0.5, fwd = R(1.5, 4);
+      this.smoke.spawn(x + fx * fwd + rx * side * 0.4, R(0.3, 1.5), z + fz * fwd + rz * side * 0.4, fx * R(18, 28) + rx * side, R(1, 4), fz * R(18, 28) + rz * side, R(0.5, 0.8), 1.2, 4, [0.55, 0.75, 0.95, 0.6], [0.7, 0.85, 1, 0], 4, 2);
+    }
+  }
+  aimLine(x, z, heading, len, life = 1.5) { // a red strip on the ground marking a shell's path
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(0.7, len), new THREE.MeshBasicMaterial({ color: 0xff2a1a, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending }));
+    m.rotation.x = -Math.PI / 2; m.rotation.z = heading; // plane's long side follows the heading
+    m.position.set(x + Math.sin(heading) * len / 2, 0.08, z + Math.cos(heading) * len / 2);
+    this.scene.add(m); (this.lines = this.lines || []).push({ m, t: life, life });
+  }
+
   update(dt) {
+    if (this.lines) this.lines = this.lines.filter((l) => { l.t -= dt; l.m.material.opacity = 0.55 * Math.max(0, l.t / l.life); if (l.t <= 0) { this.scene.remove(l.m); l.m.geometry.dispose(); l.m.material.dispose(); return false; } return true; });
     this.smoke.update(dt); this.fire.update(dt); this.hot.update(dt);
     for (const L of this.lights) if (L.t > 0) { L.t -= dt; L.l.intensity *= Math.exp(-dt * 10); if (L.t <= 0) L.l.intensity = 0; }
     this.rings = this.rings.filter((r) => {
@@ -272,7 +301,8 @@ export class FX {
     for (const r of this.rings) this.scene.remove(r.m);
     for (const d of this.debris) this.scene.remove(d.m);
     for (const s of this.scorches) this.scene.remove(s.m);
-    this.rings = []; this.debris = []; this.scorches = [];
+    for (const l of this.lines || []) this.scene.remove(l.m);
+    this.rings = []; this.debris = []; this.scorches = []; this.lines = [];
     for (const L of this.lights) L.l.intensity = 0;
   }
 }

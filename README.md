@@ -25,18 +25,31 @@ Car models are generated with Meshy, then prepared for mobile:
 
 ## Roster
 
-| Car | Price | Special |
-| --- | ---: | --- |
-| Rustbucket | free | Nitro Burst |
-| Dune Stinger | 900 | Ram Charge |
-| Bulldog | 1,800 | Shockwave |
-| Hellfire | 3,000 | Flamethrower |
-| Iron Maiden | 4,500 | Iron Shield |
-| Viper | 6,500 | Seeker Missiles |
-| Juggernaut | 9,500 | Mine Layer |
-| Wasteland Warhorse | 16,000 | Rocket Barrage (Meshy model) |
+Nine vehicles, all Meshy-made models (about 30K triangles each, textures 1024/512). Data lives in `src/data.js`;
+each model is `assets/models/<id>.js` (base64 GLB, loaded on demand).
+
+| Vehicle | Class | Price | Ability (real gameplay effect) | Weakness |
+| --- | --- | ---: | --- | --- |
+| WASTELAND GHOST | Medium, 5.2 m | free | Smoke Screen: enemies lose you for 3.5 s, speed burst | No specialty |
+| QUEEN VENOM | Sports, 4.7 m | 1,500 | Venom Dash: 2x speed, half damage for 1.3 s | Low durability |
+| TOXIC VIPER | Sports, 4.8 m | 2,000 | Toxic Cloud: 9 m zone, 14 HP/s for 6 s | Escapable damage over time |
+| MEGALODON | Medium, 5.3 m | 2,500 | Riptide: forward wave, pushes and spins out cars 1.5 s | Close range only |
+| BLUE SIREN | Armored, 5.4 m | 3,000 | Shock Pulse: 16 m, slows 50% and jams guns 2.5 s | Slower than sports cars |
+| YELLOW REAPER | Tracked, 6.0 m | 3,500 | Reaper Charge: ram with heavy impact damage | Slow, poor turning |
+| REX RAMPAGE | Monster, 5.8 m | 4,000 | Tail Whip: 10 m spin, damage and knockback | Must get close |
+| BLOOD TITAN | Tank, 6.4 m | 4,500 | Titan Shell: slow 85-damage shell, path shown in red | Slow, long recharge |
+| IRON COLOSSUS | Heavy carrier, 7.0 m | 5,000 | Bulwark: 70% less damage for 5 s | Slowest, hardest to turn |
+
+Saves from the old eight-car roster are migrated once: ownership and upgrades move to the matching new car,
+the Warhorse purchase is refunded (its model is now the free Ghost), and the old save is kept as a backup key.
+
+Optional recorded sounds: set `sound.files.engine` / `sound.files.ability` on a car in `src/data.js` to a file
+name in `assets/sfx/` (for example `venom-engine.ogg`, `venom-ability.ogg`). Without them the synthesized
+per-car engine, gun and ability sounds play.
 
 Arenas: Scrapyard, Refinery, Dust Bowl, Shanty Town, The Outpost. Difficulty: Rookie, Veteran, Warlord.
+
+Balance tools: `tools/matchups.mjs` (nine-car AI free-for-all), `tools/balance.mjs` (one car vs each difficulty), `tools/vehicles.mjs` (every car: model, driving, guns, ability effect).
 
 ## Running it
 
@@ -72,7 +85,7 @@ Icon and splash sources live in `resources/`; they are rendered from `tools/bran
 
 - `src/main.js` — renderer, garage showroom, menus, HUD, input, match lifecycle
 - `src/game.js` — a match: driving, collisions, weapons, specials, AI, pickups
-- `src/cars3d.js` — the seven procedural cars and the Warhorse loader
+- `src/cars3d.js` — loads and places the vehicle models (the old procedural builders remain as a fallback)
 - `src/arena.js` — arena layouts and obstacles
 - `src/kit.js` — environment kit loader: building LODs, props, atlas-textured containers, tanks and barrels
 - `src/fx.js` — particles, explosions, flashes
@@ -98,5 +111,5 @@ Icon and splash sources live in `resources/`; they are rendered from `tools/bran
 - [x] Smoother steering, three control schemes (Direction, Classic, Auto gas), touch button layout editor
 - [x] Lobby music track, volume sliders (master, music, effects)
 - [x] Light glass UI, Arabic language with the Cairo font and a mirrored right-to-left lobby
-- [ ] Remake the seven procedural cars in Meshy to match the Warhorse
+- [x] Nine Meshy vehicles with their own abilities, sounds, prices and balance
 - [ ] More arenas

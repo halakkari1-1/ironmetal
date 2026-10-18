@@ -1,7 +1,7 @@
 // App controller: renderer, garage showroom, menus, HUD, input and the match lifecycle.
 import * as THREE from 'three';
 import { CARS, UPGRADES, MAX_UPGRADE, MAPS, DIFFICULTY, KILL_REWARD, CONTRACTS, carStats, upgradeCost } from './data.js';
-import { buildCar, preloadWarhorse } from './cars3d.js';
+import { buildCar, preloadModel, preloadModels, modelReady } from './cars3d.js';
 import { loadKit, KIT, building, propMesh, barrelGeometry } from './kit.js';
 import { Game, POWERS } from './game.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -112,9 +112,15 @@ class Showroom {
     s.traverse((o) => { if (o.isMesh && o !== this.floor) { o.castShadow = true; o.receiveShadow = true; } });
   }
   show(id) {
+    this.want = id;
     if (this.carId === id && this.car) return;
+    if (!modelReady(id)) { // load first, keep the current car on the platform meanwhile
+      preloadModel(id).then(() => { if (this.want === id) this.show(id); }).catch(() => {});
+      return;
+    }
     if (this.car) this.platform.remove(this.car);
     this.car = buildCar(id); this.car.position.y = 0.36; this.carId = id;
+    const d = this.car.userData.dims; this.carLen = d ? d.L : 5;
     this.platform.add(this.car); this.drop = 1;
   }
   resize(w, h) { this.camera.aspect = w / h; this.camera.updateProjectionMatrix(); }
@@ -127,7 +133,7 @@ class Showroom {
     const flip = document.documentElement.dir === 'rtl' ? -1 : 1; // Arabic mirrors the layout
     const off = portrait ? 0 : (this.focus === 'right' ? -3.2 : this.focus === 'left' ? 3.4 : 0) * (1 - squarish * 0.55) * flip;
     this.camX += (off - this.camX) * Math.min(1, dt * 4);
-    const dist = portrait ? 24 : 15 + squarish * 15;
+    const dist = (portrait ? 24 : 15 + squarish * 15) * Math.max(1, Math.pow((this.carLen || 5) / 5.2, 0.85)); // big machines step the camera back
     this.camera.position.set(this.camX + 2.2, 4.6, dist * 0.92);
     this.camera.lookAt(this.camX, 1.3, 0);
     this.dust.rotation.y += dt * 0.02;
@@ -148,22 +154,38 @@ let lastConfig = null;
 function show(id) { for (const s of ['menu', 'setup', 'history', 'contracts', 'settings', 'layoutEdit', 'hud', 'pause', 'results']) $(s).hidden = s !== id && !(id === 'pause' && s === 'hud'); }
 
 function statRows(car, up, compareTo = null) {
-  const s = car.stats, rows = [[t('Speed'), 'speed', s.speed], [t('Armor'), 'armor', s.armor], [t('Guns'), 'gun', s.gun], [t('Rockets'), 'rocket', s.rocket]];
+  const s = car.stats, rows = [[t('Speed'), 'speed', s.speed], [t('Armor'), 'armor', s.armor], [t('Handling'), 'handling', s.handling], [t('Guns'), 'gun', s.gun], [t('Rockets'), 'rocket', s.rocket]];
   return rows.map(([label, key, v]) => {
     const bonus = (up[key] || 0) * 0.6;
     return `<div class="stat"><span>${label}</span><div class="bar"><i style="width:${v * 10}%"></i>${bonus ? `<i class="up" style="left:${v * 10}%;width:${bonus * 10}%"></i>` : ''}</div><span class="num">${v}${bonus ? '+' : ''}</span></div>`;
   }).join('');
 }
 
+const CLASS = { sports: 'Sports car', medium: 'Medium', armored: 'Armored', tracked: 'Tracked', monster: 'Monster', tank: 'Tank', heavy: 'Heavy carrier' };
+const carDesc = (car) => (getLang() === 'ar' ? car.descAr : car.desc);
 function fillPanel(car, eyebrow) {
   const up = save.owns(car.id) ? save.upgrades(car.id) : {};
   $('cpEyebrow').textContent = t(eyebrow);
   $('cpName').textContent = car.name;
-  $('cpDriver').textContent = t('Driver: {d}', { d: t(car.driver) });
+  $('cpDriver').textContent = `${t(CLASS[car.cls] || 'Medium')} · ${car.model.length.toFixed(1)} ${t('m')}`;
+  $('cpSW').innerHTML = `<span class="pro">\u25B2 ${t(car.strong)}</span><span class="con">\u25BC ${t(car.weak)}</span>`;
   $('cpStats').innerHTML = statRows(car, up);
-  $('cpSpecial').textContent = t(car.special.name);
+  $('cpSpecial').innerHTML = `${abilityIcon(car.special.id)}<span>${t(car.special.name)}</span><em class="num">${t('{n}s recharge', { n: Math.round(carStats(car, up).specialCooldown) })}</em>`;
   $('cpSpecialDesc').textContent = t(car.special.desc);
 }
+// Simple line icons for the nine abilities (used in the garage and on the ability button).
+const ICONS = {
+  smoke: '<path d="M6 17h11a4 4 0 0 0 0-8 5 5 0 0 0-9.6-1.4A3.6 3.6 0 0 0 6 17z"/><path d="M4 21h14"/>',
+  dash: '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
+  toxic: '<circle cx="12" cy="12" r="2.2"/><path d="M12 9.8V4a6 6 0 0 1 5 2.8M14 13.2l5 2.8a6 6 0 0 1-5.6 3M10 13.2 5 16a6 6 0 0 1-.4-5.8"/>',
+  riptide: '<path d="M2 15c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 5 2"/><path d="M4 10c3-5 9-6 13-3"/><path d="M14 4l3 3-3 3"/>',
+  pulse: '<path d="M12 2v4M12 18v4M2 12h4M18 12h4"/><circle cx="12" cy="12" r="4"/><path d="m11 10-1 2.5h3l-1 2.5"/>',
+  ram: '<path d="m5 6 6 6-6 6M12 6l6 6-6 6"/>',
+  whip: '<path d="M4 18c0-6 4-10 9-10a5 5 0 0 1 0 10c-2.5 0-4-1.6-4-3.5S10.5 11 12.5 11"/>',
+  shell: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>',
+  shield: '<path d="M12 3 5 6v6c0 4.4 3 7.6 7 9 4-1.4 7-4.6 7-9V6z"/>',
+};
+function abilityIcon(id) { return `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[id] || ICONS.dash}</svg>`; }
 
 function refreshPoints() { $('points').textContent = fmt(save.get().points); }
 
@@ -175,7 +197,7 @@ function setUI(next) {
   $('carpanel').hidden = false;
   $('menu').classList.toggle('sub', next !== 'main');
   $('menu').classList.toggle('garage', next === 'garage');
-  $('gStory').hidden = $('gCount').hidden = next !== 'garage';
+  $('gStory').hidden = $('gCount').hidden = $('cpSW').hidden = next !== 'garage';
   room.focus = next === 'upgrade' ? 'left' : 'right';
   if (next === 'main') { const car = save.selectedCar(); room.show(car.id); fillPanel(car, 'Your ride'); }
   if (next === 'garage') { browseI = CARS.findIndex((c) => c.id === save.get().selected); renderGarage(); }
@@ -186,9 +208,11 @@ function setUI(next) {
 function renderGarage() {
   const car = CARS[browseI], owned = save.owns(car.id), sel = save.get().selected === car.id;
   room.show(car.id);
-  fillPanel(car, owned ? (sel ? 'Selected' : 'Owned') : 'Locked');
+  for (const k of [-1, 1]) preloadModel(CARS[(browseI + k + CARS.length) % CARS.length].id).catch(() => {}); // next and previous ready to show
+  const afford0 = save.get().points >= car.price;
+  fillPanel(car, sel ? 'Selected' : owned ? (car.price === 0 ? 'Free' : 'Owned') : afford0 ? 'Can buy' : 'Locked');
   $('gCount').textContent = `${browseI + 1} / ${CARS.length}`;
-  $('gStory').textContent = t(car.story);
+  $('gStory').textContent = carDesc(car);
   const price = $('gPrice'), act = $('gAction');
   if (owned) { price.hidden = true; act.textContent = t(sel ? 'Selected' : 'Select'); act.disabled = sel; }
   else {
@@ -329,7 +353,8 @@ const hud = {
   onStart(g) {
     show('hud');
     $('hName').textContent = g.player.data.name;
-    $('hSpecialLbl').textContent = getLang() === 'ar' ? t('SPEC') : g.player.data.special.name.split(' ')[0].toUpperCase().slice(0, 6);
+    $('hSpecialIc').innerHTML = abilityIcon(g.player.data.special.id);
+    $('hSpecialLbl').textContent = t(g.player.data.special.name);
     $('hLives').hidden = false; $('hTimer').hidden = g.mode !== 'deathmatch';
     $('keys').hidden = isTouch; $('fireBtns').hidden = !isTouch; $('stick').hidden = !isTouch;
     applyControls();
@@ -383,11 +408,20 @@ const hud = {
     else { rb.classList.remove('power'); rb.firstChild.textContent = t('RKT'); $('hRockets').textContent = p.rockets; }
     if (!isTouch) $('keys').textContent = p.power ? t('F fires the {p} ({n})', { p: t(POWERS[p.power.type].name), n: p.power.ammo }) : t('W A S D drive · Space fire · F rocket · E special · Esc pause');
     // special cooldown ring
-    const cd = $('cdRing'), cx = cd.getContext('2d'), k = p.specialOn ? 1 : 1 - Math.max(0, p.specialCd) / p.stats.specialCooldown;
-    cx.clearRect(0, 0, 160, 160); cx.lineWidth = 8;
-    cx.strokeStyle = 'rgba(236,229,214,.15)'; cx.beginPath(); cx.arc(80, 80, 72, 0, 7); cx.stroke();
-    cx.strokeStyle = k >= 1 ? '#7cc441' : '#e0682c'; cx.beginPath(); cx.arc(80, 80, 72, -Math.PI / 2, -Math.PI / 2 + k * Math.PI * 2); cx.stroke();
-    $('bSpecial').style.borderColor = k >= 1 ? '#7cc441' : '';
+    // ability button: blue ring = active (time left), orange = recharging (seconds shown), green = ready, dim = can't use now
+    const sp = p.data.special, active = !!p.specialOn, blocked = !p.alive || p.skidT > 0 || g.state !== 'fight';
+    const k = active ? Math.max(0, p.specialT) / Math.max(0.01, (sp.duration || 1) * Math.min(1.4, p.stats.specialPower)) : 1 - Math.max(0, p.specialCd) / p.stats.specialCooldown;
+    const st = blocked ? 'off' : active ? 'active' : k >= 1 ? 'ready' : 'cool';
+    const secs = st === 'cool' ? Math.ceil(Math.max(0, p.specialCd)) : st === 'active' ? Math.ceil(Math.max(0, p.specialT)) : '';
+    const key = `${st}|${secs}|${Math.round(k * 60)}`;
+    if (this.abKey !== key) {
+      this.abKey = key;
+      const cd = $('cdRing'), cx = cd.getContext('2d');
+      cx.clearRect(0, 0, 160, 160); cx.lineWidth = 8;
+      cx.strokeStyle = 'rgba(236,229,214,.15)'; cx.beginPath(); cx.arc(80, 80, 72, 0, 7); cx.stroke();
+      cx.strokeStyle = st === 'active' ? '#58a8ff' : st === 'ready' ? '#7cc441' : '#e0682c'; cx.beginPath(); cx.arc(80, 80, 72, -Math.PI / 2, -Math.PI / 2 + Math.min(1, k) * Math.PI * 2); cx.stroke();
+      const b = $('bSpecial'); b.dataset.state = st; $('hSpecialCd').textContent = secs;
+    }
     // minimap
     const mm = $('mini'), m = mm.getContext('2d'), W = mm.width, half = g.arena.half, sc = W / (half * 2);
     m.clearRect(0, 0, W, W);
@@ -445,7 +479,9 @@ async function startMatch(cfg) {
   lastConfig = cfg;
   if (game) game.dispose();
   $('loader').hidden = false; $('loader').style.opacity = 1;
-  try { await preloadWarhorse(); } catch (e) { /* the Warhorse falls back to an empty shell */ }
+  // load the player's car and every car that can show up as an enemy in this match
+  const maxP = cfg.mode === 'survival' ? 99999 : cfg.diff.maxPrice;
+  await preloadModels([cfg.car.id, ...CARS.filter((c) => c.price <= maxP).map((c) => c.id)]);
   await loadKit();
   game = new Game(renderer, hud);
   game.resize(window.innerWidth, window.innerHeight);
@@ -548,7 +584,7 @@ on('gNext', () => { sfx.click(); browseI = (browseI + 1) % CARS.length; renderGa
 on('gAction', () => {
   const car = CARS[browseI];
   if (save.owns(car.id)) { save.select(car.id); sfx.confirm(); }
-  else if (save.buy(car)) sfx.purchase(); else sfx.denied();
+  else if (save.buy(car)) { sfx.purchase(); toastMenu(t('{car} is yours', { car: car.name })); } else sfx.denied();
   renderGarage(); refreshPoints();
 });
 on('eReset', () => { sfx.click(); editor.work = {}; drawEditor(); });
@@ -564,6 +600,7 @@ on('btnSound', () => { const st = save.get(); st.sound = !st.sound; save.write()
 on('sBack', () => { sfx.click(); show('menu'); });
 on('sFight', () => { sfx.confirm(); const car = save.selectedCar(); startMatch({ car, upgrades: save.upgrades(car.id), map: setupMap, diff: setupDiff, mode: setupMode }); });
 on('pausebtn', () => pause());
+function toastMenu(msg) { const el = $('menuToast'); el.textContent = msg; el.classList.remove('go'); void el.offsetWidth; el.classList.add('go'); }
 on('pResume', () => resume());
 on('pQuit', () => {
   if (game && !game.over) { game.quit(); save.record({ date: new Date().toISOString(), map: lastConfig.map.name, diff: lastConfig.mode === 'survival' ? 'Survival' : lastConfig.diff.name, car: lastConfig.car.name, result: 'quit', kills: game.player.kills, points: 0 }); }
@@ -623,8 +660,10 @@ $('snd').style.display = save.get().sound ? '' : 'none';
 resize();
 show('menu'); setUI('main');
 requestAnimationFrame(frame);
-Promise.all([preloadWarhorse().catch(() => {}), loadKit().then(() => room.dress()).catch((e) => console.warn('kit failed', e))]).finally(() => {
-  if (save.get().selected === 'warhorse') { room.carId = null; setUI(ui); }
+Promise.all([preloadModel(save.get().selected).catch(() => {}), loadKit().then(() => room.dress()).catch((e) => console.warn('kit failed', e))]).finally(() => {
+  setUI(ui);
+  // the rest of the roster loads in the background, one at a time, so browsing the garage is instant
+  CARS.reduce((p, c) => p.then(() => new Promise((r) => setTimeout(r, 120))).then(() => preloadModel(c.id).catch(() => {})), Promise.resolve());
   const l = $('loader'); l.style.opacity = 0; setTimeout(() => (l.hidden = true), 500);
 });
-window.__ironmetal = { save, get game() { return game; }, startMatch, MAPS, DIFFICULTY, CARS, renderNow: () => game && draw(game.scene, game.camera), renderer };
+window.__ironmetal = { save, room, get game() { return game; }, startMatch, MAPS, DIFFICULTY, CARS, renderNow: () => game && draw(game.scene, game.camera), renderer };

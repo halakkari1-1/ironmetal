@@ -8,7 +8,8 @@ import { buildArena } from './arena.js';
 import { FX } from './fx.js';
 import { sfx } from './audio.js';
 
-const CAR_R = 2.1;
+const CAR_R = 2.1; // fallback; each car has its own hit radius (c.hitR) from its model size
+const HR = (c) => c.hitR || CAR_R;
 const TAU = Math.PI * 2;
 const wrap = (a) => { while (a > Math.PI) a -= TAU; while (a < -Math.PI) a += TAU; return a; };
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -79,13 +80,15 @@ export class Game {
     this.spawns = spawns;
     this.player = this.addCar(car, upgrades, spawns[0], true);
     if (mode === 'deathmatch') {
-      const pool = CARS.filter((c) => c.price <= diff.maxPrice && (c.id !== car.id || c.price === 0));
-      for (let i = 0; i < diff.enemies; i++) this.addCar(pick(pool), this.lvl(diff.level), spawns[i + 1], false);
+      const pool = CARS.filter((c) => c.price <= diff.maxPrice && c.id !== car.id).sort(() => Math.random() - 0.5);
+      for (let i = 0; i < diff.enemies; i++) this.addCar(pool[i % pool.length], this.lvl(diff.level), spawns[i + 1], false);
     } else { this.wave = 0; this.breakT = 0; }
     this.buildPickups();
     this.camPos = new THREE.Vector3(); this.camLook = new THREE.Vector3();
     this.snapCamera();
-    sfx.engineStart();
+    const snd = car.sound || {};
+    sfx.preloadFiles(this.cars.flatMap((c) => Object.values((c.data.sound && c.data.sound.files) || {})));
+    sfx.engineStart(snd.engine, snd.files && snd.files.engine);
     this.running = true;
     this.hud.onStart(this);
   }
@@ -97,11 +100,11 @@ export class Game {
     const mesh = buildCar(data.id);
     this.scene.add(mesh);
     const bb = new THREE.Box3().setFromObject(mesh), sz = bb.getSize(new THREE.Vector3());
-    const rad = clamp(Math.min(sz.x, sz.z) / 2 * 0.92, 0.85, 1.4), halfLen = Math.max(0.4, Math.max(sz.x, sz.z) / 2 - rad);
+    const rad = clamp(Math.min(sz.x, sz.z) / 2 * 0.92, 0.85, 1.7), halfLen = Math.max(0.4, Math.max(sz.x, sz.z) / 2 - rad);
     const c = {
       data, stats, mesh, isPlayer,
       x: spawn.x, z: spawn.z, heading: spawn.heading, speed: 0, kx: 0, kz: 0, y: 0, vy: 0, rx: 0, rz: 0, srx: 0, srz: 0,
-      hp: stats.hp, maxHp: stats.hp, alive: true, rad, halfLen, roofY: bb.max.y, lenZ: sz.z, lives: this.mode === 'survival' && !isPlayer ? 1 : LIVES, respawnT: 0, invuln: 0,
+      hp: stats.hp, maxHp: stats.hp, alive: true, rad, halfLen, hitR: rad + halfLen * 0.6 + 0.35, slowT: 0, jamT: 0, skidT: 0, skidSpin: 0, hideT: 0, spinT: 0, roofY: bb.max.y, lenZ: sz.z, lives: this.mode === 'survival' && !isPlayer ? 1 : LIVES, respawnT: 0, invuln: 0,
       throttle: 0, steer: 0, firing: false,
       gunCd: 0, rocketCd: 0, rockets: 6, specialCd: 2, specialT: 0, specialOn: null, power: null,
       kills: 0, lastHit: 0, lastAttacker: null, lastCause: null, muzzleI: 0, deathT: 0, rammed: new Set(),
@@ -115,8 +118,9 @@ export class Game {
 
   attachBubble(c) {
     if (c.data.special.id !== 'shield') return;
-    c.bubble = new THREE.Mesh(new THREE.SphereGeometry(3.4, 18, 12), new THREE.MeshBasicMaterial({ color: 0x7fd8ff, transparent: true, opacity: 0.22, depthWrite: false, blending: THREE.AdditiveBlending }));
-    c.bubble.visible = false; c.mesh.add(c.bubble); c.bubble.position.y = 1.2;
+    const dm = c.mesh.userData.dims, br = dm ? Math.max(dm.L, dm.W) * 0.62 : 3.4;
+    c.bubble = new THREE.Mesh(new THREE.SphereGeometry(br, 18, 12), new THREE.MeshBasicMaterial({ color: 0x7fd8ff, transparent: true, opacity: 0.22, depthWrite: false, blending: THREE.AdditiveBlending }));
+    c.bubble.visible = false; c.mesh.add(c.bubble); c.bubble.position.y = dm ? dm.H * 0.45 : 1.2;
   }
   inPlay(c) { return c.alive || c.respawnT > 0; }
 
@@ -132,7 +136,7 @@ export class Game {
     let best = this.spawns[0], bestD = -1;
     for (const sp of this.spawns) { const d = foes.length ? Math.min(...foes.map((o) => Math.hypot(o.x - sp.x, o.z - sp.z))) : 0; if (d > bestD) { bestD = d; best = sp; } }
     Object.assign(c, { x: best.x, z: best.z, heading: best.heading, speed: 0, kx: 0, kz: 0, y: 0, vy: 0, rx: 0, rz: 0, srx: 0, srz: 0,
-      hp: c.maxHp, alive: true, rockets: 6, specialCd: 2, specialOn: null, specialT: 0, power: null, lastAttacker: null, lastCause: null, invuln: 2.5, respawnT: 0, steerS: 0 });
+      hp: c.maxHp, alive: true, rockets: 6, specialCd: 2, specialOn: null, specialT: 0, power: null, lastAttacker: null, lastCause: null, invuln: 2.5, respawnT: 0, steerS: 0, slowT: 0, jamT: 0, skidT: 0, hideT: 0, spinT: 0 });
     c.rammed.clear();
     c.mesh.position.set(c.x, 0, c.z); c.mesh.rotation.set(0, c.heading, 0);
     this.fx.heal(c.x, c.z); this.fx.ring(c.x, c.z, 6, 0x9fd4ff);
@@ -264,8 +268,8 @@ export class Game {
   nextWave() {
     this.wave++; this.stats.wave = this.wave;
     const n = Math.min(1 + Math.floor(this.wave * 0.7), 7);
-    const tiers = [900, 1800, 3000, 4500, 6500, 9500, 99999];
-    const pool = CARS.filter((c) => c.price <= tiers[Math.min(tiers.length - 1, Math.floor((this.wave - 1) / 2))] && c.id !== 'warhorse' || (this.wave >= 10 && c.id === 'warhorse'));
+    const tiers = [1500, 2500, 3500, 4500, 99999];
+    const pool = CARS.filter((c) => c.price <= tiers[Math.min(tiers.length - 1, Math.floor((this.wave - 1) / 2))]);
     const lvl = Math.min(5, Math.floor((this.wave - 1) / 2));
     this.diff.dmg = Math.min(1.05, 0.38 + this.wave * 0.055);
     const far = [...this.spawns].sort((a, b) => Math.hypot(b.x - this.player.x, b.z - this.player.z) - Math.hypot(a.x - this.player.x, a.z - this.player.z));
@@ -299,18 +303,20 @@ export class Game {
   drive(c, dt) {
     const s = c.stats;
     const nitro = c.specialOn === 'nitro', ram = c.specialOn === 'ram';
-    const maxS = s.maxSpeed * (nitro ? 1.75 : 1) * (ram ? 2.1 : 1);
-    const acc = s.accel * (nitro ? 2 : 1);
+    const dash = c.specialOn === 'dash', slow = c.slowT > 0 ? 0.5 : 1;
+    const maxS = s.maxSpeed * (nitro ? 1.75 : 1) * (ram ? 2.1 : 1) * (dash ? 2 : 1) * slow;
+    const acc = s.accel * (nitro ? 2 : 1) * (dash ? 4 : 1) * slow;
+    if (c.skidT > 0) { c.throttle = 0; c.steer = 0; } // spun out: no control until the skid ends
     if (ram) c.speed = Math.min(maxS, c.speed + acc * 4 * dt);
     else if (c.throttle > 0.05) c.speed += acc * c.throttle * dt * (c.speed < 0 ? 2 : 1);
     else if (c.throttle < -0.05) c.speed += acc * c.throttle * dt * (c.speed > 0 ? 1.8 : 0.7);
     else c.speed -= c.speed * Math.min(1, 2.2 * dt); // lets go of the stick: the car settles quickly
     c.speed = clamp(c.speed, -s.maxSpeed * 0.45, maxS);
-    if (!ram && c.speed > s.maxSpeed * (nitro ? 1.75 : 1)) c.speed -= (c.speed - s.maxSpeed) * 2 * dt;
+    if (!ram && !dash && c.speed > s.maxSpeed * (nitro ? 1.75 : 1) * slow) c.speed -= (c.speed - s.maxSpeed * slow) * 2 * dt;
     // steering eases in and out instead of snapping, which keeps the car stable on a touch stick
     c.steerS = (c.steerS || 0) + (c.steer - (c.steerS || 0)) * Math.min(1, dt * (c.isPlayer ? 20 : 12));
     const turnScale = clamp(c.speed / 4, -1, 1) * (1 - 0.25 * clamp(Math.abs(c.speed) / maxS, 0, 1));
-    c.heading = wrap(c.heading + c.steerS * s.turn * 1.15 * turnScale * dt);
+    c.heading = wrap(c.heading + c.steerS * s.turn * 1.15 * turnScale * dt + (c.skidT > 0 ? c.skidSpin * Math.min(1, c.skidT) * dt : 0));
     const fx = Math.sin(c.heading), fz = Math.cos(c.heading);
     c.x += (fx * c.speed + c.kx) * dt; c.z += (fz * c.speed + c.kz) * dt;
     const kd = Math.exp(-4 * dt); c.kx *= kd; c.kz *= kd;
@@ -393,13 +399,23 @@ export class Game {
 
   // ---------- weapons ----------
   weapons(c, dt) {
+    const wasCooling = c.specialCd > 0;
     c.gunCd -= dt; c.rocketCd -= dt; c.specialCd -= dt;
+    if (c.isPlayer && wasCooling && c.specialCd <= 0 && this.state === 'fight') sfx.ready();
+    for (const k of ['slowT', 'jamT', 'skidT', 'hideT', 'spinT']) if (c[k] > 0) c[k] = Math.max(0, c[k] - dt);
     if (c.specialOn) {
       c.specialT -= dt;
       if (c.specialOn === 'flame') this.flameTick(c, dt);
-      if (c.specialT <= 0) { if (c.bubble) c.bubble.visible = false; c.specialOn = null; c.rammed.clear(); }
+      if (c.specialOn === 'smoke' && Math.random() < dt * 12) { const fx = Math.sin(c.heading), fz = Math.cos(c.heading); this.fx.smokeScreen(c.x - fx * 5, c.z - fz * 5, 3); } // trail behind, the driver still sees ahead
+      if (c.specialOn === 'dash' && Math.random() < dt * 40) { const fx = Math.sin(c.heading), fz = Math.cos(c.heading); this.fx.trailColor(c.x - fx * 2.5, 0.8, c.z - fz * 2.5, [1, 0.25, 0.7]); }
+      if (c.specialOn === 'shield' && c.bubble) c.bubble.material.opacity = 0.18 + 0.08 * Math.sin(this.time * 12);
+      if (c.specialT <= 0) { if (c.bubble) c.bubble.visible = false; if (c.isPlayer && c.specialOn !== 'flame') sfx.abilityEnd(); c.specialOn = null; c.rammed.clear(); }
     }
-    if (c.firing && c.gunCd <= 0 && this.state === 'fight') { this.fireGun(c); c.gunCd = 0.09; }
+    if (c.jamT > 0 && Math.random() < dt * 6) this.fx.zap(c.x, 2.2, c.z);
+    if (c.slowT > 0 && Math.random() < dt * 4) this.fx.spark(c.x, 1.2, c.z, 3);
+    const model = c.mesh.userData.dims && c.mesh.children[0];
+    if (model) model.rotation.y = Math.PI / 2 + (c.spinT > 0 ? (1 - c.spinT / 0.55) * TAU : 0); // Rex's tail whip spin
+    if (c.firing && c.gunCd <= 0 && this.state === 'fight' && c.jamT <= 0) { this.fireGun(c); c.gunCd = 0.09; }
   }
 
   worldPoint(c, local) { return v3.copy(local).applyAxisAngle(THREE.Object3D.DEFAULT_UP, c.heading).add(new THREE.Vector3(c.x, 0, c.z)).clone(); }
@@ -407,7 +423,7 @@ export class Game {
   aimAt(c, range, cone) {
     let best = null, bestScore = Infinity;
     for (const o of this.cars) {
-      if (o === c || !o.alive) continue;
+      if (o === c || !o.alive || o.hideT > 0) continue;
       const dx = o.x - c.x, dz = o.z - c.z, d = Math.hypot(dx, dz);
       if (d > range) continue;
       const ang = Math.abs(wrap(Math.atan2(dx, dz) - c.heading));
@@ -437,7 +453,7 @@ export class Game {
     this.scene.add(b);
     this.bullets.push({ mesh: b, x: m.x, y: m.y, z: m.z, dx, dz, life: 0.5, owner: c, dmg: c.stats.gunDmg * c.dmgMul });
     this.fx.muzzle(m.x + dx * 0.6, m.y, m.z + dz * 0.6, dx, dz, c.isPlayer);
-    sfx.gun(this.vol(c) * (c.isPlayer ? 1 : 0.6));
+    sfx.gun(this.vol(c) * (c.isPlayer ? 1 : 0.6), (c.data.sound && c.data.sound.gun) || 1);
   }
 
   fireRocket(c, opts = {}) {
@@ -450,11 +466,11 @@ export class Game {
       if (t && t.alive) { const want = Math.atan2(t.x - m.x, t.z - m.z); if (Math.abs(wrap(want - c.heading)) < 0.5) dir = want; }
       if (!c.isPlayer) dir += R(-1, 1) * (1 - this.diff.accuracy) * 0.2;
     }
-    const big = opts.kind === 'nuke';
+    const big = opts.kind === 'nuke' || opts.kind === 'shell';
     const g = new THREE.Group();
-    const body = new THREE.Mesh(new THREE.CylinderGeometry(big ? 0.4 : 0.16, big ? 0.4 : 0.16, big ? 2.2 : 1.1, 8), new THREE.MeshStandardMaterial({ color: big ? 0x3d4a2a : opts.kind === 'napalm' ? 0x8a3a12 : 0xd9d2c4, metalness: 0.5 }));
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(big ? 0.4 : 0.16, big ? 0.4 : 0.16, big ? 2.2 : 1.1, 8), new THREE.MeshStandardMaterial({ color: opts.kind === 'shell' ? 0x2a0c0a : big ? 0x3d4a2a : opts.kind === 'napalm' ? 0x8a3a12 : 0xd9d2c4, metalness: 0.5 }));
     body.rotation.x = Math.PI / 2;
-    const tip = new THREE.Mesh(new THREE.ConeGeometry(big ? 0.4 : 0.16, big ? 0.8 : 0.4, 8), new THREE.MeshStandardMaterial({ color: big ? 0xffd23a : 0xff3d1f, emissive: big ? 0xffa000 : 0xff2000, emissiveIntensity: 1.5 }));
+    const tip = new THREE.Mesh(new THREE.ConeGeometry(big ? 0.4 : 0.16, big ? 0.8 : 0.4, 8), new THREE.MeshStandardMaterial({ color: opts.kind === 'shell' ? 0xff2a1a : big ? 0xffd23a : 0xff3d1f, emissive: opts.kind === 'shell' ? 0xff1000 : big ? 0xffa000 : 0xff2000, emissiveIntensity: 1.5 }));
     tip.rotation.x = Math.PI / 2; tip.position.z = big ? 1.5 : 0.7;
     g.add(body, tip); g.position.copy(m); g.rotation.y = dir;
     this.scene.add(g);
@@ -485,7 +501,7 @@ export class Game {
       const x = m.x + dx * s, z = m.z + dz * s;
       if (Math.abs(x) > this.arena.half || Math.abs(z) > this.arena.half) { end = s; break; }
       const o = this.hitObstacle(x, 1.5, z); if (o) { end = s; if (o.barrel) this.damageObstacle(o, 99, c); break; }
-      const car = this.cars.find((q) => q !== c && q.alive && Math.hypot(q.x - x, q.z - z) < CAR_R);
+      const car = this.cars.find((q) => q !== c && q.alive && Math.hypot(q.x - x, q.z - z) < HR(q));
       if (car) { hit = car; end = s; break; }
     }
     const ex = m.x + dx * end, ez = m.z + dz * end;
@@ -499,13 +515,75 @@ export class Game {
 
   useSpecial(c) {
     if (c.specialCd > 0 || c.specialOn) { if (c.isPlayer) sfx.denied(); return false; }
-    const sp = c.data.special.id, pw = c.stats.specialPower;
+    const spec = c.data.special, sp = spec.id, pw = c.stats.specialPower;
+    if (c.skidT > 0) { if (c.isPlayer) sfx.denied(); return false; } // can't act while spinning out
     c.specialCd = c.stats.specialCooldown;
-    const fx = Math.sin(c.heading), fz = Math.cos(c.heading);
+    const fx = Math.sin(c.heading), fz = Math.cos(c.heading), dur = spec.duration || 1, rad = spec.radius || 10;
+    const near = (r, cone = Math.PI) => this.cars.filter((o) => { if (o === c || !o.alive) return false; const dx = o.x - c.x, dz = o.z - c.z, d = Math.hypot(dx, dz); return d < r + HR(o) && Math.abs(wrap(Math.atan2(dx, dz) - c.heading)) <= cone; });
+    sfx.ability(c.data.sound && c.data.sound.ability, this.vol(c), c.data.sound && c.data.sound.files && c.data.sound.files.ability);
     switch (sp) {
+      case 'smoke': // Ghost: smoke cover, enemies lose track, short speed burst
+        c.specialOn = 'smoke'; c.specialT = dur; c.hideT = dur * Math.min(1.4, pw);
+        c.speed = Math.max(c.speed, c.stats.maxSpeed * 1.25);
+        for (let i = 0; i < 14; i++) this.fx.smokeScreen(c.x - fx * 3, c.z - fz * 3, rad);
+        for (const o of this.cars) if (o.ai && o.ai.target === c) { o.ai.target = null; o.ai.retarget = c.hideT; }
+        break;
+      case 'dash': // Venom: double speed, half damage taken
+        c.specialOn = 'dash'; c.specialT = dur * Math.min(1.4, pw); c.speed = Math.max(c.speed, c.stats.maxSpeed * 1.6);
+        break;
+      case 'toxic': { // Toxic Viper: a poison cloud lobbed ahead of the car
+        const zx = clamp(c.x + fx * 9, -this.arena.half + 2, this.arena.half - 2), zz = clamp(c.z + fz * 9, -this.arena.half + 2, this.arena.half - 2);
+        this.zones.push({ x: zx, z: zz, r: rad, t: dur, dps: 14 * pw * c.dmgMul, owner: c, safe: c, kind: 'toxic' });
+        for (let i = 0; i < 30; i++) this.fx.toxic(zx + R(-rad, rad) * 0.7, zz + R(-rad, rad) * 0.7);
+        this.fx.ring(zx, zz, rad, 0x7cff3a);
+        break;
+      }
+      case 'riptide': { // Megalodon: surge plus a wave that shoves and spins out cars in front
+        c.speed = Math.max(c.speed, c.stats.maxSpeed * 1.4);
+        this.fx.ring(c.x + fx * 6, c.z + fz * 6, rad * 0.8, 0x5fb8ff); this.fx.wave(c.x, c.z, c.heading, rad);
+        for (const o of near(rad, 0.75)) {
+          const dx = o.x - c.x, dz = o.z - c.z, d = Math.max(0.5, Math.hypot(dx, dz)), k = 1 - Math.min(1, d / (rad + 2)) * 0.6;
+          this.damage(o, 18 * pw * c.dmgMul * k, c, false, 'special');
+          o.kx += (dx / d) * 30 * k; o.kz += (dz / d) * 30 * k;
+          o.skidT = dur; o.skidSpin = (Math.random() < 0.5 ? -1 : 1) * R(3, 4.5); o.speed *= 0.5;
+          if (o.isPlayer) this.hud.toast(tr('SKIDDING'));
+        }
+        if (c.isPlayer) this.shake = Math.max(this.shake, 0.4);
+        break;
+      }
+      case 'pulse': // Blue Siren: electric pulse, slows and jams guns
+        this.fx.ring(c.x, c.z, rad, 0x58a8ff); this.fx.light(c.x, 3, c.z, 180, 0x58a8ff);
+        for (const o of near(rad)) {
+          o.slowT = dur * Math.min(1.4, pw); o.jamT = dur * Math.min(1.4, pw);
+          this.damage(o, 8 * pw * c.dmgMul, c, false, 'special');
+          this.fx.laser(c.x, 2.6, c.z, o.x, 1.6, o.z);
+          if (o.isPlayer) this.hud.toast(tr('JAMMED'));
+        }
+        break;
+      case 'whip': // Rex: tail spin, damage and knockback all around
+        c.spinT = 0.55;
+        this.fx.ring(c.x, c.z, rad, 0xff6a3a); this.fx.light(c.x, 2, c.z, 140);
+        for (const o of near(rad)) {
+          const dx = o.x - c.x, dz = o.z - c.z, d = Math.max(0.5, Math.hypot(dx, dz)), k = 1 - Math.min(1, d / (rad + 2)) * 0.5;
+          this.damage(o, 30 * pw * c.dmgMul * k, c, false, 'special');
+          o.kx += (dx / d) * 34 * k; o.kz += (dz / d) * 34 * k; o.speed *= 0.4;
+          this.fx.spark(o.x, 1.4, o.z, 10);
+        }
+        if (c.isPlayer) this.shake = Math.max(this.shake, 0.5);
+        break;
+      case 'shell': { // Blood Titan: slow heavy shell, its path drawn in red so it can be dodged
+        let dir = c.heading;
+        const t = c.isPlayer ? this.aimAt(c, 80, 0.3) : c.ai.target;
+        if (t && t.alive) { const want = Math.atan2(t.x - c.x, t.z - c.z); if (Math.abs(wrap(want - c.heading)) < 0.35) dir = want; }
+        this.fireRocket(c, { free: true, kind: 'shell', offset: wrap(dir - c.heading), speed: 30, dmg: 85 * pw * (c.isPlayer ? 1 : c.dmgMul), radius: rad });
+        this.fx.aimLine(c.x, c.z, dir, 70, 1.6); this.fx.light(c.x + fx * 3, 2.5, c.z + fz * 3, 160);
+        c.kx -= fx * 8; c.kz -= fz * 8; // recoil
+        if (c.isPlayer) this.shake = Math.max(this.shake, 0.45);
+        break;
+      }
       case 'nitro': c.specialOn = 'nitro'; c.specialT = 3 * Math.min(1.5, pw); sfx.special(); break;
-      case 'ram': c.specialOn = 'ram'; c.specialT = 1.3; c.rammed.clear(); c.speed = Math.max(c.speed, c.stats.maxSpeed); sfx.special(); break;
-      case 'shield': c.specialOn = 'shield'; c.specialT = 4 * Math.min(1.5, pw); if (c.bubble) c.bubble.visible = true; sfx.shield(); break;
+      case 'ram': c.specialOn = 'ram'; c.specialT = spec.duration || 1.3; c.rammed.clear(); c.speed = Math.max(c.speed, c.stats.maxSpeed); break;
+      case 'shield': c.specialOn = 'shield'; c.specialT = dur * Math.min(1.4, pw); if (c.bubble) c.bubble.visible = true; break;
       case 'flame': c.specialOn = 'flame'; c.specialT = 3; break;
       case 'shockwave': {
         this.fx.ring(c.x, c.z, 13, 0xffc070); this.fx.light(c.x, 2, c.z, 160); sfx.explosion(0.8, this.vol(c));
@@ -579,7 +657,7 @@ export class Game {
         b.x += b.dx * SPEED * dt / steps; b.z += b.dz * SPEED * dt / steps;
         for (const c of this.cars) {
           if (c === b.owner || !c.alive) continue;
-          if (Math.hypot(c.x - b.x, c.z - b.z) < CAR_R) { this.damage(c, b.dmg, b.owner, false, 'gun'); this.fx.spark(b.x, b.y, b.z); if (b.owner.isPlayer) sfx.hit(); hit = true; break; }
+          if (Math.hypot(c.x - b.x, c.z - b.z) < HR(c)) { this.damage(c, b.dmg, b.owner, false, 'gun'); this.fx.spark(b.x, b.y, b.z); if (b.owner.isPlayer) sfx.hit(); hit = true; break; }
         }
         if (!hit) { const o = this.hitObstacle(b.x, b.y, b.z); if (o) { this.fx.spark(b.x, b.y, b.z, 4); if (o.barrel) this.damageObstacle(o, b.dmg, b.owner); hit = true; } }
         if (Math.abs(b.x) > this.arena.half || Math.abs(b.z) > this.arena.half) hit = true;
@@ -594,7 +672,7 @@ export class Game {
   updateRockets(dt) {
     this.rockets = this.rockets.filter((r) => {
       r.life -= dt;
-      if (r.homing && r.homing.alive && r.life < 2.2) {
+      if (r.homing && r.homing.alive && !(r.homing.hideT > 0) && r.life < 2.2) {
         const want = Math.atan2(r.homing.x - r.x, r.homing.z - r.z);
         r.dir += clamp(wrap(want - r.dir), -3 * dt, 3 * dt);
       }
@@ -603,15 +681,15 @@ export class Game {
       r.y = Math.max(1.0, r.y - dt * 0.4);
       r.mesh.position.set(r.x, r.y, r.z); r.mesh.rotation.y = r.dir;
       this.fx.trail(r.x - Math.sin(r.dir) * 0.7, r.y, r.z - Math.cos(r.dir) * 0.7);
-      if (r.kind === 'nuke') this.fx.trail(r.x - Math.sin(r.dir) * 1.2, r.y + 0.2, r.z - Math.cos(r.dir) * 1.2);
+      if (r.kind === 'nuke' || r.kind === 'shell') this.fx.trail(r.x - Math.sin(r.dir) * 1.2, r.y + 0.2, r.z - Math.cos(r.dir) * 1.2);
       let boom = r.life <= 0 || Math.abs(r.x) > this.arena.half - 0.8 || Math.abs(r.z) > this.arena.half - 0.8;
-      if (!boom) for (const c of this.cars) if (c !== r.owner && c.alive && Math.hypot(c.x - r.x, c.z - r.z) < CAR_R + 0.4) { boom = true; break; }
+      if (!boom) for (const c of this.cars) if (c !== r.owner && c.alive && Math.hypot(c.x - r.x, c.z - r.z) < HR(c) + 0.4) { boom = true; break; }
       if (!boom && this.hitObstacle(r.x, r.y, r.z)) boom = true;
       if (boom) {
         this.scene.remove(r.mesh);
         if (r.kind === 'nuke') this.nukeBlast(r.x, r.z, r.radius, r.dmg, r.owner);
         else {
-          this.explode(r.x, r.z, r.radius, r.dmg, r.owner, 0.8, r.homing ? 'special' : 'rocket');
+          this.explode(r.x, r.z, r.radius, r.dmg, r.owner, r.kind === 'shell' ? 1.5 : 0.8, r.homing || r.kind === 'shell' ? 'special' : 'rocket');
           if (r.kind === 'napalm') this.zones.push({ x: r.x, z: r.z, r: 7, t: 6, dps: 20 * r.owner.dmgMul, owner: r.owner });
         }
         return false;
@@ -654,8 +732,8 @@ export class Game {
     for (const c of this.cars) {
       if (!c.alive) continue;
       const d = Math.hypot(c.x - x, c.z - z);
-      if (d > radius + CAR_R) continue;
-      const k = clamp(1 - Math.max(0, d - CAR_R) / radius, 0.3, 1);
+      if (d > radius + HR(c)) continue;
+      const k = clamp(1 - Math.max(0, d - HR(c)) / radius, 0.3, 1);
       this.damage(c, dmg * k * (c === owner ? 0.25 : 1), owner, false, cause);
       const nx = (c.x - x) / Math.max(d, 0.5), nz = (c.z - z) / Math.max(d, 0.5);
       c.kx += nx * 14 * k; c.kz += nz * 14 * k;
@@ -678,9 +756,12 @@ export class Game {
     this.zones = this.zones.filter((zn) => {
       zn.t -= dt;
       const n = Math.ceil(zn.r * 0.6);
+      if (zn.kind === 'toxic') { for (let i = 0; i < n; i++) if (Math.random() < 0.45) { const a = Math.random() * TAU, d = Math.sqrt(Math.random()) * zn.r; this.fx.toxic(zn.x + Math.cos(a) * d, zn.z + Math.sin(a) * d); } }
+      else {
       for (let i = 0; i < n; i++) if (Math.random() < 0.5) { const a = Math.random() * TAU, d = Math.sqrt(Math.random()) * zn.r; this.fx.flames(zn.x + Math.cos(a) * d, 0.3, zn.z + Math.sin(a) * d, 1.4); }
       if (Math.random() < 0.3) this.fx.burn(zn.x + R(-zn.r, zn.r) * 0.5, 1, zn.z + R(-zn.r, zn.r) * 0.5);
-      for (const c of this.cars) if (c.alive && Math.hypot(c.x - zn.x, c.z - zn.z) < zn.r + CAR_R * 0.5) this.damage(c, zn.dps * dt, zn.owner, true, 'fire');
+      }
+      for (const c of this.cars) if (c.alive && c !== zn.safe && Math.hypot(c.x - zn.x, c.z - zn.z) < zn.r + HR(c) * 0.5) { this.damage(c, zn.dps * dt, zn.owner, true, zn.kind === 'toxic' ? 'special' : 'fire'); if (zn.kind === 'toxic' && c.isPlayer && !this.poisonMsg) { this.poisonMsg = true; this.hud.toast(tr('POISONED')); setTimeout(() => (this.poisonMsg = false), 2500); } }
       return zn.t > 0;
     });
   }
@@ -791,7 +872,8 @@ export class Game {
   // ---------- damage / death ----------
   damage(c, amt, by, quiet = false, cause = 'gun') {
     if (!c.alive || amt <= 0 || this.state === 'countdown' || c.invuln > 0) return;
-    if (c.specialOn === 'shield') { if (!quiet && Math.random() < 0.3) this.fx.spark(c.x, 1.5, c.z); return; }
+    if (c.specialOn === 'shield') { amt *= 0.3; if (!quiet && Math.random() < 0.3) this.fx.spark(c.x, 1.5, c.z); } // Bulwark: 70% less damage
+    if (c.specialOn === 'dash') amt *= 0.5;
     c.hp -= amt; c.lastHit = this.time;
     if (by && by !== c) { c.lastAttacker = by; c.lastCause = cause; }
     if (c.isPlayer) { this.hud.hurt(amt); if (!quiet) sfx.hurt(); }
@@ -885,16 +967,17 @@ export class Game {
   think(c, dt) {
     const ai = c.ai, diff = this.diff;
     ai.retarget -= dt;
+    if (ai.target && ai.target.hideT > 0) ai.target = null; // lost in the smoke
     if (!ai.target || !ai.target.alive || ai.retarget <= 0) {
       ai.retarget = R(2, 4);
       let best = null, bs = Infinity;
       for (const o of this.cars) {
-        if (o === c || !o.alive) continue;
+        if (o === c || !o.alive || o.hideT > 0) continue;
         if (this.mode === 'survival' && !c.isPlayer && !o.isPlayer && Math.random() < 0.85) continue;
         const s = Math.hypot(o.x - c.x, o.z - c.z) * (o.isPlayer ? diff.focus : 1) * (o.hp / o.maxHp < 0.3 ? 0.7 : 1) * (o.bounty ? 0.75 : 1);
         if (s < bs) { bs = s; best = o; }
       }
-      ai.target = best || (c.isPlayer ? null : this.player.alive ? this.player : null);
+      ai.target = best || (c.isPlayer ? null : this.player.alive && !(this.player.hideT > 0) ? this.player : null);
     }
     const t = ai.target;
     if (!t) { c.throttle = 0.3; c.steer = 0; c.firing = false; return; }
@@ -929,7 +1012,11 @@ export class Game {
     ai.specialT -= dt;
     if (ai.specialT <= 0 && c.specialCd <= 0) {
       const sp = c.data.special.id;
-      const go = (sp === 'nitro' && dist > 35) || (sp === 'ram' && dist < 22 && aim < 0.25) || (sp === 'shockwave' && dist < 11)
+      const recent = this.time - c.lastHit < 1.2;
+      const go = (sp === 'smoke' && c.hp < c.maxHp * 0.5 && recent) || (sp === 'dash' && (dist > 32 || (c.hp < c.maxHp * 0.4 && recent)))
+        || (sp === 'toxic' && dist < 18 && aim < 0.5) || (sp === 'riptide' && dist < 13 && aim < 0.6) || (sp === 'pulse' && dist < 14)
+        || (sp === 'whip' && dist < 9) || (sp === 'shell' && dist < 55 && aim < 0.12)
+        || (sp === 'nitro' && dist > 35) || (sp === 'ram' && dist < 22 && aim < 0.25) || (sp === 'shockwave' && dist < 11)
         || (sp === 'flame' && dist < 11 && aim < 0.4) || (sp === 'shield' && c.hp < c.maxHp * 0.55 && this.time - c.lastHit < 1)
         || ((sp === 'homing' || sp === 'barrage') && dist < 45 && aim < 0.4) || (sp === 'mines' && dist < 20 && aim > 2.2);
       if (go && Math.random() < (diff.aggression || 1)) this.useSpecial(c);

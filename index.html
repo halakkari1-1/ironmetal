@@ -120,6 +120,21 @@ html.ar .chip{padding:5px 6px 5px 16px}html.ar .chip .lbl{letter-spacing:0;font-
 #menu.sub .topbar .logo{visibility:hidden}
 .carpanel .story{font:400 12.5px/1.5 var(--body);color:#cfc6b4;margin:-4px 0 10px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .carpanel .story[hidden]{display:none}
+.carpanel .sw{display:flex;flex-wrap:wrap;gap:4px 12px;margin:-4px 0 8px;font:600 12px var(--body)}.carpanel .sw[hidden]{display:none}
+.carpanel .sw .pro{color:#8ee05a}.carpanel .sw .con{color:#ff7a5a}
+.special b{display:flex!important;align-items:center;gap:8px}.special b .ic{width:18px;height:18px;flex:none}.special b em{margin-inline-start:auto;font:600 11px var(--ui);font-style:normal;color:var(--muted);letter-spacing:.06em;text-transform:none}
+#bSpecial{flex-direction:column}
+#bSpecial .abl{display:grid;justify-items:center;gap:1px;line-height:1.05;text-align:center;font-size:.72em;letter-spacing:.04em;padding:0 6px;text-transform:uppercase}
+#bSpecial .abl i svg{width:1.9em;height:1.9em;display:block}
+#bSpecial #hSpecialCd{position:absolute;inset:0;display:grid;place-items:center;font:800 2.1em var(--ui);color:#fff;text-shadow:0 2px 6px #000;pointer-events:none}
+#bSpecial[data-state="cool"] .abl{opacity:.28}#bSpecial[data-state="off"]{opacity:.45}
+#bSpecial[data-state="ready"]{border-color:#7cc441;animation:readyPulse 1.6s ease-in-out infinite}
+#bSpecial[data-state="active"]{border-color:#58a8ff;background:rgba(40,90,160,.45)}
+#bSpecial[data-state="active"] .abl{opacity:.35}
+@keyframes readyPulse{50%{box-shadow:0 0 18px rgba(124,196,65,.6)}}
+#menuToast{position:absolute;left:50%;top:22%;transform:translateX(-50%);font:800 22px var(--ui);letter-spacing:.06em;color:var(--hazard);text-shadow:0 2px 0 #000;opacity:0;pointer-events:none;white-space:nowrap}
+#menuToast.go{animation:mt 2.2s ease-out}
+@keyframes mt{0%{opacity:0;transform:translate(-50%,8px)}12%{opacity:1;transform:translate(-50%,0)}80%{opacity:1}100%{opacity:0}}
 #menu.garage .carpanel{top:calc(max(12px,env(safe-area-inset-top,0px)) + 4px);transform:none;max-height:calc(100% - 24px);overflow:auto}
 .uprow{display:grid;grid-template-columns:1fr auto;gap:4px 10px;align-items:center;padding:8px 0;border-bottom:1px solid #2a261e}
 .uprow:last-child{border:0}
@@ -299,6 +314,7 @@ html.ar .chip{padding:5px 6px 5px 16px}html.ar .chip .lbl{letter-spacing:0;font-
     <h2 id="cpName">Rustbucket</h2>
     <div class="driver" id="cpDriver">Driver</div>
     <p class="story" id="gStory" hidden></p>
+    <div class="sw" id="cpSW" hidden></div>
     <div id="cpStats"></div>
     <div class="special"><b id="cpSpecial">Nitro</b><span id="cpSpecialDesc"></span></div>
   </div>
@@ -311,6 +327,7 @@ html.ar .chip{padding:5px 6px 5px 16px}html.ar .chip .lbl{letter-spacing:0;font-
   </div>
 
   <!-- garage -->
+  <div id="menuToast"></div>
   <div id="garageUI" hidden>
     <div class="arrows"><button class="btn" id="gPrev" data-t-aria aria-label="Previous car">&lsaquo;</button><button class="btn" id="gNext" data-t-aria aria-label="Next car">&rsaquo;</button></div>
     <div class="actions">
@@ -396,7 +413,7 @@ html.ar .chip{padding:5px 6px 5px 16px}html.ar .chip .lbl{letter-spacing:0;font-
   <div class="fire live" id="fireBtns">
     <div class="fbtn" id="bGun"><span data-t>FIRE</span></div>
     <div class="fbtn" id="bRocket">RKT<em id="hRockets">6</em></div>
-    <div class="fbtn" id="bSpecial"><canvas class="cd" id="cdRing" width="160" height="160"></canvas><span id="hSpecialLbl">SPEC</span></div>
+    <div class="fbtn" id="bSpecial" data-state="ready"><canvas class="cd" id="cdRing" width="160" height="160"></canvas><span class="abl"><i id="hSpecialIc"></i><span id="hSpecialLbl">SPEC</span></span><b id="hSpecialCd" class="num"></b></div>
   </div>
   <div class="keys" id="keys">W A S D drive · Space fire · F rocket · E special · Esc pause</div>
   <div id="ehps"></div>

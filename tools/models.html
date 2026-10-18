@@ -1,0 +1,24 @@
+<!doctype html><meta charset="utf-8"><body style="margin:0;background:#888">
+<canvas id="c" width="1600" height="900"></canvas>
+<script type="importmap">{"imports":{"three":"../vendor/three/build/three.module.js","three/addons/":"../vendor/three/examples/jsm/"}}</script>
+<script type="module">
+// Renders every car model from its -X end (left column) and +X end (right column) to check which way it faces.
+import * as THREE from 'three'; import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+const ids = new URLSearchParams(location.search).get('ids').split(',');
+const r = new THREE.WebGLRenderer({ canvas: document.getElementById('c'), antialias: true }); r.setScissorTest(true);
+const scene = new THREE.Scene(); scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 2.5)); const d = new THREE.DirectionalLight(0xffffff, 2); d.position.set(2, 3, 1); scene.add(d);
+const cam = new THREE.PerspectiveCamera(30, 1, 0.1, 50);
+const W = 1600 / Math.min(ids.length, 5) , H = 450;
+const models = await Promise.all(ids.map((id) => new GLTFLoader().loadAsync(`../assets/models/${id}.glb`)));
+models.forEach((g, i) => {
+  scene.add(g.scene);
+  for (const side of [-1, 1]) {
+    const col = i % 5, row = Math.floor(i / 5);
+    r.setViewport(col * W, 900 - (row + 1) * H + (side > 0 ? 0 : H / 2), W, H / 2); r.setScissor(col * W, 900 - (row + 1) * H + (side > 0 ? 0 : H / 2), W, H / 2);
+    cam.aspect = W / (H / 2); cam.updateProjectionMatrix(); cam.position.set(side * 3.2, 0.9, 1.6); cam.lookAt(0, 0, 0);
+    r.setClearColor(side < 0 ? 0x556677 : 0x776655); r.render(scene, cam);
+  }
+  scene.remove(g.scene);
+});
+document.title = 'done';
+</script>

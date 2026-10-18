@@ -1,8 +1,9 @@
-// Procedural 3D models for the roster, plus the Meshy-made Warhorse.
-// Every car faces +Z, sits on y = 0, and is about 4.5 units long.
+// Car models: the nine Meshy-made vehicles (loaded from assets/models), plus the original procedural builders,
+// kept as a stand-in if a model file fails to load. Every car faces +Z and sits on y = 0.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { CARS } from './data.js';
 
 // ---------- shared textures ----------
 function makeGrime() {
@@ -157,8 +158,8 @@ function optimize(group, wheels) {
   for (const e of empties) e.parent.remove(e);
 }
 function finish(group, wheels, extra = {}) {
-  optimize(group, wheels);
-  group.userData = { wheels, muzzles: extra.muzzles || [new THREE.Vector3(0, 1.8, 2.4)], rocketMuzzle: extra.rocketMuzzle || new THREE.Vector3(0, 1.9, 1.8), flame: extra.flame || new THREE.Vector3(0, 0.8, 2.6) };
+  if (!extra.keep) optimize(group, wheels); // model cars share their geometry; only procedural parts get merged
+  group.userData = { wheels, muzzles: extra.muzzles || [new THREE.Vector3(0, 1.8, 2.4)], rocketMuzzle: extra.rocketMuzzle || new THREE.Vector3(0, 1.9, 1.8), flame: extra.flame || new THREE.Vector3(0, 0.8, 2.6), dims: extra.dims || null };
   return group;
 }
 
@@ -326,44 +327,61 @@ const BUILDERS = {
   },
 };
 
-// ---------- Warhorse (GLB) ----------
-let warhorseScene = null, warhorseLoading = null;
-export function preloadWarhorse() {
-  if (warhorseScene) return Promise.resolve(warhorseScene);
-  if (warhorseLoading) return warhorseLoading;
-  warhorseLoading = new Promise((resolve, reject) => {
+// ---------- Meshy car models (GLB) ----------
+// Each car's model ships as assets/models/<id>.js, a script that stores the base64 GLB in window.__GLB[id]
+// (scripts load from file:// in the app and from any static host). Models load on demand and are cached.
+const MODELS = {}; // id -> { scene, promise }
+export function preloadModel(id) {
+  const m = MODELS[id] || (MODELS[id] = {});
+  if (m.scene) return Promise.resolve(m.scene);
+  if (m.promise) return m.promise;
+  m.promise = new Promise((resolve, reject) => {
     const parse = () => {
       try {
-        const b = atob(window.__GLB['warhorse.glb']);
-        const u = new Uint8Array(b.length);
+        const b = atob(window.__GLB[id]); const u = new Uint8Array(b.length);
         for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i);
-        new GLTFLoader().parse(u.buffer, '', (gl) => { warhorseScene = gl.scene; resolve(warhorseScene); }, reject);
+        delete window.__GLB[id]; // free the base64 copy
+        new GLTFLoader().parse(u.buffer, '', (gl) => {
+          gl.scene.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+          m.scene = gl.scene; resolve(m.scene);
+        }, reject);
       } catch (e) { reject(e); }
     };
-    if (window.__GLB && window.__GLB['warhorse.glb']) return parse();
+    if (window.__GLB && window.__GLB[id]) return parse();
     const s = document.createElement('script');
-    s.src = new URL('../assets/models/warhorse.js', import.meta.url).href;
-    s.onload = parse; s.onerror = reject; document.head.appendChild(s);
+    s.src = new URL(`../assets/models/${id}.js`, import.meta.url).href;
+    s.onload = parse; s.onerror = () => { m.promise = null; reject(new Error(`model ${id} missing`)); }; document.head.appendChild(s);
   });
-  return warhorseLoading;
+  return m.promise;
 }
+export function preloadModels(ids) { return Promise.all([...new Set(ids)].map((id) => preloadModel(id).catch(() => null))); }
+export const modelReady = (id) => !!(MODELS[id] && MODELS[id].scene);
+// kept for older call sites
+export const preloadWarhorse = () => preloadModel('ghost');
 
-function buildWarhorse() {
-  const g = new THREE.Group();
-  if (!warhorseScene) return finish(g, []);
-  const model = warhorseScene.clone(true);
-  model.traverse((o) => { if (o.isMesh) { o.material = o.material.clone(); o.castShadow = true; o.receiveShadow = true; } });
-  // the source model is 1.9 long along X with its plow at -X; turn it to face +Z
-  model.rotation.y = Math.PI / 2;
-  model.scale.setScalar(2.75);
-  model.position.y = 0.407 * 2.75;
-  g.add(model);
-  return finish(g, [], { muzzles: [new THREE.Vector3(0.3, 1.95, 1.4)], rocketMuzzle: new THREE.Vector3(0, 2.0, 0.6) });
+// Scales the model to its real length, turns it to face +Z, sets it on the ground, and places the gun muzzles
+// from the car's data (fractions of its box) so bullets leave from its own guns.
+function buildModelCar(car) {
+  const src = MODELS[car.id].scene, spec = car.model || {};
+  const box = new THREE.Box3().setFromObject(src), size = box.getSize(new THREE.Vector3());
+  const s = (spec.length || 5) / size.x;
+  const model = src.clone(true);
+  model.rotation.y = Math.PI / 2; // Meshy exports face -X
+  model.scale.setScalar(s);
+  model.position.set(-(box.min.z + box.max.z) / 2 * s, -box.min.y * s, -(box.min.x + box.max.x) / 2 * s); // centre it
+  const g = new THREE.Group(); g.add(model);
+  const W = size.z * s, H = size.y * s, L = size.x * s;
+  const pt = ([x, y, z]) => new THREE.Vector3(x * W / 2, y * H, z * L / 2);
+  return finish(g, [], {
+    muzzles: (spec.muzzles || [[0, 0.95, 0.3]]).map(pt), rocketMuzzle: pt(spec.rocket || [0, 0.95, 0]),
+    flame: new THREE.Vector3(0, H * 0.4, L / 2 + 0.3), dims: { W, H, L }, keep: true,
+  });
 }
 
 export function buildCar(id) {
-  if (id === 'warhorse') return buildWarhorse();
-  return (BUILDERS[id] || BUILDERS.rustbucket)();
+  const car = CARS.find((c) => c.id === id);
+  if (car && modelReady(id)) return buildModelCar(car);
+  return BUILDERS.rustbucket(); // procedural stand-in only if a model failed to load
 }
 
 // Blacken and dent a destroyed car.
