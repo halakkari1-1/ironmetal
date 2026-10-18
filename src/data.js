@@ -108,19 +108,29 @@ export function carStats(car, up = {}) {
 
 export const MAPS = [
   {
-    id: 'scrapyard', name: 'Scrapyard', tag: 'Tight lanes between wreck piles',
-    desc: 'Crushed cars stacked three high, shipping containers and a dead crane. Good cover, short sight lines.',
-    size: 110, ground: 0x4a3a2c, groundAlt: 0x3b2e24, fog: 0x2a211b, sky: 0x2b221c, light: 0xffc890,
+    id: 'scrapyard', name: 'Scrapyard', layout: 'scrapyard', tag: 'Junk piles and a watchtower',
+    desc: 'Dumpsters, cages and tarp-covered drums around an old watchtower. Plenty of cover, short sight lines.',
+    size: 110, ground: 0x4f4032, groundAlt: 0x3b2f25, fog: 0x7d6a58, skyTop: 0x3b3f4a, light: 0xffcf9a, skyLight: 0xffe6c8, concrete: 0,
   },
   {
-    id: 'refinery', name: 'Refinery', tag: 'Explosive barrels everywhere',
-    desc: 'Concrete pads, storage tanks and rows of fuel barrels. One stray rocket and the whole row goes up.',
-    size: 120, ground: 0x5a5a56, groundAlt: 0x4b4b47, fog: 0x2c2f33, sky: 0x30343a, light: 0xdfe6ff,
+    id: 'refinery', name: 'Refinery', layout: 'refinery', tag: 'Fuel tanks ready to blow',
+    desc: 'Concrete pads, storage tanks, gas carts and rows of fuel barrels. One stray rocket and the whole row goes up.',
+    size: 120, ground: 0x55524c, groundAlt: 0x44413c, fog: 0x8b9099, skyTop: 0x41505f, light: 0xe6ecff, skyLight: 0xdfe8ff, concrete: 0.8,
   },
   {
-    id: 'dustbowl', name: 'Dust Bowl', tag: 'Open ground, rock pillars',
-    desc: 'A dried lake bed broken by rock pillars and ruined walls. Fast cars rule here.',
-    size: 130, ground: 0xb08a5a, groundAlt: 0x9c7a4f, fog: 0xc9a77a, sky: 0xd9b88a, light: 0xffe2b0,
+    id: 'dustbowl', name: 'Dust Bowl', layout: 'dustbowl', tag: 'Open ground, rock pillars',
+    desc: 'A dried lake bed broken by rock pillars, barrier lines and a lonely outpost. Fast cars rule here.',
+    size: 130, ground: 0xb08a5a, groundAlt: 0x9c7a4f, fog: 0xd8b98d, skyTop: 0x8fa3b8, light: 0xffe2b0, skyLight: 0xfff0d8, concrete: 0,
+  },
+  {
+    id: 'shanty', name: 'Shanty Town', layout: 'shanty', tag: 'Three towers, tight streets',
+    desc: 'Three scrap towers form a ring around the market square. Every corner is an ambush.',
+    size: 115, ground: 0x4a3d33, groundAlt: 0x372d26, fog: 0x5d5560, skyTop: 0x241f2c, light: 0xffb27a, skyLight: 0xd9b8a8, concrete: 0.45,
+  },
+  {
+    id: 'outpost', name: 'The Outpost', layout: 'outpost', tag: 'Fight around the fortress',
+    desc: 'A fortified tower inside a ring of concrete barriers with two gates. Circle it, breach it, hold it.',
+    size: 120, ground: 0x6b5a45, groundAlt: 0x574837, fog: 0xa38f7a, skyTop: 0x4d5868, light: 0xffd9a8, skyLight: 0xffeedd, concrete: 0.42,
   },
 ];
 

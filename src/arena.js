@@ -1,126 +1,235 @@
-// Builds an arena: ground, boundary walls, obstacles (with collision shapes), barrels, backdrop and lighting.
+// Builds an arena from the environment kit: ground, sky, concrete barrier walls, the landmark building,
+// scattered props with collision shapes, explosive barrels, storage tanks, and lighting.
 import * as THREE from 'three';
 import { quality } from './quality.js';
+import { KIT, propInstances, propSize, building, buildingFootprint, barrelGeometry, containerGeometry, mapToRegion, panelCylinder, ATLAS } from './kit.js';
+
+const PS = 1.5;    // prop scale: kit props are true-to-life, game cars are a bit oversized
+const BS = 1.7;    // building scale
+const WS = 1.6;    // wall (jersey barrier) scale
 
 function rng(seed) { let s = seed >>> 0; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); }
 
-function groundTexture(map) {
+function dirtTexture(map, R) {
   const c = document.createElement('canvas'); c.width = c.height = 512;
   const g = c.getContext('2d');
   const base = new THREE.Color(map.ground), alt = new THREE.Color(map.groundAlt);
   g.fillStyle = `#${base.getHexString()}`; g.fillRect(0, 0, 512, 512);
-  for (let i = 0; i < 180; i++) {
-    const x = Math.random() * 512, y = Math.random() * 512, r = 10 + Math.random() * 50;
+  for (let i = 0; i < 220; i++) {
+    const x = R() * 512, y = R() * 512, r = 8 + R() * 46;
     const grd = g.createRadialGradient(x, y, 0, x, y, r);
     grd.addColorStop(0, `#${alt.getHexString()}aa`); grd.addColorStop(1, `#${alt.getHexString()}00`);
     g.fillStyle = grd; g.fillRect(x - r, y - r, r * 2, r * 2);
   }
-  for (let i = 0; i < 9000; i++) {
-    const v = Math.random() < 0.5 ? 0 : 255;
-    g.fillStyle = `rgba(${v},${v},${v},${Math.random() * 0.07})`;
-    g.fillRect(Math.random() * 512, Math.random() * 512, 2, 2);
-  }
-  if (map.id === 'refinery') { // concrete slab seams
-    g.strokeStyle = 'rgba(20,20,20,0.35)'; g.lineWidth = 2;
-    for (let i = 0; i <= 512; i += 128) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i, 512); g.moveTo(0, i); g.lineTo(512, i); g.stroke(); }
-  }
-  for (let i = 0; i < 14; i++) { // oil stains and tire marks
-    g.fillStyle = 'rgba(10,8,6,0.18)'; g.beginPath();
-    g.ellipse(Math.random() * 512, Math.random() * 512, 8 + Math.random() * 30, 5 + Math.random() * 18, Math.random() * 3, 0, 7); g.fill();
-  }
+  for (let i = 0; i < 14000; i++) { const v = R() < 0.5 ? 0 : 255; g.fillStyle = `rgba(${v},${v},${v},${R() * 0.08})`; g.fillRect(R() * 512, R() * 512, 1 + R() * 2, 1 + R() * 2); }
+  for (let i = 0; i < 260; i++) { g.fillStyle = `rgba(30,24,18,${0.2 + R() * 0.3})`; g.beginPath(); g.arc(R() * 512, R() * 512, 0.6 + R() * 2.2, 0, 7); g.fill(); } // pebbles
+  for (let i = 0; i < 16; i++) { g.fillStyle = 'rgba(10,8,6,0.16)'; g.beginPath(); g.ellipse(R() * 512, R() * 512, 8 + R() * 30, 5 + R() * 18, R() * 3, 0, 7); g.fill(); }
   const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(map.size / 24, map.size / 24);
-  t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
   return t;
+}
+function skyTexture(top, horizon) {
+  const c = document.createElement('canvas'); c.width = 2; c.height = 256;
+  const g = c.getContext('2d'), grd = g.createLinearGradient(0, 0, 0, 256);
+  grd.addColorStop(0, `#${new THREE.Color(top).getHexString()}`); grd.addColorStop(0.62, `#${new THREE.Color(horizon).getHexString()}`); grd.addColorStop(1, `#${new THREE.Color(horizon).getHexString()}`);
+  g.fillStyle = grd; g.fillRect(0, 0, 2, 256);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+
+// Big storage tank whose side samples the riveted steel panel of the atlas.
+function tankGeometry(r, h) {
+  const g = new THREE.CylinderGeometry(r, r, h, 24, 1, false);
+  const uv = g.attributes.uv, u0 = 2 / 1024, u1 = 250 / 1024, v0 = 1 - 508 / 1024, v1 = 1 - 262 / 1024;
+  const wraps = Math.max(1, Math.round((2 * Math.PI * r) / 6)), rows = Math.max(1, Math.round(h / 5));
+  for (let i = 0; i < uv.count; i++) {
+    const u = (uv.getX(i) * wraps) % 1, v = (uv.getY(i) * rows) % 1;
+    uv.setXY(i, u0 + (uv.getX(i) === 1 ? 1 : u) * (u1 - u0), v0 + (uv.getY(i) === 1 ? 1 : v) * (v1 - v0));
+  }
+  g.translate(0, h / 2, 0);
+  return g;
 }
 
 export function buildArena(scene, map) {
-  const R = rng(map.id.length * 7919 + map.size);
+  const R = rng(map.id.length * 7919 + map.size * 13);
   const half = map.size / 2;
   const obstacles = []; // { kind:'box'|'circle', x, z, hw, hd | r, h, mesh, barrel?, hp? }
   const grp = new THREE.Group(); scene.add(grp);
 
-  scene.background = new THREE.Color(map.sky);
-  scene.fog = new THREE.Fog(map.fog, map.size * 0.45, map.size * 1.5);
+  scene.background = skyTexture(map.skyTop, map.fog);
+  scene.fog = new THREE.Fog(map.fog, map.size * 0.4, map.size * 1.45);
 
-  const hemi = new THREE.HemisphereLight(0xfff2e0, map.ground, 1.5); grp.add(hemi);
-  const sun = new THREE.DirectionalLight(map.light, 2.6);
-  sun.position.set(40, 70, 25); sun.castShadow = true;
-  const sc = sun.shadow.camera; sc.left = -half - 10; sc.right = half + 10; sc.top = half + 10; sc.bottom = -half - 10; sc.far = 200;
-  sun.shadow.mapSize.set(quality.tier.shadow, quality.tier.shadow); sun.shadow.bias = -0.0008; sun.shadow.normalBias = 0.6;
+  const hemi = new THREE.HemisphereLight(map.skyLight || 0xfff2e0, map.ground, 1.35); grp.add(hemi);
+  const sun = new THREE.DirectionalLight(map.light, 2.8);
+  sun.position.set(45, 75, 30); sun.castShadow = true;
+  const sc = sun.shadow.camera; sc.left = -half - 12; sc.right = half + 12; sc.top = half + 12; sc.bottom = -half - 12; sc.far = 220;
+  sun.shadow.mapSize.set(quality.tier.shadow, quality.tier.shadow); sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.5;
   grp.add(sun, sun.target);
 
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(map.size * 3, map.size * 3), new THREE.MeshStandardMaterial({ map: groundTexture(map), roughness: 1, metalness: 0 }));
-  ground.material.map.repeat.set(map.size * 3 / 24, map.size * 3 / 24);
+  // ground: dirt everywhere, concrete slabs where the map asks for it
+  const dirt = dirtTexture(map, R); dirt.repeat.set(map.size * 3 / 22, map.size * 3 / 22);
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(map.size * 3, map.size * 3), new THREE.MeshStandardMaterial({ map: dirt, roughness: 1, metalness: 0 }));
   ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; grp.add(ground);
+  if (map.concrete) {
+    const tex = new THREE.TextureLoader().load(new URL('../assets/kit/ground_concrete.jpg', import.meta.url).href);
+    tex.colorSpace = THREE.SRGBColorSpace; tex.wrapS = tex.wrapT = THREE.MirroredRepeatWrapping; tex.anisotropy = 4;
+    const size = map.size * map.concrete;
+    tex.repeat.set(size / 15, size / 15);
+    const slab = new THREE.Mesh(new THREE.PlaneGeometry(size, size), new THREE.MeshStandardMaterial({ map: tex, color: 0xb8b2a8, roughness: 0.95, metalness: 0, polygonOffset: true, polygonOffsetFactor: -1 }));
+    slab.rotation.x = -Math.PI / 2; slab.position.y = 0.01; slab.receiveShadow = true; grp.add(slab);
+  }
 
-  const mat = (color, o = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0.2, flatShading: true, ...o });
-  const M = {
-    concrete: mat(0x8a877f), darkConcrete: mat(0x5d5a54), rust: mat(0x6e3a1e, { metalness: 0.4 }), steel: mat(0x5c6066, { metalness: 0.6, roughness: 0.5 }),
-    rock: mat(map.id === 'dustbowl' ? 0x9a7650 : 0x6b625a), tire: mat(0x1a1a1a), hazard: mat(0xd9a521),
-    barrel: mat(0xb8321e, { metalness: 0.5, roughness: 0.5 }), barrelBand: mat(0xe0b42a),
-    containers: [mat(0x2f5b6e), mat(0x7a2e22), mat(0x4f6b34), mat(0x8a6a2a)],
+  // ---------- helpers ----------
+  const instances = {}; // prop name -> [{x,z,ry,s}]
+  const lowTier = quality.tier.particles < 0.6;
+  const addProp = (name, x, z, ry = 0, s = 1, collide = true) => {
+    if (!collide && lowTier) return; // low quality: skip pure decoration
+    (instances[name] = instances[name] || []).push({ x, z, ry, s });
+    if (!collide) return;
+    const sz = propSize(name, PS * s), swap = Math.abs(Math.sin(ry)) > 0.7;
+    const hw = (swap ? sz.z : sz.x) / 2, hd = (swap ? sz.x : sz.z) / 2;
+    if (Math.abs(hw - hd) < 0.35 * Math.max(hw, hd)) obstacles.push({ kind: 'circle', x, z, r: Math.max(hw, hd) * 0.92, h: sz.y });
+    else obstacles.push({ kind: 'box', x, z, hw, hd, h: sz.y });
   };
-  const mesh = (geo, m, x, y, z, ry = 0) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.rotation.y = ry; o.castShadow = true; o.receiveShadow = true; grp.add(o); return o; };
-  const box = (w, h, d, m, x, z, y0 = 0) => { const o = mesh(new THREE.BoxGeometry(w, h, d), m, x, y0 + h / 2, z); obstacles.push({ kind: 'box', x, z, hw: w / 2, hd: d / 2, h, mesh: o }); return o; };
-  const cyl = (r, h, m, x, z, seg = 14) => { const o = mesh(new THREE.CylinderGeometry(r, r, h, seg), m, x, h / 2, z); obstacles.push({ kind: 'circle', x, z, r, h, mesh: o }); return o; };
+  const bGeo = barrelGeometry();
+  const barrels = []; // all barrels draw as one instanced mesh; a destroyed barrel collapses its instance to zero size
   const barrel = (x, z) => {
-    const g = new THREE.Group(); g.position.set(x, 0, z); grp.add(g);
-    const b = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.75, 1.8, 10), M.barrel); b.position.y = 0.9; b.castShadow = true;
-    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.77, 0.77, 0.25, 10), M.barrelBand); band.position.y = 1.2;
-    g.add(b, band);
-    obstacles.push({ kind: 'circle', x, z, r: 0.9, h: 1.8, mesh: g, barrel: true, hp: 15 });
+    const o = { kind: 'circle', x, z, r: 0.85, h: 1.8, barrel: true, hp: 15, index: barrels.length };
+    barrels.push({ x, z, ry: R() * 6.28 }); obstacles.push(o);
+  };
+  const barrelMat = KIT.material.clone(); barrelMat.side = THREE.FrontSide; barrelMat.color = new THREE.Color(1.15, 0.9, 0.85);
+  const tankMat = KIT.material.clone(); tankMat.side = THREE.FrontSide; tankMat.alphaMap = null; tankMat.alphaTest = 0;
+  const tank = (x, z, r, h) => {
+    const m = new THREE.Mesh(panelCylinder(r, h, ATLAS.plate, 6, 5), tankMat); m.position.set(x, 0, z); m.castShadow = true; m.receiveShadow = true; grp.add(m);
+    const lid = new THREE.Mesh(new THREE.ConeGeometry(r * 1.02, r * 0.35, 24), tankMat); lid.position.set(x, h + r * 0.175, z); lid.castShadow = true; grp.add(lid);
+    const stripe = new THREE.Mesh(new THREE.CylinderGeometry(r + 0.04, r + 0.04, 0.6, 24, 1, true), new THREE.MeshStandardMaterial({ color: 0xc9951f, roughness: 0.7 }));
+    stripe.position.set(x, h * 0.72, z); grp.add(stripe);
+    obstacles.push({ kind: 'circle', x, z, r, h: h + r * 0.35, mesh: m });
+  };
+  const contMat = KIT.material.clone(); contMat.side = THREE.FrontSide; contMat.alphaMap = null; contMat.alphaTest = 0;
+  const tints = [0xffffff, 0xc8d8e8, 0xf0c8b8, 0xd8e0c0, 0xe8d8b0];
+  // shipping container, optionally a second one stacked on top
+  const container = (x, z, ry, stack = false) => {
+    const variant = R() < 0.5 ? 1 : 0, geo = containerGeometry(7.8, 3.3, 3.1, variant);
+    const mk = (y, ryy) => { const mm = contMat.clone(); mm.color = new THREE.Color(tints[Math.floor(R() * tints.length)]); const m = new THREE.Mesh(geo, mm); m.position.set(x, y, z); m.rotation.y = ryy; m.castShadow = true; m.receiveShadow = true; grp.add(m); return m; };
+    mk(0, ry); if (stack) mk(3.3, ry + (R() - 0.5) * 0.25);
+    const swap = Math.abs(Math.sin(ry)) > 0.7;
+    obstacles.push({ kind: 'box', x, z, hw: swap ? 1.55 : 3.9, hd: swap ? 3.9 : 1.55, h: stack ? 6.6 : 3.3 });
+  };
+  const landmark = (x, z, ry) => {
+    const b = building(BS); b.position.set(x, 0, z); b.rotation.y = ry; grp.add(b);
+    const f = buildingFootprint(BS), swap = Math.abs(Math.sin(ry)) > 0.7;
+    const c = Math.cos(ry), s = Math.sin(ry), cx = (f.minX + f.maxX) / 2, cz = (f.minZ + f.maxZ) / 2;
+    const wx = cx * c + cz * s, wz = -cx * s + cz * c;
+    const hw = (swap ? f.maxZ - f.minZ : f.maxX - f.minX) / 2, hd = (swap ? f.maxX - f.minX : f.maxZ - f.minZ) / 2;
+    obstacles.push({ kind: 'box', x: x + wx, z: z + wz, hw, hd, h: f.h, building: true });
+    return b;
   };
 
-  // boundary: jersey barriers with a hazard stripe, plus a tall outer fence
-  const wallH = 2.4, segs = Math.ceil(map.size / 6);
-  for (let i = 0; i < segs; i++) {
-    const p = -half + (i + 0.5) * (map.size / segs);
-    for (const [x, z, ry] of [[p, -half, 0], [p, half, 0], [-half, p, Math.PI / 2], [half, p, Math.PI / 2]]) {
-      const w = mesh(new THREE.BoxGeometry(map.size / segs - 0.2, wallH, 1.4), i % 2 ? M.concrete : M.darkConcrete, x, wallH / 2, z, ry);
-      if (i % 3 === 0) mesh(new THREE.BoxGeometry(map.size / segs - 0.2, 0.3, 1.45), M.hazard, x, wallH - 0.4, z, ry);
-      w.receiveShadow = true;
-    }
+  // ---------- boundary: concrete jersey barriers on all four sides ----------
+  const bs = propSize('barrier', WS), wall = [];
+  const n = Math.ceil(map.size / (bs.x * 0.98));
+  for (let i = 0; i < n; i++) {
+    const p = -half + (i + 0.5) * (map.size / n);
+    for (const [x, z, ry] of [[p, -half, 0], [p, half, Math.PI], [-half, p, Math.PI / 2], [half, p, -Math.PI / 2]]) wall.push({ x, z, ry: ry + (R() - 0.5) * 0.06, s: 1 });
   }
-  // backdrop silhouettes beyond the walls
-  for (let i = 0; i < 40; i++) {
-    const a = (i / 40) * Math.PI * 2, d = half + 15 + R() * 40;
-    const h = map.id === 'dustbowl' ? 4 + R() * 14 : 6 + R() * 22;
-    const o = new THREE.Mesh(map.id === 'dustbowl' ? new THREE.DodecahedronGeometry(h * 0.7, 0) : new THREE.BoxGeometry(6 + R() * 10, h, 6 + R() * 10), M.darkConcrete);
-    o.position.set(Math.cos(a) * d, h / 2 - 1, Math.sin(a) * d); o.rotation.y = R() * 3; grp.add(o);
+  grp.add(propInstances('barrier', wall, WS));
+  // outer skyline: a few far buildings in the haze (low detail)
+  for (let i = 0; i < (lowTier ? 0 : quality.tier.particles < 0.9 ? 2 : 4); i++) {
+    const a = (i / 4) * Math.PI * 2 + 0.6 + R() * 0.5, d = half + 22 + R() * 14;
+    const b = building(BS * 1.2); b.position.set(Math.cos(a) * d, 0, Math.sin(a) * d); b.rotation.y = R() * 6.28; b.levels[0].distance = 1e6; b.levels.reverse();
+    b.levels[0].distance = 0; grp.add(b);
   }
 
+  // ---------- placement ----------
   const spawnR = half * 0.72;
   const clear = (x, z, r) => {
     if (Math.abs(x) > half - r - 3 || Math.abs(z) > half - r - 3) return false;
-    for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2; if (Math.hypot(x - Math.cos(a) * spawnR, z - Math.sin(a) * spawnR) < r + 7) return false; }
-    if (Math.hypot(x, z) < r + 6) return false;
-    return obstacles.every((o) => Math.hypot(o.x - x, o.z - z) > r + (o.r || Math.max(o.hw, o.hd)) + 5);
+    for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2 + Math.PI / 2; if (Math.hypot(x - Math.cos(a) * spawnR, z - Math.sin(a) * spawnR) < r + 7) return false; }
+    if (Math.hypot(x, z) < r + 5) return false;
+    return obstacles.every((o) => Math.hypot(o.x - x, o.z - z) > r + (o.r || Math.hypot(o.hw, o.hd)) + 4.5);
   };
-  const place = (count, r, fn) => { let n = 0, tries = 0; while (n < count && tries++ < 400) { const x = (R() * 2 - 1) * half, z = (R() * 2 - 1) * half; if (clear(x, z, r)) { fn(x, z); n++; } } };
+  const place = (count, r, fn) => { let k = 0, tries = 0; while (k < count && tries++ < 500) { const x = (R() * 2 - 1) * half, z = (R() * 2 - 1) * half; if (clear(x, z, r)) { fn(x, z); k++; } } };
+  const quarter = () => Math.floor(R() * 4) * (Math.PI / 2) + (R() - 0.5) * 0.25;
+  // a small cluster: one main prop with clutter around it
+  const cluster = (x, z, main, extras) => {
+    const ry = quarter(); addProp(main, x, z, ry);
+    const ms = propSize(main, PS);
+    for (const e of extras) { const a = R() * 6.28, d = Math.max(ms.x, ms.z) / 2 + 1.1 + R() * 0.8; addProp(e, x + Math.cos(a) * d, z + Math.sin(a) * d, quarter(), 1, false); }
+  };
 
-  if (map.id === 'scrapyard') {
-    place(9, 4, (x, z) => { // wreck piles
-      const n = 2 + Math.floor(R() * 3), ry = R() * 3;
-      box(4.6, 0.9 * n, 2.2, M.rust, x, z);
-      for (let i = 0; i < n; i++) { const o = mesh(new THREE.BoxGeometry(4.2, 0.85, 2.0), M.containers[(i + Math.floor(x)) & 3], x + (R() - 0.5) * 0.6, 0.45 + i * 0.9, z + (R() - 0.5) * 0.4, ry * 0 + (R() - 0.5) * 0.3); o.material = i % 2 ? M.rust : o.material; }
+  const L = map.layout;
+  if (L === 'scrapyard') {
+    landmark(-half * 0.42, -half * 0.05, Math.PI / 2);
+    place(7, 5, (x, z) => container(x, z, quarter(), R() < 0.4));
+    place(5, 3, (x, z) => cluster(x, z, 'dumpster', ['boxes', 'jugCrate']));
+    place(4, 3, (x, z) => cluster(x, z, 'tarpDrums', ['crates']));
+    place(3, 3, (x, z) => cluster(x, z, 'cage', ['boxes']));
+    place(4, 2.5, (x, z) => cluster(x, z, 'cart', ['jugCrate']));
+    place(3, 2.5, (x, z) => addProp('shelf', x, z, quarter()));
+    place(4, 2, (x, z) => addProp('drums', x, z, quarter()));
+    place(6, 1.5, (x, z) => { barrel(x, z); if (R() < 0.6) barrel(x + 1.8, z + 0.5); });
+    place(3, 1, (x, z) => addProp('pole', x, z, R() * 6.28));
+  } else if (L === 'refinery') {
+    landmark(half * 0.45, -half * 0.42, 0);
+    place(4, 7, (x, z) => tank(x, z, 4 + R() * 2.2, 8 + R() * 5));
+    place(4, 5, (x, z) => container(x, z, quarter(), R() < 0.3));
+    place(4, 3, (x, z) => cluster(x, z, 'waterTank', ['cylinder', 'cylinder']));
+    place(3, 3, (x, z) => cluster(x, z, 'tankStand', ['compressor']));
+    place(4, 2.5, (x, z) => cluster(x, z, 'gasCart', ['cylinders']));
+    place(3, 2, (x, z) => addProp('cylCart', x, z, quarter()));
+    place(9, 2.5, (x, z) => { barrel(x, z); barrel(x + 1.75, z); barrel(x + 0.88, z + 1.5); });
+    place(3, 1, (x, z) => addProp('pole', x, z, R() * 6.28));
+  } else if (L === 'dustbowl') {
+    const rockMat = tankMat.clone(); rockMat.color = new THREE.Color(1.35, 1.08, 0.78);
+    place(11, 4, (x, z) => {
+      const r = 2 + R() * 2.4, h = 5 + R() * 9;
+      const geo = new THREE.CylinderGeometry(r * 0.62, r, h, 7, 3); const pos = geo.attributes.position;
+      for (let i = 0; i < pos.count; i++) { const k = 1 + (R() - 0.5) * 0.25; pos.setX(i, pos.getX(i) * k); pos.setZ(i, pos.getZ(i) * k); }
+      mapToRegion(geo, ATLAS.concrete, 1, 1); geo.computeVertexNormals(); geo.translate(0, h / 2, 0);
+      const m = new THREE.Mesh(geo, rockMat); m.position.set(x, 0, z); m.rotation.y = R() * 6; m.castShadow = true; m.receiveShadow = true; grp.add(m);
+      obstacles.push({ kind: 'circle', x, z, r, h, mesh: m });
     });
-    place(4, 7, (x, z) => { const vertical = R() < 0.5; const o = box(vertical ? 2.6 : 12, 2.8, vertical ? 12 : 2.6, M.containers[Math.floor(R() * 4)], x, z); return o; });
-    place(6, 2, (x, z) => { const o = cyl(1.3, 2.4, M.tire, x, z, 10); for (let i = 0; i < 4; i++) mesh(new THREE.TorusGeometry(1.1, 0.35, 6, 12), M.tire, x, 0.35 + i * 0.6, z).rotation.x = Math.PI / 2; o.visible = false; });
-    // dead crane in the middle of one side
-    const cx = -half * 0.35, cz = half * 0.05;
-    box(3, 18, 3, M.hazard, cx, cz);
-    mesh(new THREE.BoxGeometry(1.2, 1.2, 22), M.hazard, cx, 17.5, cz + 7);
+    landmark(half * 0.5, half * 0.48, -Math.PI * 0.75);
+    place(5, 5, (x, z) => { const along = R() < 0.5, k = 3 + Math.floor(R() * 3), s = propSize('barrier', WS).x;
+      for (let i = 0; i < k; i++) { const bx = x + (along ? (i - k / 2) * s : 0), bz = z + (along ? 0 : (i - k / 2) * s); addProp('barrier', bx, bz, (along ? 0 : Math.PI / 2) + (R() - 0.5) * 0.15, WS / PS); } });
+    place(3, 2.5, (x, z) => cluster(x, z, 'tarpDrums', ['drums']));
     place(5, 1.5, (x, z) => { barrel(x, z); barrel(x + 1.8, z + 0.4); });
-  } else if (map.id === 'refinery') {
-    place(5, 7, (x, z) => { const r = 4 + R() * 3; const t = cyl(r, 8 + R() * 6, M.concrete, x, z, 20); mesh(new THREE.CylinderGeometry(r + 0.1, r + 0.1, 0.5, 20), M.hazard, x, t.geometry.parameters.height - 0.3, z); });
-    place(5, 6, (x, z) => { const along = R() < 0.5; box(along ? 14 : 1.6, 3.4, along ? 1.6 : 14, M.steel, x, z); });
-    place(8, 2.5, (x, z) => { barrel(x, z); barrel(x + 1.7, z); barrel(x + 0.85, z + 1.5); });
-    place(6, 2, (x, z) => box(4, 1.2, 1.2, M.concrete, x, z));
-  } else {
-    place(12, 4, (x, z) => { const r = 2 + R() * 2.5; const o = cyl(r, 5 + R() * 9, M.rock, x, z, 7); o.geometry = new THREE.CylinderGeometry(r * 0.7, r, o.geometry.parameters.height, 7); o.rotation.y = R() * 3; });
-    place(6, 6, (x, z) => { const along = R() < 0.5, len = 7 + R() * 7; box(along ? len : 1.4, 2.5 + R() * 2, along ? 1.4 : len, M.concrete, x, z); });
-    place(4, 1.5, (x, z) => { barrel(x, z); barrel(x + 1.8, z + 0.4); });
+    place(3, 5, (x, z) => container(x, z, quarter() + 0.3, false));
+  } else if (L === 'shanty') {
+    landmark(0, -half * 0.36, 0); landmark(-half * 0.38, half * 0.3, Math.PI * 0.66); landmark(half * 0.4, half * 0.28, -Math.PI * 0.66);
+    place(6, 5, (x, z) => container(x, z, quarter(), R() < 0.5));
+    place(5, 3, (x, z) => cluster(x, z, 'dumpster', ['crates', 'boxes']));
+    place(4, 3, (x, z) => cluster(x, z, 'cage', ['jugCrate']));
+    place(4, 2.5, (x, z) => cluster(x, z, 'tarpDrums', ['boxes']));
+    place(3, 2, (x, z) => addProp('shelf', x, z, quarter()));
+    place(4, 1, (x, z) => addProp('pole', x, z, R() * 6.28));
+    place(6, 1.5, (x, z) => { barrel(x, z); if (R() < 0.5) barrel(x + 1.8, z); });
+  } else { // outpost: a fortified building in the middle, ring of barriers with gaps
+    landmark(0, 0, R() * 6.28);
+    const ringR = 20, s = propSize('barrier', WS).x;
+    const count = Math.floor((2 * Math.PI * ringR) / s);
+    for (let i = 0; i < count; i++) {
+      if (i % 7 === 0 || i % 7 === 1) continue; // gates
+      const a = (i / count) * Math.PI * 2;
+      addProp('barrier', Math.cos(a) * ringR, Math.sin(a) * ringR, -a + Math.PI / 2, WS / PS);
+    }
+    const inner = (a, d, name) => addProp(name, Math.cos(a) * d, Math.sin(a) * d, a);
+    inner(0.4, 13, 'tankStand'); inner(2.2, 13.5, 'gasCart'); inner(3.6, 13, 'waterTank'); inner(5.1, 13.5, 'cage');
+    place(5, 5, (x, z) => container(x, z, quarter(), R() < 0.35));
+    place(4, 3, (x, z) => cluster(x, z, 'dumpster', ['boxes']));
+    place(3, 2.5, (x, z) => cluster(x, z, 'cart', ['cylinders']));
+    place(7, 1.5, (x, z) => { barrel(x, z); if (R() < 0.6) barrel(x + 1.8, z + 0.4); });
+    place(4, 1, (x, z) => addProp('pole', x, z, R() * 6.28));
+  }
+
+  const small = quality.tier.particles < 0.9; // medium/low: small props skip the shadow pass
+  for (const [name, list] of Object.entries(instances)) { const im = propInstances(name, list, PS); if (small && name !== 'barrier') im.castShadow = false; grp.add(im); }
+  if (barrels.length) {
+    const im = new THREE.InstancedMesh(bGeo, barrelMat, barrels.length), m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), one = new THREE.Vector3(1, 1, 1);
+    barrels.forEach((b, i) => { q.setFromAxisAngle(up, b.ry); m4.compose(new THREE.Vector3(b.x, 0, b.z), q, one); im.setMatrixAt(i, m4); });
+    im.castShadow = !small; im.receiveShadow = true; im.computeBoundingSphere(); grp.add(im);
+    const zero = new THREE.Matrix4().makeScale(0, 0, 0);
+    for (const o of obstacles) if (o.barrel) o.hide = () => { im.setMatrixAt(o.index, zero); im.instanceMatrix.needsUpdate = true; };
   }
 
   const spawns = [];

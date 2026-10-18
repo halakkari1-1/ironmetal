@@ -36,7 +36,7 @@ Car models are generated with Meshy, then prepared for mobile:
 | Juggernaut | 9,500 | Mine Layer |
 | Wasteland Warhorse | 16,000 | Rocket Barrage (Meshy model) |
 
-Arenas: Scrapyard, Refinery, Dust Bowl. Difficulty: Rookie, Veteran, Warlord.
+Arenas: Scrapyard, Refinery, Dust Bowl, Shanty Town, The Outpost. Difficulty: Rookie, Veteran, Warlord.
 
 ## Running it
 
@@ -47,6 +47,13 @@ python3 -m http.server 8000
 ```
 
 Controls: on-screen joystick and buttons on touch screens; W A S D, Space (fire), F (rocket), E (special), Esc (pause) on keyboard.
+
+## Environment kit
+
+`assets/kit/` holds the post-apocalypse kitbash sample by Oleg Ushenok (Fab Standard License), converted for mobile:
+the 331-part FBX was split into a watchtower (49k triangles near, 15k far) and 18 props (500-3,400 triangles each),
+packed as base64 GLBs in `kit_models.js`. All pieces share one 2K/1K texture atlas. The conversion pages live in the
+session workspace, not in this repo.
 
 ## Android build
 
@@ -65,6 +72,7 @@ Icon and splash sources live in `resources/`; they are rendered from `tools/bran
 - `src/game.js` — a match: driving, collisions, weapons, specials, AI, pickups
 - `src/cars3d.js` — the seven procedural cars and the Warhorse loader
 - `src/arena.js` — arena layouts and obstacles
+- `src/kit.js` — environment kit loader: building LODs, props, atlas-textured containers, tanks and barrels
 - `src/fx.js` — particles, explosions, flashes
 - `src/audio.js` — synthesized sound (no audio files)
 - `src/data.js` — cars, stats, upgrades, maps, difficulty, economy
@@ -81,6 +89,6 @@ Icon and splash sources live in `resources/`; they are rendered from `tools/bran
 - [x] Variety: kill streaks, bounty target, airdrops (Railgun, Napalm, Mini Nuke), arena events (artillery, tank rupture, sandstorm), daily contracts, Survival mode
 - [x] Android build: Capacitor wrapper, built by GitHub Actions on every push (APK + AAB on the Releases page)
 - [x] Adaptive resolution for phones and 12" tablets, graphics and control-size settings
-- [ ] Arenas and lobby from the asset packs
+- [x] Five arenas and the garage lobby built from the environment kit (watchtower with LODs, 18 props, containers, tanks)
 - [ ] Remake the seven procedural cars in Meshy to match the Warhorse
 - [ ] Music, more arenas, daily challenges

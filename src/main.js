@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { CARS, UPGRADES, MAX_UPGRADE, MAPS, DIFFICULTY, KILL_REWARD, carStats, upgradeCost } from './data.js';
 import { buildCar, preloadWarhorse } from './cars3d.js';
+import { loadKit, KIT, building, propMesh, barrelGeometry } from './kit.js';
 import { Game, POWERS } from './game.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -81,26 +82,27 @@ class Showroom {
     for (let i = 0; i < 10; i++) { g.fillStyle = 'rgba(5,4,3,0.25)'; g.beginPath(); g.ellipse(Math.random() * 512, Math.random() * 512, 20 + Math.random() * 40, 10 + Math.random() * 20, Math.random() * 3, 0, 7); g.fill(); }
     const ft = new THREE.CanvasTexture(c); ft.wrapS = ft.wrapT = THREE.RepeatWrapping; ft.repeat.set(8, 8); ft.colorSpace = THREE.SRGBColorSpace;
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), new THREE.MeshStandardMaterial({ map: ft, roughness: 0.6, metalness: 0.3 }));
-    floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; s.add(floor);
+    floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; s.add(floor); this.floor = floor;
 
     const steel = new THREE.MeshStandardMaterial({ color: 0x2d2b27, metalness: 0.8, roughness: 0.4, flatShading: true });
-    this.platform = new THREE.Group(); s.add(this.platform);
+    this.platform = new THREE.Group(); s.add(this.platform); this.key = key;
     const base = new THREE.Mesh(new THREE.CylinderGeometry(4.6, 4.9, 0.35, 40), steel); base.position.y = 0.17; base.receiveShadow = true; base.castShadow = true;
     const ring = new THREE.Mesh(new THREE.TorusGeometry(4.65, 0.05, 6, 64), new THREE.MeshBasicMaterial({ color: 0xe0682c })); ring.rotation.x = Math.PI / 2; ring.position.y = 0.36;
     this.platform.add(base, ring);
     for (let i = 0; i < 24; i++) { const a = (i / 24) * Math.PI * 2; const b = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.04, 0.12), new THREE.MeshStandardMaterial({ color: 0x46413a, metalness: 0.7 })); b.position.set(Math.cos(a) * 4.1, 0.36, Math.sin(a) * 4.1); b.rotation.y = -a; this.platform.add(b); }
 
+    const old = this.old = new THREE.Group(); s.add(old);
     const prop = new THREE.MeshStandardMaterial({ color: 0x3a3630, roughness: 0.9, flatShading: true });
     const red = new THREE.MeshStandardMaterial({ color: 0x6e2216, roughness: 0.6, metalness: 0.4, flatShading: true });
     const tire = new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.95 });
-    [[-7.5, -5], [-6.4, -5.6], [8, -6], [9.1, -5.2]].forEach(([x, z], i) => { const b = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 1.7, 10), i % 2 ? prop : red); b.position.set(x, 0.85, z); b.castShadow = true; s.add(b); });
-    for (let i = 0; i < 4; i++) { const t = new THREE.Mesh(new THREE.TorusGeometry(0.9, 0.35, 8, 14), tire); t.rotation.x = Math.PI / 2; t.position.set(-9, 0.35 + i * 0.62, -1.5); t.castShadow = true; s.add(t); }
-    const wall = new THREE.Mesh(new THREE.BoxGeometry(40, 14, 1), new THREE.MeshStandardMaterial({ color: 0x1c1a16, roughness: 0.9 })); wall.position.set(0, 7, -14); s.add(wall);
-    for (let i = -3; i <= 3; i++) { const p = new THREE.Mesh(new THREE.BoxGeometry(0.6, 14, 0.6), steel); p.position.set(i * 6, 7, -13.3); s.add(p); }
-    const stripe = new THREE.Mesh(new THREE.BoxGeometry(40, 0.5, 0.1), new THREE.MeshBasicMaterial({ color: 0x8e3a14 })); stripe.position.set(0, 2.2, -13.45); s.add(stripe);
+    [[-7.5, -5], [-6.4, -5.6], [8, -6], [9.1, -5.2]].forEach(([x, z], i) => { const b = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 1.7, 10), i % 2 ? prop : red); b.position.set(x, 0.85, z); b.castShadow = true; old.add(b); });
+    for (let i = 0; i < 4; i++) { const t = new THREE.Mesh(new THREE.TorusGeometry(0.9, 0.35, 8, 14), tire); t.rotation.x = Math.PI / 2; t.position.set(-9, 0.35 + i * 0.62, -1.5); t.castShadow = true; old.add(t); }
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(40, 14, 1), new THREE.MeshStandardMaterial({ color: 0x1c1a16, roughness: 0.9 })); wall.position.set(0, 7, -14); old.add(wall);
+    for (let i = -3; i <= 3; i++) { const p = new THREE.Mesh(new THREE.BoxGeometry(0.6, 14, 0.6), steel); p.position.set(i * 6, 7, -13.3); old.add(p); }
+    const stripe = new THREE.Mesh(new THREE.BoxGeometry(40, 0.5, 0.1), new THREE.MeshBasicMaterial({ color: 0x8e3a14 })); stripe.position.set(0, 2.2, -13.45); old.add(stripe);
     for (const x of [-6, 0, 6]) { // hanging work lamps
-      const lamp = new THREE.Mesh(new THREE.ConeGeometry(0.5, 0.5, 12, 1, true), new THREE.MeshStandardMaterial({ color: 0x222, side: THREE.DoubleSide })); lamp.position.set(x, 9, -4); s.add(lamp);
-      const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.18, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffd9a0 })); bulb.position.set(x, 8.75, -4); s.add(bulb);
+      const lamp = new THREE.Mesh(new THREE.ConeGeometry(0.5, 0.5, 12, 1, true), new THREE.MeshStandardMaterial({ color: 0x222, side: THREE.DoubleSide })); lamp.position.set(x, 9, -4); old.add(lamp);
+      const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.18, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffd9a0 })); bulb.position.set(x, 8.75, -4); old.add(bulb);
     }
     // drifting dust in the key light
     const n = 220, pos = new Float32Array(n * 3);
@@ -112,6 +114,33 @@ class Showroom {
     this.car = null; this.carId = null; this.spin = 0.5; this.yaw = 0.6; this.drop = 0; this.focus = 'right';
     this.camX = 0;
     this.dragging = false;
+  }
+  // Replaces the placeholder backdrop with the real environment kit: an open yard at dusk in front of a watchtower.
+  dress() {
+    if (this.dressed || !KIT.loaded) return;
+    this.dressed = true;
+    const s = this.scene;
+    s.remove(this.old);
+    const c = document.createElement('canvas'); c.width = 2; c.height = 256; const g = c.getContext('2d'), grd = g.createLinearGradient(0, 0, 0, 256);
+    grd.addColorStop(0, '#15131c'); grd.addColorStop(0.55, '#3b2d2a'); grd.addColorStop(0.75, '#6a4632'); grd.addColorStop(1, '#6a4632');
+    g.fillStyle = grd; g.fillRect(0, 0, 2, 256);
+    const sky = new THREE.CanvasTexture(c); sky.colorSpace = THREE.SRGBColorSpace; s.background = sky;
+    s.fog = new THREE.Fog(0x4a352b, 24, 75);
+    const tex = new THREE.TextureLoader().load(new URL('../assets/kit/ground_concrete.jpg', import.meta.url).href);
+    tex.colorSpace = THREE.SRGBColorSpace; tex.wrapS = tex.wrapT = THREE.MirroredRepeatWrapping; tex.repeat.set(9, 9); tex.anisotropy = 4;
+    this.floor.material = new THREE.MeshStandardMaterial({ map: tex, color: 0x8a8278, roughness: 0.9, metalness: 0.05 });
+    const tower = building(1.7); tower.levels[1].distance = 1e6; tower.position.set(3, 0, -19); tower.rotation.y = 0.35; s.add(tower);
+    const put = (name, x, z, ry, sc = 1.35) => { const m = propMesh(name, sc); m.position.set(x, 0, z); m.rotation.y = ry; s.add(m); return m; };
+    put('dumpster', -9, -6, 0.35); put('tarpDrums', -11.5, -2.2, 1.2); put('boxes', -7.4, -3.6, 0.6); put('jugCrate', -6.8, -4.6, 2);
+    put('gasCart', 9, -6.5, -0.5); put('cylinders', 10.8, -3.2, 0.9); put('cylinder', 7.6, -8.4, 0); put('cylinder', 8.1, -8.9, 0);
+    put('cage', 13, -11, -0.3); put('pole', -6.5, -13, 0.4); put('shelf', -13, -8, 0.8); put('crates', 11.5, -0.5, 0.2);
+    const bm = KIT.material.clone(); bm.side = THREE.FrontSide; bm.color = new THREE.Color(1.15, 0.9, 0.85);
+    for (const [x, z] of [[-10.8, 1.2], [-9.2, 1.9], [12.2, 2.6]]) { const b = new THREE.Mesh(barrelGeometry(), bm); b.position.set(x, 0, z); b.rotation.y = x; b.castShadow = true; s.add(b); }
+    // sodium work lights on the tower and a warm fill from the left
+    const lamp = new THREE.PointLight(0xff9a48, 160, 30, 1.6); lamp.position.set(-1, 6.5, -13); s.add(lamp);
+    const lamp2 = new THREE.PointLight(0xffb070, 70, 22, 1.6); lamp2.position.set(-10, 3.5, -4); s.add(lamp2);
+    this.lamps = [lamp, lamp2];
+    s.traverse((o) => { if (o.isMesh && o !== this.floor) { o.castShadow = true; o.receiveShadow = true; } });
   }
   show(id) {
     if (this.carId === id && this.car) return;
@@ -132,6 +161,7 @@ class Showroom {
     this.camera.position.set(this.camX + 2.2, 4.6, dist * 0.92);
     this.camera.lookAt(this.camX, 1.3, 0);
     this.dust.rotation.y += dt * 0.02;
+    if (this.lamps) { this.lamps[0].intensity = 160 * (0.92 + Math.random() * 0.08); }
   }
   render() { draw(this.scene, this.camera); }
 }
@@ -218,16 +248,6 @@ $('upList').addEventListener('click', (e) => {
 });
 
 // setup sheet
-const MAP_ART = {
-  scrapyard: 'linear-gradient(180deg,#3b2a1f 0%,#6e3a1e 55%,#2a1d14 56%,#4a3a2c 100%)',
-  refinery: 'linear-gradient(180deg,#30343a 0%,#596069 50%,#2d3035 51%,#5a5a56 100%)',
-  dustbowl: 'linear-gradient(180deg,#d9b88a 0%,#e8c99a 55%,#9c7a4f 56%,#b08a5a 100%)',
-};
-const MAP_SHAPES = {
-  scrapyard: '<rect x="8" y="34" width="34" height="22" fill="#2a1d14"/><rect x="12" y="24" width="28" height="12" fill="#3f2a1c"/><rect x="120" y="10" width="8" height="48" fill="#c99318"/><rect x="96" y="10" width="60" height="5" fill="#c99318"/><rect x="170" y="30" width="60" height="26" fill="#2f5b6e"/>',
-  refinery: '<rect x="20" y="14" width="40" height="44" fill="#4b4f55"/><rect x="20" y="14" width="40" height="4" fill="#d9a521"/><rect x="74" y="26" width="30" height="32" fill="#3e4247"/><rect x="150" y="40" width="90" height="4" fill="#2a2d31"/><rect x="150" y="30" width="90" height="4" fill="#2a2d31"/><circle cx="130" cy="52" r="6" fill="#b8321e"/><circle cx="142" cy="52" r="6" fill="#b8321e"/>',
-  dustbowl: '<path d="M20 58 L32 18 L44 58Z" fill="#7a5a38"/><path d="M150 58 L158 28 L170 58Z" fill="#8a6a44"/><path d="M90 58 L96 36 L104 58Z" fill="#6e5032"/><rect x="190" y="42" width="40" height="16" fill="#9a8a72"/>',
-};
 const MODES = [
   { id: 'deathmatch', name: 'Deathmatch', desc: 'Last car running wins. Bounty, airdrops, arena events.' },
   { id: 'survival', name: 'Survival', desc: 'Endless waves that all hunt you. How far can you go?' },
@@ -238,7 +258,7 @@ function renderSetup() {
   $('diffBox').hidden = surv; $('bestBox').hidden = !surv;
   $('bestWave').textContent = `Wave ${save.get().best.wave}`;
   $('mapList').innerHTML = MAPS.map((m) => `<button class="mapcard" data-map="${m.id}" aria-pressed="${m === setupMap}">
-    <div class="art" style="background:${MAP_ART[m.id]}"><svg viewBox="0 0 250 60" preserveAspectRatio="xMidYMax slice" style="position:absolute;inset:0;width:100%;height:100%">${MAP_SHAPES[m.id]}</svg></div>
+    <div class="art" style="background:#1a1712 url('assets/maps/${m.id}.jpg') center/cover"></div>
     <b>${m.name}</b><em>${m.tag}</em><span>${m.desc}</span></button>`).join('');
   $('diffSeg').innerHTML = DIFFICULTY.map((d) => `<button data-diff="${d.id}" aria-pressed="${d === setupDiff}">${d.name}<small>${d.enemies} enemies</small></button>`).join('');
   $('sReward').textContent = surv ? `${fmt(KILL_REWARD * 1.2)}/kill + wave bonuses` : `Win: ${fmt(setupDiff.base)} + ${fmt(KILL_REWARD * setupDiff.reward)}/kill`;
@@ -386,6 +406,7 @@ async function startMatch(cfg) {
   if (game) game.dispose();
   $('loader').hidden = false; $('loader').style.opacity = 1;
   try { await preloadWarhorse(); } catch (e) { /* the Warhorse falls back to an empty shell */ }
+  await loadKit();
   game = new Game(renderer, hud);
   game.resize(window.innerWidth, window.innerHeight);
   game.start(cfg);
@@ -541,8 +562,8 @@ $('snd').style.display = save.get().sound ? '' : 'none';
 resize();
 show('menu'); setUI('main');
 requestAnimationFrame(frame);
-preloadWarhorse().catch(() => {}).finally(() => {
+Promise.all([preloadWarhorse().catch(() => {}), loadKit().then(() => room.dress()).catch((e) => console.warn('kit failed', e))]).finally(() => {
   if (save.get().selected === 'warhorse') { room.carId = null; setUI(ui); }
   const l = $('loader'); l.style.opacity = 0; setTimeout(() => (l.hidden = true), 500);
 });
-window.__ironmetal = { save, get game() { return game; }, startMatch, MAPS, DIFFICULTY, CARS };
+window.__ironmetal = { save, get game() { return game; }, startMatch, MAPS, DIFFICULTY, CARS, renderNow: () => game && draw(game.scene, game.camera), renderer };

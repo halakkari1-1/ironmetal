@@ -2,6 +2,7 @@
 // Every car faces +Z, sits on y = 0, and is about 4.5 units long.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // ---------- shared textures ----------
 function makeGrime() {
@@ -126,7 +127,37 @@ function rocketPod(group, m, x, y, z, cols = 3, rows = 2, mat = null) {
   group.add(g); return g;
 }
 
+// Bakes every static part into one mesh per material (and each wheel into one mesh per material),
+// turning ~60 draw calls per car into ~10. Positions are baked relative to the parent being merged into.
+function mergeInto(parent, skip) {
+  parent.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(parent.matrixWorld).invert(), byMat = new Map(), victims = [];
+  parent.traverse((o) => {
+    if (!o.isMesh || o === parent) return;
+    for (let p = o.parent; p && p !== parent; p = p.parent) if (skip.has(p)) return;
+    if (skip.has(o)) return;
+    let g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+    for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(k)) g.deleteAttribute(k);
+    if (!g.attributes.uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
+    g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld));
+    if (!byMat.has(o.material)) byMat.set(o.material, []);
+    byMat.get(o.material).push(g); victims.push(o);
+  });
+  for (const o of victims) o.parent.remove(o);
+  for (const [mat, list] of byMat) {
+    const m = new THREE.Mesh(mergeGeometries(list), mat); m.castShadow = true; m.receiveShadow = true; parent.add(m);
+  }
+}
+function optimize(group, wheels) {
+  const skip = new Set(wheels);
+  mergeInto(group, skip);
+  for (const w of wheels) mergeInto(w, new Set());
+  // drop now-empty helper groups
+  const empties = []; group.traverse((o) => { if (o.type === 'Group' && o !== group && !skip.has(o) && o.children.length === 0) empties.push(o); });
+  for (const e of empties) e.parent.remove(e);
+}
 function finish(group, wheels, extra = {}) {
+  optimize(group, wheels);
   group.userData = { wheels, muzzles: extra.muzzles || [new THREE.Vector3(0, 1.8, 2.4)], rocketMuzzle: extra.rocketMuzzle || new THREE.Vector3(0, 1.9, 1.8), flame: extra.flame || new THREE.Vector3(0, 0.8, 2.6) };
   return group;
 }

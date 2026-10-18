@@ -7,8 +7,7 @@ const page = await browser.newPage({ viewport: { width: 1280, height: 640 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(`[pageerror] ${e.message}\n${e.stack}`));
 page.on('console', (m) => { if (m.type() === 'error' && !m.text().includes('ERR_TUNNEL')) errors.push(`[console] ${m.text()}`); });
-await page.goto(base, { waitUntil: 'load' });
-await page.waitForTimeout(3500);
+await page.goto(base); await page.waitForFunction(() => document.getElementById('loader').hidden, null, { timeout: 120000 });
 
 const results = [];
 const cars = ['rustbucket', 'stinger', 'bulldog', 'hellfire', 'maiden', 'viper', 'juggernaut', 'warhorse'];

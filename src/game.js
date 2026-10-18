@@ -21,7 +21,7 @@ export const POWERS = {
   nuke: { name: 'Mini Nuke', short: 'NUKE', ammo: 1, desc: 'One rocket. Huge blast.' },
 };
 const STREAKS = { 2: ['DOUBLE WRECK', 40], 3: ['TRIPLE WRECK', 80], 4: ['RAMPAGE', 150], 5: ['UNSTOPPABLE', 220] };
-const MAP_EVENT = { scrapyard: 'artillery', refinery: 'rupture', dustbowl: 'sandstorm' };
+const MAP_EVENT = { scrapyard: 'artillery', refinery: 'rupture', dustbowl: 'sandstorm', shanty: 'artillery', outpost: 'artillery' };
 
 export class Game {
   constructor(renderer, hud) {
@@ -570,7 +570,7 @@ export class Game {
     o.hp -= dmg;
     if (o.hp > 0) return;
     o.dead = true;
-    o.mesh.visible = false;
+    if (o.hide) o.hide(); else if (o.mesh) o.mesh.visible = false;
     if (by && by.isPlayer) this.stats.barrels++;
     this.explode(o.x, o.z, 9, 55, by, 1.25, 'barrel');
     this.zones.push({ x: o.x, z: o.z, r: 3.5, t: 4, dps: 12, owner: by });

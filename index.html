@@ -105,9 +105,11 @@ html,body{height:100%;margin:0;overflow:hidden;background:var(--ink);color:var(-
 .sheet .plate{width:min(860px,100%);max-height:calc(100% - 8px);overflow:auto;padding:18px 20px 20px}
 .sheet h3{font:800 clamp(24px,3vw,34px) var(--ui);letter-spacing:.06em;text-transform:uppercase;margin:2px 0 12px}
 .row{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
-.maps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:8px 0 14px}
+.maps{display:flex;gap:12px;margin:8px 0 14px;overflow-x:auto;scroll-snap-type:x mandatory;padding-bottom:6px;-webkit-overflow-scrolling:touch;touch-action:pan-x}
+.maps .mapcard{flex:0 0 clamp(190px,30%,250px);scroll-snap-align:start}
+.maps::-webkit-scrollbar{height:6px}.maps::-webkit-scrollbar-thumb{background:var(--edge)}
 .mapcard{position:relative;cursor:pointer;border:1px solid var(--edge);background:#0f0e0a;padding:0 0 12px;text-align:left;color:var(--fg);clip-path:polygon(12px 0,100% 0,100% calc(100% - 12px),calc(100% - 12px) 100%,0 100%,0 12px);font:inherit}
-.mapcard .art{height:86px;position:relative;overflow:hidden}
+.mapcard .art{height:92px;position:relative;overflow:hidden}
 .mapcard b{display:block;font:800 20px var(--ui);letter-spacing:.06em;text-transform:uppercase;margin:10px 12px 2px}
 .mapcard em{display:block;font:600 11px var(--ui);letter-spacing:.16em;text-transform:uppercase;color:var(--hazard);font-style:normal;margin:0 12px 6px}
 .mapcard span{display:block;font:400 12px/1.45 var(--body);color:var(--muted);margin:0 12px}
@@ -210,7 +212,7 @@ html,body{height:100%;margin:0;overflow:hidden;background:var(--ink);color:var(-
 @media (orientation:portrait) and (pointer:coarse){#rotate.need{display:grid}}
 @media (max-height:520px){.carpanel{padding:12px 14px;transform:translateY(-42%)}.carpanel h2{font-size:26px}.stat{margin:3px 0}.driver{margin-bottom:6px}.special{margin-top:8px;padding:7px 10px}.special span{font-size:12px}.storybox{top:80px}.maps .art{height:56px}.mapcard span{display:none}.uplist{padding:8px 12px;gap:0}.uprow{padding:4px 0}.uprow small{display:none}.uprow b{font-size:14px}.uprow .btn{padding:7px 10px;font-size:14px}}
 @media (max-height:520px){.sheet .plate{padding:10px 16px 12px}.sheet h3{font-size:22px;margin:0 0 6px}.modes{margin:0 0 4px}.modes button{padding:6px 12px}.modes button b{font-size:15px}.modes button span{display:none}.maps{margin:6px 0 8px;gap:8px}.maps .art{height:40px}.mapcard{padding-bottom:6px}.mapcard b{font-size:15px;margin:6px 10px 0}.mapcard em{font-size:9px;margin:0 10px}.seg button{padding:7px 12px;font-size:13px}.sheet .play{padding:10px 26px 8px;font-size:24px}.contract{padding:8px 0}}
-@media (max-width:720px){.maps{grid-template-columns:1fr}.totals{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:720px){.totals{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (min-width:1180px) and (min-height:740px){#menu,#setup,#history,#contracts,#settings,#results,#pause{zoom:1.18}#hud .hp,#hud .center,#mini,#pausebtn{zoom:1.2}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 [hidden]{display:none!important}
@@ -311,6 +313,7 @@ html,body{height:100%;margin:0;overflow:hidden;background:var(--ink);color:var(-
     <div class="row"><div><div class="eyebrow">Garage</div><h3>Settings</h3></div><button class="btn ghost" id="setBack">Close</button></div>
     <div class="setrow"><div><b>Graphics</b><span id="gfxNote">Auto adjusts to keep the game smooth</span></div><div class="seg" id="gfxSeg"></div></div>
     <div class="setrow"><div><b>Touch controls</b><span>Bigger buttons suit large tablets</span></div><div class="seg" id="ctlSeg"></div></div>
+    <div class="setrow"><div><b>Credits</b><span>Game by Hussain Al-Akari. Environment art: Post Apocalypse Kitbash by Oleg Ushenok (Fab). Fonts: Saira by Omnibus-Type (SIL OFL).</span></div></div>
   </div></div>
 </div>
 

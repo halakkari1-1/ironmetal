@@ -13,7 +13,7 @@ for (const d of DEVICES) {
   const ctx = await browser.newContext({ viewport: { width: d.width, height: d.height }, deviceScaleFactor: d.dpr, hasTouch: true, isMobile: true });
   const page = await ctx.newPage();
   const errs = []; page.on('pageerror', (e) => errs.push(e.message));
-  await page.goto(url); await page.waitForTimeout(3500);
+  await page.goto(url); await page.waitForFunction(() => document.getElementById('loader').hidden, null, { timeout: 120000 }); await page.waitForTimeout(600);
   await page.screenshot({ path: `${out}/${d.name}-1-lobby.png`, scale: 'css' });
   await page.tap('#btnSettings'); await page.waitForTimeout(300);
   await page.screenshot({ path: `${out}/${d.name}-2-settings.png`, scale: 'css' });
