@@ -101,7 +101,7 @@ export class Game {
     const c = {
       data, stats, mesh, isPlayer,
       x: spawn.x, z: spawn.z, heading: spawn.heading, speed: 0, kx: 0, kz: 0, y: 0, vy: 0, rx: 0, rz: 0, srx: 0, srz: 0,
-      hp: stats.hp, maxHp: stats.hp, alive: true, rad, halfLen, lives: this.mode === 'survival' && !isPlayer ? 1 : LIVES, respawnT: 0, invuln: 0,
+      hp: stats.hp, maxHp: stats.hp, alive: true, rad, halfLen, roofY: bb.max.y, lenZ: sz.z, lives: this.mode === 'survival' && !isPlayer ? 1 : LIVES, respawnT: 0, invuln: 0,
       throttle: 0, steer: 0, firing: false,
       gunCd: 0, rocketCd: 0, rockets: 6, specialCd: 2, specialT: 0, specialOn: null, power: null,
       kills: 0, lastHit: 0, lastAttacker: null, lastCause: null, muzzleI: 0, deathT: 0, rammed: new Set(),
@@ -127,7 +127,7 @@ export class Game {
     if (c.crown) { old.remove(c.crown); }
     c.mesh = buildCar(c.data.id); this.scene.add(c.mesh);
     this.attachBubble(c);
-    if (c.crown) c.mesh.add(c.crown);
+    c.roofSpot = null; if (c.crown) { const spot = this.roofSpot(c); c.mesh.add(c.crown); c.crown.position.copy(spot); }
     const foes = this.cars.filter((o) => o !== c && o.alive);
     let best = this.spawns[0], bestD = -1;
     for (const sp of this.spawns) { const d = foes.length ? Math.min(...foes.map((o) => Math.hypot(o.x - sp.x, o.z - sp.z))) : 0; if (d > bestD) { bestD = d; best = sp; } }
@@ -151,14 +151,25 @@ export class Game {
     const next = pool.find((o) => o.kills === top);
     if (next && next !== holder) this.setBounty(next, true);
   }
+  // Where the crown sits: cast down onto the rear half of the roof so it clears the gun turret.
+  roofSpot(c) {
+    if (c.roofSpot) return c.roofSpot.clone();
+    const m = c.mesh, rot = m.rotation.y, pos = m.position.clone(); m.rotation.y = 0; m.position.set(0, 0, 0); m.updateMatrixWorld(true);
+    const rc = new THREE.Raycaster(), hits = [];
+    for (const z of [-0.22, -0.12, 0]) { rc.set(new THREE.Vector3(0, c.roofY + 2, z * (c.lenZ || 4)), new THREE.Vector3(0, -1, 0)); const h = rc.intersectObject(m, true).find((x) => x.object.visible && !x.object.isPoints); if (h) hits.push(h.point); }
+    m.rotation.y = rot; m.position.copy(pos); m.updateMatrixWorld(true);
+    const best = hits.sort((a, b) => a.y - b.y)[Math.floor(hits.length / 2)] || new THREE.Vector3(0, c.roofY, 0);
+    c.roofSpot = best.clone(); c.roofSpot.y += 0.02;
+    return c.roofSpot.clone();
+  }
   setBounty(c, announce = true) {
     for (const o of this.cars) if (o.crown) { o.mesh.remove(o.crown); o.crown = null; o.bounty = false; }
     if (!c || !c.alive) return;
     c.bounty = true;
-    const g = new THREE.Group(); g.position.y = 4.6;
-    const gold = new THREE.MeshStandardMaterial({ color: 0xffc23a, emissive: 0xc77d00, emissiveIntensity: 1.4, metalness: 0.8, roughness: 0.3 });
-    g.add(new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.6, 0.35, 10, 1, true), gold));
-    for (let i = 0; i < 5; i++) { const s = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.5, 4), gold); const a = (i / 5) * TAU; s.position.set(Math.cos(a) * 0.5, 0.4, Math.sin(a) * 0.5); g.add(s); }
+    const g = new THREE.Group(); g.position.copy(this.roofSpot(c)); g.scale.setScalar(0.85); // sits right on the roof
+    const gold = new THREE.MeshStandardMaterial({ color: 0xffc23a, emissive: 0x8a5200, emissiveIntensity: 0.55, metalness: 0.85, roughness: 0.3 });
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.6, 0.35, 10, 1, true), gold); band.position.y = 0.17; g.add(band);
+    for (let i = 0; i < 5; i++) { const s = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.5, 4), gold); const a = (i / 5) * TAU; s.position.set(Math.cos(a) * 0.5, 0.57, Math.sin(a) * 0.5); g.add(s); }
     c.mesh.add(g); c.crown = g;
     if (announce) this.hud.announce(this.t(c.isPlayer ? 'YOU TAKE THE CROWN' : 'NEW LEADER'), c.isPlayer ? this.t('Every car is hunting you now') : this.t('{car} has the most kills', { car: c.data.name }), 'gold');
   }

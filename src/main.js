@@ -33,38 +33,6 @@ composer.addPass(renderPass); composer.addPass(bloom); composer.addPass(new Outp
 bloom.enabled = quality.tier.bloom;
 function draw(scene, camera) { renderPass.scene = scene; renderPass.camera = camera; composer.render(); }
 
-// Animated fire behind the logo (classic cellular fire, drawn into a small canvas and blurred by CSS).
-class FireLogo {
-  constructor(canvas) {
-    this.c = canvas; this.g = canvas.getContext('2d'); this.w = canvas.width; this.h = canvas.height;
-    this.px = new Uint8Array(this.w * this.h); this.img = this.g.createImageData(this.w, this.h);
-    this.pal = [];
-    for (let i = 0; i < 37; i++) {
-      const t = i / 36;
-      const r = Math.min(255, t * 3 * 255), gg = Math.min(255, Math.max(0, (t * 3 - 1) * 255)), b = Math.min(255, Math.max(0, (t * 3 - 2) * 255));
-      this.pal.push([r, gg * 0.85, b * 0.6, i === 0 ? 0 : Math.min(255, 60 + t * 300)]);
-    }
-    for (let x = 0; x < this.w; x++) this.px[(this.h - 1) * this.w + x] = 36;
-    this.embers = [];
-  }
-  step() {
-    const { w, h, px } = this;
-    for (let x = 0; x < w; x++) px[(h - 1) * w + x] = Math.random() < 0.85 ? 36 : 30;
-    for (let y = 1; y < h; y++) for (let x = 0; x < w; x++) {
-      const src = y * w + x, v = px[src];
-      const r = (Math.random() * 3) | 0, dst = src - w - r + 1;
-      if (dst >= 0) px[dst] = Math.max(0, v - (r & 1) - (Math.random() < 0.35 ? 1 : 0));
-    }
-    const d = this.img.data;
-    for (let i = 0; i < px.length; i++) { const c = this.pal[px[i]]; d[i * 4] = c[0]; d[i * 4 + 1] = c[1]; d[i * 4 + 2] = c[2]; d[i * 4 + 3] = c[3] * (1 - (Math.floor(i / w) / h) * 0.15); }
-    this.g.putImageData(this.img, 0, 0);
-    if (Math.random() < 0.35) this.embers.push({ x: Math.random() * w, y: h - 4, vx: (Math.random() - 0.5) * 0.6, vy: -0.6 - Math.random() * 0.9, l: 1 });
-    this.embers = this.embers.filter((e) => { e.x += e.vx; e.y += e.vy; e.l -= 0.015; this.g.fillStyle = `rgba(255,${150 + Math.random() * 80},60,${e.l})`; this.g.fillRect(e.x, e.y, 1.5, 1.5); return e.l > 0 && e.y > 0; });
-  }
-}
-const fires = [new FireLogo($('loaderFire'))];
-let fireT = 0;
-
 // ---------- garage showroom ----------
 class Showroom {
   constructor() {
@@ -205,8 +173,10 @@ function setUI(next) {
   $('garageUI').hidden = next !== 'garage';
   $('upgradeUI').hidden = next !== 'upgrade';
   $('carpanel').hidden = false;
-  $('menu').classList.toggle('sub', next === 'upgrade');
-  room.focus = next === 'upgrade' ? 'left' : next === 'garage' ? 'center' : 'right';
+  $('menu').classList.toggle('sub', next !== 'main');
+  $('menu').classList.toggle('garage', next === 'garage');
+  $('gStory').hidden = $('gCount').hidden = next !== 'garage';
+  room.focus = next === 'upgrade' ? 'left' : 'right';
   if (next === 'main') { const car = save.selectedCar(); room.show(car.id); fillPanel(car, 'Your ride'); }
   if (next === 'garage') { browseI = CARS.findIndex((c) => c.id === save.get().selected); renderGarage(); }
   if (next === 'upgrade') renderUpgrades();
@@ -635,8 +605,6 @@ function frame(now) {
   if (mode === 'game') { input.apply(); game.update(dt); draw(game.scene, game.camera); }
   else if ((mode === 'paused' || mode === 'results') && game) draw(game.scene, game.camera);
   else { room.update(dt); room.render(); }
-  fireT += dt;
-  if (fireT > 1 / 30) { fireT = 0; if (!$('loader').hidden) for (const f of fires) f.step(); }
   requestAnimationFrame(frame);
 }
 

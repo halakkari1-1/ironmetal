@@ -133,59 +133,61 @@ export function buildArena(scene, map) {
   grp.add(propInstances('barrier', wall, WS));
   // outer skyline: a few far buildings in the haze (low detail)
   for (let i = 0; i < (lowTier ? 0 : quality.tier.particles < 0.9 ? 2 : 4); i++) {
-    const a = (i / 4) * Math.PI * 2 + 0.6 + R() * 0.5, d = half + 58 + R() * 14;
+    const a = (i / 4) * Math.PI * 2 + 0.6 + R() * 0.5, d = half + 62 + R() * 14;
     const b = building(BS * 1.2); b.position.set(Math.cos(a) * d, 0, Math.sin(a) * d); b.rotation.y = R() * 6.28; b.levels[0].distance = 1e6; b.levels.reverse();
     b.levels[0].distance = 0; grp.add(b);
   }
 
   // ---------- industrial district beyond the walls ----------
-  // Warehouses, chimneys, tank farms and container stacks fill the horizon so the arena never sits in an empty field.
-  // Everything is merged into one mesh per material: two draw calls for the whole district.
+  // A street front of warehouses hugs the barriers; taller works, chimneys and tank farms rise behind it.
+  // Everything is merged into a single mesh: one draw call for the whole district.
   const stacks = [];
   {
     const ring = [], full = !lowTier, place2 = (geo, x, z, ry, y = 0) => { const g = geo.clone(); g.rotateY(ry); g.translate(x, y, z); ring.push(g); };
     const cone = (r, h) => { const g = new THREE.ConeGeometry(r, h, 16, 1, true).toNonIndexed(); mapToRegion(g, ATLAS.greyPlate, 3, 1); g.deleteAttribute('normal'); g.computeVertexNormals(); return g; };
-    const taken = [];
-    const free = (x, z, r) => taken.every((t) => Math.hypot(t[0] - x, t[1] - z) > t[2] + r + 2);
-    const warehouse = (x, z, ry) => {
-      const w = 16 + R() * 12, d = 11 + R() * 6, h = 7 + R() * 5;
-      place2(blockGeometry(w, h, d, R() < 0.5 ? ATLAS.corrugated : ATLAS.corrugated2, ATLAS.greyPlate, ATLAS.shutter, 4.2), x, z, ry);
-      place2(blockGeometry(w * 0.96, 1.2, d * 0.55, ATLAS.greyPlate, ATLAS.plate, null, 4), x, z, ry, h); // roof monitor
-      if (full && R() < 0.65) { // brick-red chimney beside it
-        const cr = 1.1 + R() * 0.5, ch = 18 + R() * 12, ox = (R() < 0.5 ? -1 : 1) * (w / 2 + cr + 0.6);
-        const cx = x + Math.cos(ry) * ox, cz = z - Math.sin(ry) * ox;
-        place2(panelCylinder(cr, ch, ATLAS.concrete, 3, 4, 2), cx, cz, 0);
-        place2(panelCylinder(cr * 1.15, 1, ATLAS.rustPanel, 3, 1, 2), cx, cz, 0, ch - 1.4);
-        stacks.push({ x: cx, y: ch, z: cz });
-      }
-      return Math.hypot(w, d) / 2;
-    };
     const tankFarm = (x, z) => {
       const k = 2 + Math.floor(R() * 2);
       for (let i = 0; i < k; i++) {
-        const r = 3 + R() * 2.2, h = 7 + R() * 6, a = (i / k) * 6.28 + R(), dd = k > 1 ? r + 1.5 : 0;
+        const r = 3.5 + R() * 2.5, h = 15 + R() * 8, a = (i / k) * 6.28 + R(), dd = k > 1 ? r + 1.5 : 0;
         const tx = x + Math.cos(a) * dd, tz = z + Math.sin(a) * dd;
         place2(panelCylinder(r, h, ATLAS.plate, 6, 5, 2), tx, tz, 0); place2(cone(r * 1.02, r * 0.35), tx, tz, 0, h + r * 0.175);
       }
       return 9;
     };
-    const stack = (x, z, ry) => {
-      const k = 2 + Math.floor(R() * 3);
-      for (let i = 0; i < k; i++) { const lv = i < 2 ? 0 : 1, off = (i % 2) * 3.2 - 1.6; place2(containerGeometry(7.8, 3.3, 3.1, (i + lv) % 2), x + Math.sin(ry) * off, z + Math.cos(ry) * off, ry, lv * 3.3); }
-      return 6;
-    };
-    const near = half + 10, far = half + (full ? 44 : 26), step = full ? 15 : 22;
+    // Row 1: a continuous street front pressed right up against the barriers, so the arena reads as a walled square.
+    const wallsA = [ATLAS.corrugated, ATLAS.corrugated2, ATLAS.concrete, ATLAS.rustPanel, ATLAS.greyPlate];
+    const fronts = [ATLAS.shutter, ATLAS.doors, null, null];
+    const edge = half + 1.7, D1 = 14;
     for (let side = 0; side < 4; side++) {
-      for (let along = -far; along <= far; along += step) {
-        for (let depth = near + 7; depth < far; depth += step) {
-          const a = along + (R() - 0.5) * 6, dep = depth + (R() - 0.5) * 5;
-          const [x, z] = side === 0 ? [a, -dep] : side === 1 ? [a, dep] : side === 2 ? [-dep, a] : [dep, a];
-          if (R() < 0.18) continue;
-          const face = Math.atan2(-x, -z), pick = R();
-          const r = pick < 0.55 ? 12 : pick < 0.78 ? 9 : 6;
-          if (!free(x, z, r)) continue;
-          const used = pick < 0.55 ? warehouse(x, z, face + (R() < 0.5 ? 0 : Math.PI / 2)) : pick < 0.78 ? tankFarm(x, z) : stack(x, z, face + Math.PI / 2);
-          taken.push([x, z, used]);
+      const span = side < 2 ? half + D1 + 2 : half; // the z-sides also close the four corners
+      let u = -span;
+      while (u < span) {
+        const w = Math.min(span - u, 9 + R() * 11);
+        if (w < 3) break;
+        const d = D1 - R() * 3, h = 8 + R() * 9, mid = u + w / 2, dist = edge + d / 2;
+        const [x, z] = side === 0 ? [mid, -dist] : side === 1 ? [mid, dist] : side === 2 ? [-dist, mid] : [dist, mid];
+        const ry = side === 0 ? 0 : side === 1 ? Math.PI : side === 2 ? Math.PI / 2 : -Math.PI / 2; // front (+Z face) looks into the arena
+        const wallR = wallsA[Math.floor(R() * wallsA.length)];
+        place2(blockGeometry(w, h, d, wallR, ATLAS.greyPlate, fronts[Math.floor(R() * fronts.length)] || wallR, 4), x, z, ry);
+        if (R() < 0.45) { const w2 = w * (0.4 + R() * 0.4), h2 = 3 + R() * 6; place2(blockGeometry(w2, h2, d * 0.6, wallsA[Math.floor(R() * wallsA.length)], ATLAS.plate, null, 4), x + Math.sin(ry) * -d * 0.15, z + Math.cos(ry) * -d * 0.15, ry, h); }
+        else if (R() < 0.5) place2(blockGeometry(w * 0.96, 1.2, d * 0.55, ATLAS.greyPlate, ATLAS.plate, null, 4), x, z, ry, h);
+        u += w;
+      }
+    }
+    // Row 2: taller works behind the street front, with chimneys and tank farms poking out above it.
+    if (full) {
+      const dist2 = edge + D1 + 9;
+      for (let side = 0; side < 4; side++) {
+        const span = half + D1 + 12;
+        for (let u = -span; u < span; u += 18 + R() * 10) {
+          const [x, z] = side === 0 ? [u, -dist2] : side === 1 ? [u, dist2] : side === 2 ? [-dist2, u] : [dist2, u];
+          const pick = R();
+          if (pick < 0.5) {
+            const w = 14 + R() * 10, h = 16 + R() * 14;
+            place2(blockGeometry(w, h, 16, wallsA[Math.floor(R() * wallsA.length)], ATLAS.greyPlate, null, 4.5), x, z, side < 2 ? 0 : Math.PI / 2);
+            if (R() < 0.5) { const ch = h + 8 + R() * 10; place2(panelCylinder(1.3, ch, ATLAS.concrete, 3, 4, 2), x + 4, z + 3, 0); place2(panelCylinder(1.5, 1, ATLAS.rustPanel, 3, 1, 2), x + 4, z + 3, 0, ch - 1.4); stacks.push({ x: x + 4, y: ch, z: z + 3 }); }
+          } else if (pick < 0.75) tankFarm(x, z);
+          else { const ch = 24 + R() * 12; place2(panelCylinder(1.5, ch, ATLAS.concrete, 3, 4, 2), x, z, 0); place2(panelCylinder(1.7, 1.2, ATLAS.rustPanel, 3, 1, 2), x, z, 0, ch - 1.6); stacks.push({ x, y: ch, z }); }
         }
       }
     }

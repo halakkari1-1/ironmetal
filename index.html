@@ -4,6 +4,7 @@
 <meta name="claude:viewport-fit-sides" content="cover">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0e0d0b">
+<link rel="icon" href="assets/favicon.png">
 <style>
 @font-face{font-family:"Saira Stencil One";src:url("assets/fonts/SairaStencilOne-Regular.ttf") format("truetype");font-display:swap}
 @font-face{font-family:"Saira Condensed";font-weight:400;src:url("assets/fonts/SairaCondensed-Regular.ttf") format("truetype");font-display:swap}
@@ -37,7 +38,6 @@ html.ar .actions.left{left:auto;right:max(16px,env(safe-area-inset-right,0px))}
 html.ar .storybox,html.ar .uplist{right:auto;left:max(16px,env(safe-area-inset-left,0px))}
 html.ar .arrows{padding:0 calc(min(330px,34vw) + 36px) 0 max(16px,env(safe-area-inset-left,0px))}
 html.ar .badge{right:auto;left:-6px}
-html.ar .arrows .btn{transform:scaleX(-1)}
 #hud,#layoutEdit .fire{direction:ltr}
 #hud .sb .rk{unicode-bidi:isolate;direction:ltr;color:var(--muted);font-size:12px;margin-inline-start:2px}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -118,6 +118,9 @@ html.ar .chip{padding:5px 6px 5px 16px}html.ar .chip .lbl{letter-spacing:0;font-
 .uplist{position:absolute;right:max(16px,env(safe-area-inset-right,0px));top:calc(max(12px,env(safe-area-inset-top,0px)) + 62px);bottom:max(14px,env(safe-area-inset-bottom,0px));width:min(360px,38vw);padding:14px 16px;display:flex;flex-direction:column;gap:8px;overflow-y:auto}
 .actions.left{right:auto;bottom:auto;top:max(12px,env(safe-area-inset-top,0px));left:max(16px,env(safe-area-inset-left,0px))}
 #menu.sub .topbar .logo{visibility:hidden}
+.carpanel .story{font:400 12.5px/1.5 var(--body);color:#cfc6b4;margin:-4px 0 10px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.carpanel .story[hidden]{display:none}
+#menu.garage .carpanel{top:calc(max(12px,env(safe-area-inset-top,0px)) + 4px);transform:none;max-height:calc(100% - 24px);overflow:auto}
 .uprow{display:grid;grid-template-columns:1fr auto;gap:4px 10px;align-items:center;padding:8px 0;border-bottom:1px solid #2a261e}
 .uprow:last-child{border:0}
 .uprow b{font:800 16px var(--ui);letter-spacing:.08em;text-transform:uppercase}
@@ -183,8 +186,9 @@ html.ar .chip{padding:5px 6px 5px 16px}html.ar .chip .lbl{letter-spacing:0;font-
 #stick{position:absolute;left:0;bottom:0;width:48%;height:70%}
 #stickbase{position:absolute;width:130px;height:130px;border-radius:50%;border:2px solid rgba(236,229,214,.35);background:rgba(10,9,7,.3);transform:translate(-50%,-50%);display:none}
 #stickknob{position:absolute;width:56px;height:56px;border-radius:50%;background:rgba(236,229,214,.85);left:50%;top:50%;transform:translate(-50%,-50%)}
-.fire{position:absolute;inset:0;pointer-events:none}
-.fire .fbtn{pointer-events:auto;transform:translate(-50%,-50%)}
+.fire,#hud .fire.live{position:absolute;inset:0;pointer-events:none}
+.fire .fbtn,#hud .fire .fbtn{pointer-events:auto;transform:translate(-50%,-50%)}
+#hud #pausebtn{z-index:3}
 .fbtn{position:absolute;border-radius:50%;display:grid;place-items:center;font:800 13px var(--ui);letter-spacing:.12em;color:var(--fg);border:2px solid rgba(236,229,214,.35);background:rgba(20,18,14,.4);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);box-shadow:inset 0 1px 0 rgba(255,240,215,.12);touch-action:none;cursor:pointer}
 .fbtn.on{background:rgba(224,104,44,.55);border-color:var(--rust)}
 #bGun,#eGun{border-color:var(--rust)}
@@ -248,6 +252,9 @@ html.ar .chip{padding:5px 6px 5px 16px}html.ar .chip .lbl{letter-spacing:0;font-
 /* loader + rotate */
 #loader{position:fixed;inset:0;display:grid;place-items:center;background:var(--ink);z-index:20;transition:opacity .5s}
 #loader .logo{text-align:center}
+#loader .boot{display:grid;justify-items:center}
+.biglogo{width:min(46vh,46vw,340px);height:auto;filter:drop-shadow(0 12px 40px rgba(224,104,44,.35));animation:breathe 2.6s ease-in-out infinite}
+@keyframes breathe{50%{transform:scale(1.03);filter:drop-shadow(0 12px 54px rgba(255,120,40,.55))}}
 #loader .load{width:220px;height:4px;background:#26221a;margin:22px auto 0;overflow:hidden}
 #loader .load i{display:block;height:100%;width:30%;background:var(--rust);animation:load 1s infinite ease-in-out}
 @keyframes load{0%{transform:translateX(-100%)}100%{transform:translateX(340%)}}
@@ -269,7 +276,7 @@ html.ar .chip{padding:5px 6px 5px 16px}html.ar .chip .lbl{letter-spacing:0;font-
 <div id="whiteout"></div>
 
 <div id="loader">
-  <div><div class="logo"><canvas class="fire" id="loaderFire" width="160" height="60"></canvas><b>IRON<span>METAL</span></b><i>WASTELAND WARS</i></div><div class="load"><i></i></div></div>
+  <div class="boot"><img src="assets/logo.png" alt="IronMetal: Wasteland Wars" class="biglogo"><div class="load"><i></i></div></div>
 </div>
 <div id="rotate"><div><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#e0682c" stroke-width="1.6"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M3 8a9 9 0 0 1 4-4M21 16a9 9 0 0 1-4 4"/></svg><b data-t>Turn your phone</b><p data-t>IronMetal is played in landscape.</p></div></div>
 
@@ -288,9 +295,10 @@ html.ar .chip{padding:5px 6px 5px 16px}html.ar .chip .lbl{letter-spacing:0;font-
   </div>
 
   <div class="carpanel plate" id="carpanel">
-    <div class="eyebrow" id="cpEyebrow"></div>
+    <div class="row" style="flex-wrap:nowrap"><div class="eyebrow" id="cpEyebrow"></div><span class="counter num" id="gCount" dir="ltr" hidden>1 / 8</span></div>
     <h2 id="cpName">Rustbucket</h2>
     <div class="driver" id="cpDriver">Driver</div>
+    <p class="story" id="gStory" hidden></p>
     <div id="cpStats"></div>
     <div class="special"><b id="cpSpecial">Nitro</b><span id="cpSpecialDesc"></span></div>
   </div>
@@ -304,10 +312,6 @@ html.ar .chip{padding:5px 6px 5px 16px}html.ar .chip .lbl{letter-spacing:0;font-
 
   <!-- garage -->
   <div id="garageUI" hidden>
-    <div class="storybox plate">
-      <div class="row"><span class="eyebrow" data-t>Driver file</span><span class="counter num" id="gCount">1 / 8</span></div>
-      <p id="gStory"></p>
-    </div>
     <div class="arrows"><button class="btn" id="gPrev" data-t-aria aria-label="Previous car">&lsaquo;</button><button class="btn" id="gNext" data-t-aria aria-label="Next car">&rsaquo;</button></div>
     <div class="actions">
       <button class="btn ghost" id="gBack" data-t>Back</button>
