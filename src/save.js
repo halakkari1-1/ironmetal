@@ -52,7 +52,7 @@ function migrateRoster(st) {
 let state = fresh();
 try {
   const raw = localStorage.getItem(KEY);
-  if (raw) { const f = fresh(); state = Object.assign(f, JSON.parse(raw)); state.best = Object.assign(f.best, state.best || {}); state.volume = Object.assign(fresh().volume, state.volume || {});
+  if (raw) { const f = fresh(), parsed = JSON.parse(raw); f.roster = parsed.roster || 1; state = Object.assign(f, parsed); state.best = Object.assign(f.best, state.best || {}); state.volume = Object.assign(fresh().volume, state.volume || {});
     if ((state.controlsV || 1) < 2) { state.scheme = 'classic'; state.controlsV = 2; } // back to classic driving by default
     migrateRoster(state); }
 } catch (e) { /* storage unavailable: play without saving */ }
