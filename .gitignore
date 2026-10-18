@@ -1,3 +1,8 @@
 artifact/
 node_modules/
 *.log
+android/
+www/
+*.jks
+*.keystore
+brand/

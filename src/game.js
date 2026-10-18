@@ -167,7 +167,9 @@ export class Game {
     this.hud.update(this, dt);
   }
 
-  resize(w, h) { this.camera.aspect = w / h; this.camera.fov = w < h ? 78 : 62; this.camera.updateProjectionMatrix(); if (this.fx) this.fx.setScale(h); }
+  resize(w, h) { this.camera.aspect = w / h; this.camera.fov = this.baseFov(); this.camera.updateProjectionMatrix(); if (this.fx) this.fx.setScale(h); }
+  // keeps roughly the same horizontal view from 20:9 phones to 4:3 tablets
+  baseFov() { const a = this.camera.aspect; return a < 1 ? 78 : 62 + Math.max(0, 1.75 - a) * 20; }
 
   // ---------- survival waves ----------
   nextWave() {
@@ -851,7 +853,7 @@ export class Game {
       this.shake = Math.max(0, this.shake - dt * 1.8);
     }
     this.camera.lookAt(this.camLook);
-    const fov = (this.camera.aspect < 1 ? 78 : 62) + (p.specialOn === 'nitro' || p.specialOn === 'ram' ? 8 : 0);
+    const fov = this.baseFov() + (p.specialOn === 'nitro' || p.specialOn === 'ram' ? 8 : 0);
     if (Math.abs(this.camera.fov - fov) > 0.1) { this.camera.fov += (fov - this.camera.fov) * Math.min(1, dt * 5); this.camera.updateProjectionMatrix(); }
   }
 

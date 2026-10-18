@@ -1,5 +1,6 @@
 // Effects: textured fire/smoke particles, sparks, flying debris, ground scorch marks and explosion lighting.
 import * as THREE from 'three';
+import { quality } from './quality.js';
 
 // Soft billowy puff texture built from layered noise, so smoke and fire read as volume instead of dots.
 function puffTexture() {
@@ -83,7 +84,7 @@ class System {
     this.geo = g;
   }
   spawn(x, y, z, vx, vy, vz, life, s0, s1, c0, c1, grav = 0, drag = 1, delay = 0) {
-    if (this.n >= this.max) return;
+    if (this.n >= this.max * quality.tier.particles) return;
     const i = this.n++;
     this.pos[i * 3] = x; this.pos[i * 3 + 1] = y; this.pos[i * 3 + 2] = z;
     this.vel[i * 3] = vx; this.vel[i * 3 + 1] = vy; this.vel[i * 3 + 2] = vz;

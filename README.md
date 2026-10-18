@@ -48,6 +48,17 @@ python3 -m http.server 8000
 
 Controls: on-screen joystick and buttons on touch screens; W A S D, Space (fire), F (rocket), E (special), Esc (pause) on keyboard.
 
+## Android build
+
+Every push to `main` runs `.github/workflows/android.yml` on GitHub's servers and publishes
+`IronMetal-<version>.apk` (install directly) and `.aab` (for Google Play) on the Releases page.
+
+App id: `com.alakkari.ironmetal`. Landscape only, full screen, screen kept awake.
+Release signing uses four repository secrets: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`,
+`ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`. Without them the build is signed with a temporary debug key.
+
+Icon and splash sources live in `resources/`; they are rendered from `tools/brand.html` with `tools/brand.mjs`.
+
 ## Code map
 
 - `src/main.js` — renderer, garage showroom, menus, HUD, input, match lifecycle
@@ -58,6 +69,7 @@ Controls: on-screen joystick and buttons on touch screens; W A S D, Space (fire)
 - `src/audio.js` — synthesized sound (no audio files)
 - `src/data.js` — cars, stats, upgrades, maps, difficulty, economy
 - `src/save.js` — progress saved on the device
+- `src/quality.js` — graphics tiers and adaptive resolution
 - `tools/` — model optimizers and headless playtest scripts
 
 ## Roadmap
@@ -67,6 +79,8 @@ Controls: on-screen joystick and buttons on touch screens; W A S D, Space (fire)
 - [x] Bloom lighting, textured fire and smoke, flying debris and wrecks, scorch marks
 - [x] Procedural metal soundtrack and fire logo
 - [x] Variety: kill streaks, bounty target, airdrops (Railgun, Napalm, Mini Nuke), arena events (artillery, tank rupture, sandstorm), daily contracts, Survival mode
-- [ ] Android build (wrap with Capacitor, build the APK in GitHub Actions)
+- [x] Android build: Capacitor wrapper, built by GitHub Actions on every push (APK + AAB on the Releases page)
+- [x] Adaptive resolution for phones and 12" tablets, graphics and control-size settings
+- [ ] Arenas and lobby from the asset packs
 - [ ] Remake the seven procedural cars in Meshy to match the Warhorse
 - [ ] Music, more arenas, daily challenges

@@ -4,9 +4,12 @@
 <meta name="claude:viewport-fit-sides" content="cover">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0e0d0b">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Stencil+One&family=Saira+Condensed:wght@400;600;800&family=Saira:wght@400;500&display=swap">
 <style>
+@font-face{font-family:"Saira Stencil One";src:url("assets/fonts/SairaStencilOne-Regular.ttf") format("truetype");font-display:swap}
+@font-face{font-family:"Saira Condensed";font-weight:400;src:url("assets/fonts/SairaCondensed-Regular.ttf") format("truetype");font-display:swap}
+@font-face{font-family:"Saira Condensed";font-weight:600;src:url("assets/fonts/SairaCondensed-SemiBold.ttf") format("truetype");font-display:swap}
+@font-face{font-family:"Saira Condensed";font-weight:700 900;src:url("assets/fonts/SairaCondensed-ExtraBold.ttf") format("truetype");font-display:swap}
+@font-face{font-family:"Saira";font-weight:100 900;src:url("assets/fonts/Saira-Variable.ttf") format("truetype");font-display:swap}
 /* Layout: full-bleed 3D stage; UI floats on top as angled steel plates, landscape-first */
 :root{
   --ink:#0e0d0b; --plate:#17150f; --plate2:#211e17; --edge:#3a342a; --fg:#ece5d6; --muted:#9a9282; --dim:#6a6356;
@@ -45,6 +48,10 @@ html,body{height:100%;margin:0;overflow:hidden;background:var(--ink);color:var(-
 .logo b span{background:linear-gradient(180deg,#fff3c4 0%,#ffc240 28%,#ff6a1a 58%,#b3200c 86%,#5a0c04 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
 .logo i{position:relative;display:block;font:800 clamp(10px,1.2vw,13px) var(--ui);font-style:normal;letter-spacing:.42em;color:var(--hazard);margin-top:6px;text-shadow:0 0 8px rgba(255,140,30,.6)}
 @keyframes glow{0%,100%{filter:drop-shadow(0 2px 0 #000) drop-shadow(0 0 10px rgba(255,90,20,.55))}45%{filter:drop-shadow(0 2px 0 #000) drop-shadow(0 0 18px rgba(255,120,30,.85))}70%{filter:drop-shadow(0 2px 0 #000) drop-shadow(0 0 8px rgba(255,70,10,.5))}}
+.logo b{line-height:.95}
+.logo.plain b{animation:none;filter:drop-shadow(0 2px 0 #000)}
+.logo.plain b span{background:none;color:var(--rust);-webkit-text-fill-color:var(--rust)}
+.logo.plain i{text-shadow:none}
 #loader .logo b{font-size:clamp(46px,9vw,96px)}#loader .logo i{font-size:clamp(12px,1.8vw,18px);text-align:center}
 .chips{display:flex;gap:8px;align-items:center}
 .chip{display:flex;align-items:center;gap:8px;padding:8px 14px;font:800 20px var(--ui);letter-spacing:.04em}
@@ -173,6 +180,11 @@ html,body{height:100%;margin:0;overflow:hidden;background:var(--ink);color:var(-
 .modes button b{display:block;font:800 18px var(--ui);letter-spacing:.08em;text-transform:uppercase}
 .modes button span{font:400 12px var(--body);color:var(--muted)}
 .modes button[aria-pressed="true"]{border-color:var(--rust);box-shadow:inset 0 0 0 2px var(--rust)}
+.setrow{display:flex;gap:14px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:12px 0;border-bottom:1px solid #26221a}
+.setrow b{display:block;font:800 17px var(--ui);letter-spacing:.06em;text-transform:uppercase}
+.setrow span{font:400 12px var(--body);color:var(--muted)}
+.fire{transform:scale(var(--ctl,1));transform-origin:100% 100%}
+#stickbase{transform:translate(-50%,-50%) scale(var(--ctl,1))}
 #toast{position:absolute;left:50%;top:38%;transform:translateX(-50%);font:800 20px var(--ui);letter-spacing:.12em;color:var(--toxic);text-shadow:0 2px 0 #000;pointer-events:none}
 #vignette{position:fixed;inset:0;pointer-events:none;box-shadow:inset 0 0 120px 30px rgba(216,56,44,0);transition:box-shadow .25s}
 .ehp{position:absolute;width:56px;height:6px;background:#0b0a08;border:1px solid #000;transform:translate(-50%,-50%);pointer-events:none}
@@ -199,6 +211,7 @@ html,body{height:100%;margin:0;overflow:hidden;background:var(--ink);color:var(-
 @media (max-height:520px){.carpanel{padding:12px 14px;transform:translateY(-42%)}.carpanel h2{font-size:26px}.stat{margin:3px 0}.driver{margin-bottom:6px}.special{margin-top:8px;padding:7px 10px}.special span{font-size:12px}.storybox{top:80px}.maps .art{height:56px}.mapcard span{display:none}.uplist{padding:8px 12px;gap:0}.uprow{padding:4px 0}.uprow small{display:none}.uprow b{font-size:14px}.uprow .btn{padding:7px 10px;font-size:14px}}
 @media (max-height:520px){.sheet .plate{padding:10px 16px 12px}.sheet h3{font-size:22px;margin:0 0 6px}.modes{margin:0 0 4px}.modes button{padding:6px 12px}.modes button b{font-size:15px}.modes button span{display:none}.maps{margin:6px 0 8px;gap:8px}.maps .art{height:40px}.mapcard{padding-bottom:6px}.mapcard b{font-size:15px;margin:6px 10px 0}.mapcard em{font-size:9px;margin:0 10px}.seg button{padding:7px 12px;font-size:13px}.sheet .play{padding:10px 26px 8px;font-size:24px}.contract{padding:8px 0}}
 @media (max-width:720px){.maps{grid-template-columns:1fr}.totals{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (min-width:1180px) and (min-height:740px){#menu,#setup,#history,#contracts,#settings,#results,#pause{zoom:1.18}#hud .hp,#hud .center,#mini,#pausebtn{zoom:1.2}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 [hidden]{display:none!important}
 </style>
@@ -215,12 +228,13 @@ html,body{height:100%;margin:0;overflow:hidden;background:var(--ink);color:var(-
 <!-- MENU / GARAGE / UPGRADES share the car panel -->
 <div id="menu" class="screen" hidden>
   <div class="topbar">
-    <div class="logo"><canvas class="fire" id="logoFire" width="160" height="60"></canvas><b>IRON<span>METAL</span></b><i>WASTELAND WARS</i></div>
+    <div class="logo plain"><b>IRON<span>METAL</span></b><i>WASTELAND WARS</i></div>
     <div class="chips">
       <div class="chip plate" title="Scrap points"><svg viewBox="0 0 24 24" fill="none" stroke="#f0b429" stroke-width="2"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg><span id="points" class="num">0</span></div>
       <button class="btn iconbtn" id="btnContracts" aria-label="Daily contracts" style="position:relative"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h9l4 4v14H6z"/><path d="M9 12l2 2 4-4"/></svg><span class="badge" id="cBadge" hidden>0</span></button>
       <button class="btn iconbtn" id="btnHistory" aria-label="Battle history"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 3"/></svg></button>
       <button class="btn iconbtn" id="btnMusic" aria-label="Music"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/><path id="mus" d="M3 3l18 18" style="display:none"/></svg></button>
+      <button class="btn iconbtn" id="btnSettings" aria-label="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
       <button class="btn iconbtn" id="btnSound" aria-label="Sound effects"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9h4l5-4v14l-5-4H4z"/><path id="snd" d="M16 9a4 4 0 0 1 0 6M19 6a8 8 0 0 1 0 12"/></svg></button>
     </div>
   </div>
@@ -288,6 +302,15 @@ html,body{height:100%;margin:0;overflow:hidden;background:var(--ink);color:var(-
   <div class="sheet"><div class="plate" style="width:min(560px,100%)">
     <div class="row"><div><div class="eyebrow" id="cDay">Resets at midnight</div><h3>Daily contracts</h3></div><button class="btn ghost" id="cBack">Close</button></div>
     <div id="cList"></div>
+  </div></div>
+</div>
+
+<!-- settings -->
+<div id="settings" class="screen" hidden>
+  <div class="sheet"><div class="plate" style="width:min(560px,100%)">
+    <div class="row"><div><div class="eyebrow">Garage</div><h3>Settings</h3></div><button class="btn ghost" id="setBack">Close</button></div>
+    <div class="setrow"><div><b>Graphics</b><span id="gfxNote">Auto adjusts to keep the game smooth</span></div><div class="seg" id="gfxSeg"></div></div>
+    <div class="setrow"><div><b>Touch controls</b><span>Bigger buttons suit large tablets</span></div><div class="seg" id="ctlSeg"></div></div>
   </div></div>
 </div>
 

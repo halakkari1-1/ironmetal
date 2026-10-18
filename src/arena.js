@@ -1,5 +1,6 @@
 // Builds an arena: ground, boundary walls, obstacles (with collision shapes), barrels, backdrop and lighting.
 import * as THREE from 'three';
+import { quality } from './quality.js';
 
 function rng(seed) { let s = seed >>> 0; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); }
 
@@ -46,7 +47,7 @@ export function buildArena(scene, map) {
   const sun = new THREE.DirectionalLight(map.light, 2.6);
   sun.position.set(40, 70, 25); sun.castShadow = true;
   const sc = sun.shadow.camera; sc.left = -half - 10; sc.right = half + 10; sc.top = half + 10; sc.bottom = -half - 10; sc.far = 200;
-  sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias = -0.0008; sun.shadow.normalBias = 0.6;
+  sun.shadow.mapSize.set(quality.tier.shadow, quality.tier.shadow); sun.shadow.bias = -0.0008; sun.shadow.normalBias = 0.6;
   grp.add(sun, sun.target);
 
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(map.size * 3, map.size * 3), new THREE.MeshStandardMaterial({ map: groundTexture(map), roughness: 1, metalness: 0 }));

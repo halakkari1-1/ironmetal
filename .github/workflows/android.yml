@@ -1,0 +1,82 @@
+name: Android build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    env:
+      KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      VERSION: 0.4.${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install build tools
+        run: npm install --no-audit --no-fund
+
+      - name: Generate Android project
+        run: |
+          node scripts/build-web.mjs
+          npx cap add android
+          npx capacitor-assets generate --android --assetPath resources \
+            --iconBackgroundColor '#120f0c' --iconBackgroundColorDark '#120f0c' \
+            --splashBackgroundColor '#0e0d0b' --splashBackgroundColorDark '#0e0d0b'
+          node scripts/patch-android.mjs
+          npx cap sync android
+
+      - name: Load signing key
+        if: env.KEYSTORE_B64 != ''
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/ironmetal.jks"
+          echo "IM_KEYSTORE=$RUNNER_TEMP/ironmetal.jks" >> "$GITHUB_ENV"
+
+      - name: Build APK and AAB
+        working-directory: android
+        env:
+          IM_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          IM_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          IM_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          IM_VERSION_CODE: ${{ github.run_number }}
+          IM_VERSION_NAME: ${{ env.VERSION }}
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease bundleRelease --no-daemon --stacktrace
+
+      - name: Collect files
+        run: |
+          mkdir -p out
+          cp android/app/build/outputs/apk/release/*.apk "out/IronMetal-$VERSION.apk"
+          cp android/app/build/outputs/bundle/release/*.aab "out/IronMetal-$VERSION.aab"
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: IronMetal-${{ env.VERSION }}
+          path: out/
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          name: IronMetal ${{ env.VERSION }}
+          target_commitish: ${{ github.sha }}
+          files: out/*
+          body: |
+            Download the .apk on your Android phone or tablet and open it to install.
+            The .aab is the file Google Play asks for.
+            Signed with the ${{ env.KEYSTORE_B64 != '' && 'IronMetal release key' || 'temporary debug key (add the signing secrets for the official key)' }}.

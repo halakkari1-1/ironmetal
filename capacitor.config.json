@@ -1,0 +1,11 @@
+{
+  "appId": "com.alakkari.ironmetal",
+  "appName": "IronMetal",
+  "webDir": "www",
+  "backgroundColor": "#0e0d0b",
+  "android": {
+    "backgroundColor": "#0e0d0b",
+    "allowMixedContent": false,
+    "webContentsDebuggingEnabled": false
+  }
+}

@@ -9,6 +9,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { save } from './save.js';
 import { sfx } from './audio.js';
+import { quality, TIERS } from './quality.js';
 
 const $ = (id) => document.getElementById(id);
 const fmt = (n) => Math.round(n).toLocaleString('en-US');
@@ -17,16 +18,17 @@ const isTouch = matchMedia('(pointer:coarse)').matches || 'ontouchstart' in wind
 // ---------- renderer ----------
 const canvas = $('view');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+quality.init(save.get().graphics);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
-renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = quality.tier.soft ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
 
 // Bloom makes fire, muzzle flashes and lights glow. One composer is shared by the showroom and the arena.
 const composer = new EffectComposer(renderer);
 const renderPass = new RenderPass(new THREE.Scene(), new THREE.PerspectiveCamera());
 const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.55, 0.4, 0.86);
 composer.addPass(renderPass); composer.addPass(bloom); composer.addPass(new OutputPass());
+bloom.enabled = quality.tier.bloom;
 function draw(scene, camera) { renderPass.scene = scene; renderPass.camera = camera; composer.render(); }
 
 // Animated fire behind the logo (classic cellular fire, drawn into a small canvas and blurred by CSS).
@@ -58,7 +60,7 @@ class FireLogo {
     this.embers = this.embers.filter((e) => { e.x += e.vx; e.y += e.vy; e.l -= 0.015; this.g.fillStyle = `rgba(255,${150 + Math.random() * 80},60,${e.l})`; this.g.fillRect(e.x, e.y, 1.5, 1.5); return e.l > 0 && e.y > 0; });
   }
 }
-const fires = [new FireLogo($('logoFire')), new FireLogo($('loaderFire'))];
+const fires = [new FireLogo($('loaderFire'))];
 let fireT = 0;
 
 // ---------- garage showroom ----------
@@ -123,9 +125,10 @@ class Showroom {
     this.platform.rotation.y = this.yaw;
     if (this.drop > 0) { this.drop = Math.max(0, this.drop - dt * 3.2); const k = this.drop; this.car.position.y = 0.36 + k * k * 3; if (this.drop === 0) sfx.click(); }
     const portrait = this.camera.aspect < 1;
-    const off = portrait ? 0 : this.focus === 'right' ? -3.2 : this.focus === 'left' ? 3.4 : 0;
+    const a = this.camera.aspect, squarish = Math.max(0, 1.75 - a); // 0 on 16:9+, ~0.42 on 4:3
+    const off = portrait ? 0 : (this.focus === 'right' ? -3.2 : this.focus === 'left' ? 3.4 : 0) * (1 - squarish * 0.55);
     this.camX += (off - this.camX) * Math.min(1, dt * 4);
-    const dist = portrait ? 24 : this.camera.aspect < 1.6 ? 17 : 15;
+    const dist = portrait ? 24 : 15 + squarish * 15;
     this.camera.position.set(this.camX + 2.2, 4.6, dist * 0.92);
     this.camera.lookAt(this.camX, 1.3, 0);
     this.dust.rotation.y += dt * 0.02;
@@ -142,7 +145,7 @@ let setupMap = MAPS[0], setupDiff = DIFFICULTY[0], setupMode = 'deathmatch';
 let lastConfig = null;
 
 // ---------- screens ----------
-function show(id) { for (const s of ['menu', 'setup', 'history', 'contracts', 'hud', 'pause', 'results']) $(s).hidden = s !== id && !(id === 'pause' && s === 'hud'); }
+function show(id) { for (const s of ['menu', 'setup', 'history', 'contracts', 'settings', 'hud', 'pause', 'results']) $(s).hidden = s !== id && !(id === 'pause' && s === 'hud'); }
 
 function statRows(car, up, compareTo = null) {
   const s = car.stats, rows = [['Speed', 'speed', s.speed], ['Armor', 'armor', s.armor], ['Guns', 'gun', s.gun], ['Rockets', 'rocket', s.rocket]];
@@ -243,6 +246,16 @@ function renderSetup() {
 $('modeSeg').addEventListener('click', (e) => { const b = e.target.closest('[data-mode]'); if (!b) return; setupMode = b.dataset.mode; sfx.click(); renderSetup(); });
 $('mapList').addEventListener('click', (e) => { const b = e.target.closest('[data-map]'); if (!b) return; setupMap = MAPS.find((m) => m.id === b.dataset.map); sfx.click(); renderSetup(); });
 $('diffSeg').addEventListener('click', (e) => { const b = e.target.closest('[data-diff]'); if (!b) return; setupDiff = DIFFICULTY.find((d) => d.id === b.dataset.diff); sfx.click(); renderSetup(); });
+
+function renderSettings() {
+  const st = save.get();
+  $('gfxSeg').innerHTML = [['auto', 'Auto'], ['high', 'High'], ['medium', 'Medium'], ['low', 'Low']].map(([id, l]) => `<button data-gfx="${id}" aria-pressed="${st.graphics === id}">${l}</button>`).join('');
+  $('ctlSeg').innerHTML = [[0.85, 'Small'], [1, 'Normal'], [1.2, 'Large']].map(([v, l]) => `<button data-ctl="${v}" aria-pressed="${+st.controls === v}">${l}</button>`).join('');
+  $('gfxNote').textContent = st.graphics === 'auto' ? `Auto: now ${TIERS[quality.tierId].label.toLowerCase()}, adjusts to keep the game smooth` : 'Fixed quality';
+}
+function applyControls() { document.documentElement.style.setProperty('--ctl', save.get().controls || 1); }
+$('gfxSeg').addEventListener('click', (e) => { const b = e.target.closest('[data-gfx]'); if (!b) return; save.get().graphics = b.dataset.gfx; save.write(); quality.init(b.dataset.gfx); applyQuality(true); sfx.click(); renderSettings(); });
+$('ctlSeg').addEventListener('click', (e) => { const b = e.target.closest('[data-ctl]'); if (!b) return; save.get().controls = +b.dataset.ctl; save.write(); applyControls(); sfx.click(); renderSettings(); });
 
 function renderContracts() {
   const list = save.contracts();
@@ -426,11 +439,11 @@ stick.addEventListener('pointerdown', (e) => {
 });
 stick.addEventListener('pointermove', (e) => {
   if (e.pointerId !== input.stickId) return;
-  let dx = e.clientX - input.sx, dy = e.clientY - input.sy; const d = Math.hypot(dx, dy), max = 55;
+  let dx = e.clientX - input.sx, dy = e.clientY - input.sy; const d = Math.hypot(dx, dy), max = 55 * (save.get().controls || 1);
   if (d > max) { dx *= max / d; dy *= max / d; }
   input.jx = dx / max; input.jy = dy / max;
   if (Math.abs(input.jx) < 0.12) input.jx = 0;
-  knob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+  const k = save.get().controls || 1; knob.style.transform = `translate(calc(-50% + ${dx / k}px), calc(-50% + ${dy / k}px))`;
 });
 const endStick = (e) => { if (e.pointerId !== input.stickId) return; input.stickId = null; input.jx = input.jy = 0; base.style.display = 'none'; };
 stick.addEventListener('pointerup', endStick); stick.addEventListener('pointercancel', endStick);
@@ -464,6 +477,8 @@ on('gAction', () => {
   else if (save.buy(car)) sfx.purchase(); else sfx.denied();
   renderGarage(); refreshPoints();
 });
+on('btnSettings', () => { sfx.click(); renderSettings(); show('settings'); });
+on('setBack', () => { sfx.click(); show('menu'); });
 on('btnContracts', () => { sfx.click(); renderContracts(); show('contracts'); });
 on('cBack', () => { sfx.click(); show('menu'); refreshBadge(); });
 on('btnMusic', () => { const st = save.get(); st.music = !st.music; save.write(); sfx.setMusic(st.music); $('mus').style.display = st.music ? 'none' : ''; if (st.music) sfx.music.start(0.5); sfx.click(); });
@@ -486,10 +501,21 @@ function resume() { if (mode !== 'paused') return; mode = 'game'; show('hud'); }
 document.addEventListener('visibilitychange', () => { if (document.hidden && mode === 'game') pause(); });
 
 // ---------- loop ----------
+function applyQuality(tierChanged = false) {
+  const w = window.innerWidth, h = window.innerHeight, pr = quality.pixelRatio(w, h);
+  renderer.setPixelRatio(pr); renderer.setSize(w, h, false);
+  composer.setPixelRatio(pr); composer.setSize(w, h);
+  bloom.enabled = quality.tier.bloom;
+  if (tierChanged) {
+    renderer.shadowMap.type = quality.tier.soft ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+    const shadowScene = game ? game.scene : room.scene;
+    shadowScene.traverse((o) => { if (o.isLight && o.shadow && o.castShadow) { o.shadow.mapSize.set(quality.tier.shadow, quality.tier.shadow); if (o.shadow.map) { o.shadow.map.dispose(); o.shadow.map = null; } } });
+    shadowScene.traverse((o) => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => (m.needsUpdate = true)); });
+  }
+}
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
-  renderer.setSize(w, h, false);
-  composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(w, h);
+  applyQuality();
   room.resize(w, h);
   if (game) game.resize(w, h);
 }
@@ -497,19 +523,20 @@ addEventListener('resize', resize);
 
 let last = performance.now();
 function frame(now) {
-  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  const raw = (now - last) / 1000, dt = Math.min(0.05, raw); last = now;
+  if (mode === 'game' && raw < 0.5) { const q = quality.sample(raw); if (q) applyQuality(q === 'tier'); }
   if (mode === 'game') { input.apply(); game.update(dt); draw(game.scene, game.camera); }
   else if ((mode === 'paused' || mode === 'results') && game) draw(game.scene, game.camera);
   else { room.update(dt); room.render(); }
   fireT += dt;
-  if (fireT > 1 / 30) { fireT = 0; if (!$('menu').hidden || !$('loader').hidden) for (const f of fires) if (f.c.offsetParent) f.step(); }
+  if (fireT > 1 / 30) { fireT = 0; if (!$('loader').hidden) for (const f of fires) f.step(); }
   requestAnimationFrame(frame);
 }
 
 // ---------- boot ----------
 sfx.setEnabled(save.get().sound); sfx.setMusic(save.get().music);
 $('mus').style.display = save.get().music ? 'none' : '';
-refreshBadge();
+refreshBadge(); applyControls();
 $('snd').style.display = save.get().sound ? '' : 'none';
 resize();
 show('menu'); setUI('main');

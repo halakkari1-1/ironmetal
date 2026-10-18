@@ -15,6 +15,8 @@ function fresh() {
     contracts: null,
     sound: true,
     music: true,
+    graphics: 'auto',
+    controls: 1,
   };
 }
 

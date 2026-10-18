@@ -1,0 +1,18 @@
+{
+  "name": "ironmetal",
+  "version": "0.4.0",
+  "private": true,
+  "description": "IronMetal: Wasteland Wars - mobile 3D vehicular combat",
+  "scripts": {
+    "build:web": "node scripts/build-web.mjs",
+    "android:prepare": "node scripts/build-web.mjs && cap add android && capacitor-assets generate --android --assetPath resources --iconBackgroundColor '#120f0c' --iconBackgroundColorDark '#120f0c' --splashBackgroundColor '#0e0d0b' --splashBackgroundColorDark '#0e0d0b' && node scripts/patch-android.mjs && cap sync android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/core": "^7.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^7.0.0"
+  }
+}
