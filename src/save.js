@@ -17,13 +17,17 @@ function fresh() {
     music: true,
     graphics: 'auto',
     controls: 1,
+    scheme: 'direction',
+    layout: null,
+    volume: { master: 0.8, music: 0.6, sfx: 0.9 },
+    lang: 'en',
   };
 }
 
 let state = fresh();
 try {
   const raw = localStorage.getItem(KEY);
-  if (raw) { const f = fresh(); state = Object.assign(f, JSON.parse(raw)); state.best = Object.assign(f.best, state.best || {}); }
+  if (raw) { const f = fresh(); state = Object.assign(f, JSON.parse(raw)); state.best = Object.assign(f.best, state.best || {}); state.volume = Object.assign(fresh().volume, state.volume || {}); }
 } catch (e) { /* storage unavailable: play without saving */ }
 
 function today() { const d = new Date(); return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; }

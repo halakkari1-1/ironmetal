@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { CARS, carStats, KILL_REWARD } from './data.js';
 import { buildCar, wreck } from './cars3d.js';
+import { t as tr } from './i18n.js';
 import { buildArena } from './arena.js';
 import { FX } from './fx.js';
 import { sfx } from './audio.js';
@@ -20,8 +21,35 @@ export const POWERS = {
   napalm: { name: 'Napalm', short: 'NAPLM', ammo: 3, desc: 'Rockets leave burning ground' },
   nuke: { name: 'Mini Nuke', short: 'NUKE', ammo: 1, desc: 'One rocket. Huge blast.' },
 };
+const LIVES = 3;          // every car comes back twice after being wrecked
+const TIME_LIMIT = 300;  // deathmatch ends after five minutes; most kills wins
 const STREAKS = { 2: ['DOUBLE WRECK', 40], 3: ['TRIPLE WRECK', 80], 4: ['RAMPAGE', 150], 5: ['UNSTOPPABLE', 220] };
 const MAP_EVENT = { scrapyard: 'artillery', refinery: 'rupture', dustbowl: 'sandstorm', shanty: 'artillery', outpost: 'artillery' };
+
+// Push vector that moves a circle (x, z, r) out of an obstacle, or null. Boxes may be rotated (o.rot, radians about Y).
+function pushOut(o, x, z, r) {
+  if (o.kind === 'circle') {
+    const dx = x - o.x, dz = z - o.z, d = Math.hypot(dx, dz);
+    if (d >= o.r + r) return null;
+    const k = (o.r + r - d) / Math.max(d, 0.01);
+    return [dx * k, dz * k];
+  }
+  const cs = Math.cos(o.rot || 0), sn = Math.sin(o.rot || 0), dx = x - o.x, dz = z - o.z;
+  const lx = dx * cs - dz * sn, lz = dx * sn + dz * cs; // into box space
+  const px = clamp(lx, -o.hw, o.hw), pz = clamp(lz, -o.hd, o.hd);
+  let ex = lx - px, ez = lz - pz, d = Math.hypot(ex, ez), mx, mz;
+  if (d >= r) return null;
+  if (d < 1e-4) { // centre inside the box: leave by the shallowest side
+    const ox = o.hw - Math.abs(lx), oz = o.hd - Math.abs(lz);
+    if (ox < oz) { mx = Math.sign(lx || 1) * (ox + r); mz = 0; } else { mx = 0; mz = Math.sign(lz || 1) * (oz + r); }
+  } else { const k = (r - d) / d; mx = ex * k; mz = ez * k; }
+  return [mx * cs + mz * sn, -mx * sn + mz * cs]; // back to world space
+}
+export function insideObstacle(o, x, z) {
+  if (o.kind === 'circle') return Math.hypot(x - o.x, z - o.z) < o.r;
+  const cs = Math.cos(o.rot || 0), sn = Math.sin(o.rot || 0), dx = x - o.x, dz = z - o.z;
+  return Math.abs(dx * cs - dz * sn) < o.hw && Math.abs(dx * sn + dz * cs) < o.hd;
+}
 
 export class Game {
   constructor(renderer, hud) {
@@ -37,7 +65,7 @@ export class Game {
     this.diff = mode === 'survival' ? { ...diff, focus: 0.45, enemies: 0 } : diff;
     this.arena = buildArena(this.scene, map);
     this.fx = new FX(this.scene);
-    this.cars = []; this.bullets = []; this.rockets = []; this.mines = []; this.pickups = []; this.drops = []; this.zones = []; this.strikes = [];
+    this.cars = []; this.bullets = []; this.rockets = []; this.mines = []; this.pickups = []; this.drops = []; this.zones = []; this.strikes = []; this.wrecks = [];
     this.time = 0; this.state = 'countdown'; this.countdown = 3.5; this.shake = 0; this.over = false;
     this.stats = { kills: 0, rocketKills: 0, barrels: 0, airdrops: 0, streakMax: 0, bounty: 0, wave: 0, firstBlood: false, bonus: [] };
     this.streak = 0; this.lastKillT = -99;
@@ -53,7 +81,6 @@ export class Game {
     if (mode === 'deathmatch') {
       const pool = CARS.filter((c) => c.price <= diff.maxPrice && (c.id !== car.id || c.price === 0));
       for (let i = 0; i < diff.enemies; i++) this.addCar(pick(pool), this.lvl(diff.level), spawns[i + 1], false);
-      this.setBounty(pick(this.cars.filter((c) => !c.isPlayer)), false);
     } else { this.wave = 0; this.breakT = 0; }
     this.buildPickups();
     this.camPos = new THREE.Vector3(); this.camLook = new THREE.Vector3();
@@ -69,24 +96,61 @@ export class Game {
     if (!isPlayer) stats.hp = Math.round(stats.hp * this.diff.hp * hpMul);
     const mesh = buildCar(data.id);
     this.scene.add(mesh);
+    const bb = new THREE.Box3().setFromObject(mesh), sz = bb.getSize(new THREE.Vector3());
+    const rad = clamp(Math.min(sz.x, sz.z) / 2 * 0.92, 0.85, 1.4), halfLen = Math.max(0.4, Math.max(sz.x, sz.z) / 2 - rad);
     const c = {
       data, stats, mesh, isPlayer,
       x: spawn.x, z: spawn.z, heading: spawn.heading, speed: 0, kx: 0, kz: 0, y: 0, vy: 0, rx: 0, rz: 0, srx: 0, srz: 0,
-      hp: stats.hp, maxHp: stats.hp, alive: true,
+      hp: stats.hp, maxHp: stats.hp, alive: true, rad, halfLen, lives: this.mode === 'survival' && !isPlayer ? 1 : LIVES, respawnT: 0, invuln: 0,
       throttle: 0, steer: 0, firing: false,
       gunCd: 0, rocketCd: 0, rockets: 6, specialCd: 2, specialT: 0, specialOn: null, power: null,
       kills: 0, lastHit: 0, lastAttacker: null, lastCause: null, muzzleI: 0, deathT: 0, rammed: new Set(),
       dmgMul: isPlayer ? 1 : this.diff.dmg,
       ai: isPlayer ? null : { target: null, retarget: 0, stuck: 0, reverseT: 0, rocketT: R(2, 4), strafe: Math.random() < 0.5 ? 1 : -1, specialT: R(3, 6), goal: null },
     };
-    if (data.special.id === 'shield') {
-      c.bubble = new THREE.Mesh(new THREE.SphereGeometry(3.4, 18, 12), new THREE.MeshBasicMaterial({ color: 0x7fd8ff, transparent: true, opacity: 0.22, depthWrite: false, blending: THREE.AdditiveBlending }));
-      c.bubble.visible = false; mesh.add(c.bubble); c.bubble.position.y = 1.2;
-    }
+    this.attachBubble(c);
     this.cars.push(c);
     return c;
   }
 
+  attachBubble(c) {
+    if (c.data.special.id !== 'shield') return;
+    c.bubble = new THREE.Mesh(new THREE.SphereGeometry(3.4, 18, 12), new THREE.MeshBasicMaterial({ color: 0x7fd8ff, transparent: true, opacity: 0.22, depthWrite: false, blending: THREE.AdditiveBlending }));
+    c.bubble.visible = false; c.mesh.add(c.bubble); c.bubble.position.y = 1.2;
+  }
+  inPlay(c) { return c.alive || c.respawnT > 0; }
+
+  // Brings a wrecked car back at the spawn point farthest from its enemies, briefly invulnerable.
+  respawn(c) {
+    const old = c.mesh;
+    this.wrecks.push({ mesh: old, t: 0 });
+    if (c.crown) { old.remove(c.crown); }
+    c.mesh = buildCar(c.data.id); this.scene.add(c.mesh);
+    this.attachBubble(c);
+    if (c.crown) c.mesh.add(c.crown);
+    const foes = this.cars.filter((o) => o !== c && o.alive);
+    let best = this.spawns[0], bestD = -1;
+    for (const sp of this.spawns) { const d = foes.length ? Math.min(...foes.map((o) => Math.hypot(o.x - sp.x, o.z - sp.z))) : 0; if (d > bestD) { bestD = d; best = sp; } }
+    Object.assign(c, { x: best.x, z: best.z, heading: best.heading, speed: 0, kx: 0, kz: 0, y: 0, vy: 0, rx: 0, rz: 0, srx: 0, srz: 0,
+      hp: c.maxHp, alive: true, rockets: 6, specialCd: 2, specialOn: null, specialT: 0, power: null, lastAttacker: null, lastCause: null, invuln: 2.5, respawnT: 0, steerS: 0 });
+    c.rammed.clear();
+    c.mesh.position.set(c.x, 0, c.z); c.mesh.rotation.set(0, c.heading, 0);
+    this.fx.heal(c.x, c.z); this.fx.ring(c.x, c.z, 6, 0x9fd4ff);
+    if (c.isPlayer) { this.hud.announce(this.t('BACK IN THE FIGHT'), this.t(c.lives === 1 ? 'Last life' : '{n} lives left', { n: c.lives }), 'green'); this.snapCamera(); }
+    if (c.ai) c.ai.target = null;
+    this.hud.ensureEnemyBars(this);
+  }
+  // The crown always sits on the car with the most kills (ties keep the current holder).
+  updateLeader() {
+    if (this.mode !== 'deathmatch') return;
+    const pool = this.cars.filter((o) => this.inPlay(o) && o.kills > 0);
+    if (!pool.length) return;
+    const top = Math.max(...pool.map((o) => o.kills));
+    const holder = this.cars.find((o) => o.bounty);
+    if (holder && this.inPlay(holder) && holder.kills === top) return;
+    const next = pool.find((o) => o.kills === top);
+    if (next && next !== holder) this.setBounty(next, true);
+  }
   setBounty(c, announce = true) {
     for (const o of this.cars) if (o.crown) { o.mesh.remove(o.crown); o.crown = null; o.bounty = false; }
     if (!c || !c.alive) return;
@@ -96,7 +160,7 @@ export class Game {
     g.add(new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.6, 0.35, 10, 1, true), gold));
     for (let i = 0; i < 5; i++) { const s = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.5, 4), gold); const a = (i / 5) * TAU; s.position.set(Math.cos(a) * 0.5, 0.4, Math.sin(a) * 0.5); g.add(s); }
     c.mesh.add(g); c.crown = g;
-    if (announce) this.hud.announce('BOUNTY MOVED', `${c.isPlayer ? 'You are' : c.data.name + ' is'} now the target`, 'gold');
+    if (announce) this.hud.announce(this.t(c.isPlayer ? 'YOU TAKE THE CROWN' : 'NEW LEADER'), c.isPlayer ? this.t('Every car is hunting you now') : this.t('{car} has the most kills', { car: c.data.name }), 'gold');
   }
 
   buildPickups() {
@@ -142,12 +206,17 @@ export class Game {
       const before = Math.ceil(this.countdown);
       this.countdown -= dt;
       const now = Math.ceil(this.countdown);
-      if (now !== before && now >= 0) { this.hud.countdown(now > 0 ? String(now) : 'FIGHT'); sfx.countdown(now === 0); }
+      if (now !== before && now >= 0) { this.hud.countdown(now > 0 ? String(now) : tr('FIGHT')); sfx.countdown(now === 0); }
       if (this.countdown <= 0) { this.state = 'fight'; if (this.mode === 'survival') this.nextWave(); }
     }
     const active = this.state === 'fight' || this.state === 'ending';
     for (const c of this.cars) {
-      if (!c.alive) { this.updateWreck(c, dt); continue; }
+      if (!c.alive) {
+        this.updateWreck(c, dt);
+        if (c.respawnT > 0 && this.state === 'fight') { c.respawnT -= dt; if (c.respawnT <= 0) this.respawn(c); }
+        continue;
+      }
+      if (c.invuln > 0) { c.invuln -= dt; c.mesh.visible = c.invuln <= 0 || Math.floor(c.invuln * 10) % 2 === 0; }
       if (active && !c.isPlayer) this.think(c, dt);
       if (!active) { c.throttle = 0; c.steer = 0; c.firing = false; }
       this.drive(c, dt);
@@ -155,6 +224,15 @@ export class Game {
       if (c.crown) c.crown.rotation.y += dt * 2;
     }
     this.collideCars();
+    for (const st of this.arena.stacks || []) if (Math.random() < dt * 2.2) // chimney smoke drifting off the district
+      this.fx.smoke.spawn(st.x + R(-0.4, 0.4), st.y, st.z + R(-0.4, 0.4), R(1.5, 3), R(2, 3.5), R(-0.5, 0.5), R(5, 7), 3, 11, [0.3, 0.28, 0.26, 0.45], [0.42, 0.4, 0.38, 0], -0.15, 0.3);
+    this.wrecks = this.wrecks.filter((w) => { // old wrecks smoulder, then sink out of the way
+      w.t += dt;
+      if (w.t < 5 && Math.random() < 0.3) this.fx.burn(w.mesh.position.x, w.mesh.position.y + 1.2, w.mesh.position.z);
+      if (w.t > 7) w.mesh.position.y -= dt * 0.8;
+      if (w.t > 10) { this.scene.remove(w.mesh); return false; }
+      return true;
+    });
     this.updateBullets(dt); this.updateRockets(dt); this.updateMines(dt); this.updatePickups(dt);
     this.updateZones(dt); this.updateStrikes(dt);
     if (this.state === 'fight') { this.updateDrops(dt); this.updateEvents(dt); if (this.mode === 'survival') this.updateWaves(dt); }
@@ -188,19 +266,19 @@ export class Game {
     }
     if (this.wave % 3 === 0) this.setBounty(pick(this.cars.filter((c) => c.alive && !c.isPlayer)), false);
     this.hud.ensureEnemyBars(this);
-    this.hud.announce(`WAVE ${this.wave}`, `${n} hostiles inbound`, 'red');
+    this.hud.announce(tr('WAVE {n}', { n: this.wave }), tr('{n} hostiles inbound', { n }), 'red');
     sfx.alarm();
   }
   updateWaves(dt) {
-    const left = this.cars.filter((c) => c.alive && !c.isPlayer).length;
+    const left = this.cars.filter((c) => !c.isPlayer && this.inPlay(c)).length;
     if (left > 0 || !this.player.alive) return;
     if (this.breakT <= 0) {
       this.breakT = 5;
       const p = this.player; p.hp = Math.min(p.maxHp, p.hp + p.maxHp * 0.35); p.rockets = Math.min(12, p.rockets + 4);
       this.fx.heal(p.x, p.z); sfx.pickup();
       const pts = 40 + this.wave * 15;
-      this.stats.bonus.push({ label: `Wave ${this.wave} cleared`, pts });
-      this.hud.announce(`WAVE ${this.wave} CLEARED`, `+${pts} · armor patched`, 'green');
+      this.stats.bonus.push({ label: 'Wave {n} cleared', n: this.wave, pts });
+      this.hud.announce(tr('WAVE {n} CLEARED', { n: this.wave }), tr('+{n} · armor patched', { n: pts }), 'green');
     }
     this.breakT -= dt;
     if (this.breakT <= 0) this.nextWave();
@@ -218,8 +296,10 @@ export class Game {
     else c.speed -= c.speed * Math.min(1, 1.4 * dt);
     c.speed = clamp(c.speed, -s.maxSpeed * 0.45, maxS);
     if (!ram && c.speed > s.maxSpeed * (nitro ? 1.75 : 1)) c.speed -= (c.speed - s.maxSpeed) * 2 * dt;
-    const turnScale = clamp(c.speed / 7, -1, 1) * (1 - 0.35 * clamp(Math.abs(c.speed) / maxS, 0, 1));
-    c.heading = wrap(c.heading + c.steer * s.turn * turnScale * dt);
+    // steering eases in and out instead of snapping, which keeps the car stable on a touch stick
+    c.steerS = (c.steerS || 0) + (c.steer - (c.steerS || 0)) * Math.min(1, dt * (c.isPlayer ? 9 : 12));
+    const turnScale = clamp(c.speed / 6, -1, 1) * (1 - 0.25 * clamp(Math.abs(c.speed) / maxS, 0, 1));
+    c.heading = wrap(c.heading + c.steerS * s.turn * 1.15 * turnScale * dt);
     const fx = Math.sin(c.heading), fz = Math.cos(c.heading);
     c.x += (fx * c.speed + c.kx) * dt; c.z += (fz * c.speed + c.kz) * dt;
     const kd = Math.exp(-4 * dt); c.kx *= kd; c.kz *= kd;
@@ -227,7 +307,7 @@ export class Game {
     c.mesh.position.set(c.x, 0, c.z);
     c.mesh.rotation.y = c.heading;
     c.mesh.rotation.x = THREE.MathUtils.lerp(c.mesh.rotation.x, -clamp(c.throttle * 0.04 - (c.speed < 0 ? 0.02 : 0), -0.05, 0.05), 0.1);
-    c.mesh.rotation.z = THREE.MathUtils.lerp(c.mesh.rotation.z, c.steer * clamp(c.speed / 30, -1, 1) * 0.06, 0.1);
+    c.mesh.rotation.z = THREE.MathUtils.lerp(c.mesh.rotation.z, c.steerS * clamp(c.speed / 30, -1, 1) * 0.06, 0.1);
     for (const w of c.mesh.userData.wheels) w.rotation.x += c.speed * dt / 0.5;
     if (Math.abs(c.speed) > 12 && Math.random() < 0.5) this.fx.dust(c.x - fx * 2, c.z - fz * 2, this.map.id === 'dustbowl' ? 1.6 : 0.8);
     if (nitro || ram) this.fx.exhaust(c.x - fx * 2.4, 0.9, c.z - fz * 2.4, fx, fz);
@@ -235,28 +315,36 @@ export class Game {
     if (c.hp < c.maxHp * 0.2 && Math.random() < 0.5) this.fx.flames(c.x + fx * 1.4, 1.3, c.z + fz * 1.4);
   }
 
+  // The car body is three circles along its length (sized from its model), so it can get close to things side-on.
+  // On contact only the part of the motion that goes into the obstacle is lost: the car slides along walls.
   collideWorld(c) {
-    const h = this.arena.half - 1.2 - CAR_R;
-    if (Math.abs(c.x) > h) { c.x = Math.sign(c.x) * h; c.speed *= 0.4; c.kx *= -0.5; this.bump(c); }
-    if (Math.abs(c.z) > h) { c.z = Math.sign(c.z) * h; c.speed *= 0.4; c.kz *= -0.5; this.bump(c); }
-    if (c.y > 2) return; // airborne wrecks fly over obstacles
-    for (const o of this.arena.obstacles) {
-      if (o.dead) continue;
-      let dx, dz, d;
-      if (o.kind === 'circle') { dx = c.x - o.x; dz = c.z - o.z; d = Math.hypot(dx, dz); if (d >= o.r + CAR_R) continue; const p = (o.r + CAR_R - d) / Math.max(d, 0.01); c.x += dx * p; c.z += dz * p; }
-      else {
-        const px = clamp(c.x, o.x - o.hw, o.x + o.hw), pz = clamp(c.z, o.z - o.hd, o.z + o.hd);
-        dx = c.x - px; dz = c.z - pz; d = Math.hypot(dx, dz);
-        if (d >= CAR_R) continue;
-        if (d < 0.001) {
-          const ox = o.hw + CAR_R - Math.abs(c.x - o.x), oz = o.hd + CAR_R - Math.abs(c.z - o.z);
-          if (ox < oz) c.x += Math.sign(c.x - o.x || 1) * ox; else c.z += Math.sign(c.z - o.z || 1) * oz;
-        } else { const p = (CAR_R - d) / d; c.x += dx * p; c.z += dz * p; }
-      }
-      const impact = Math.abs(c.speed);
-      c.speed *= 0.55;
-      if (impact > 14) { this.bump(c); if (c.alive) this.fx.spark(c.x + Math.sin(c.heading) * 2, 1, c.z + Math.cos(c.heading) * 2, 8); if (o.barrel) this.damageObstacle(o, impact, c); }
+    const fx = Math.sin(c.heading), fz = Math.cos(c.heading), r = c.rad, L = c.halfLen;
+    let nx = 0, nz = 0, hit = null, any = false;
+    const lim = this.arena.half - 1.0;
+    for (const off of [L, 0, -L]) {
+      const cx = c.x + fx * off, cz = c.z + fz * off;
+      if (cx > lim - r) { c.x -= cx - (lim - r); nx -= 1; any = true; } else if (cx < -lim + r) { c.x += -lim + r - cx; nx += 1; any = true; }
+      if (cz > lim - r) { c.z -= cz - (lim - r); nz -= 1; any = true; } else if (cz < -lim + r) { c.z += -lim + r - cz; nz += 1; any = true; }
     }
+    if (c.y <= 2) { // airborne wrecks fly over obstacles
+      for (const o of this.arena.obstacles) {
+        if (o.dead) continue;
+        const bound = (o.r || Math.hypot(o.hw, o.hd)) + r + L;
+        if (Math.abs(c.x - o.x) > bound || Math.abs(c.z - o.z) > bound) continue;
+        for (const off of [L, 0, -L]) {
+          const push = pushOut(o, c.x + fx * off, c.z + fz * off, r);
+          if (!push) continue;
+          c.x += push[0]; c.z += push[1]; nx += push[0]; nz += push[1]; any = true; hit = o;
+        }
+      }
+    }
+    if (!any) return;
+    const nl = Math.hypot(nx, nz) || 1; nx /= nl; nz /= nl;
+    const into = -(fx * nx + fz * nz) * Math.sign(c.speed || 1); // 1 = head-on, 0 = scraping along
+    const impact = Math.abs(c.speed) * Math.max(0, into);
+    if (into > 0) c.speed *= 1 - 0.85 * into;
+    const kn = c.kx * nx + c.kz * nz; if (kn < 0) { c.kx -= kn * nx * 1.4; c.kz -= kn * nz * 1.4; }
+    if (impact > 12) { this.bump(c); if (c.alive) this.fx.spark(c.x - nx * r, 1, c.z - nz * r, 8); if (hit && hit.barrel) this.damageObstacle(hit, impact, c); }
   }
   bump(c) { if (c.isPlayer && Math.abs(c.speed) > 6) { this.shake = Math.max(this.shake, 0.25); sfx.crunch(); } }
 
@@ -266,7 +354,7 @@ export class Game {
       const a = cs[i], b = cs[j];
       if (!a.alive && !b.alive) continue;
       if (a.y > 2 || b.y > 2) continue;
-      const dx = b.x - a.x, dz = b.z - a.z, d = Math.hypot(dx, dz), min = CAR_R * 2;
+      const dx = b.x - a.x, dz = b.z - a.z, d = Math.hypot(dx, dz), min = (a.rad + b.rad) * 1.45;
       if (d >= min || d < 0.001) continue;
       const nx = dx / d, nz = dz / d, push = min - d;
       const ma = a.alive ? a.stats.mass : 50, mb = b.alive ? b.stats.mass : 50, tot = ma + mb;
@@ -372,7 +460,7 @@ export class Game {
     if (p.type === 'railgun') this.railgun(c);
     else if (p.type === 'napalm') this.fireRocket(c, { free: true, kind: 'napalm', dmgMul: 0.8 });
     else this.fireRocket(c, { free: true, kind: 'nuke', dmg: 170 * (c.isPlayer ? 1 : c.dmgMul), radius: 18 });
-    if (--p.ammo <= 0) { c.power = null; if (c.isPlayer) this.hud.toast(`${POWERS[p.type].name.toUpperCase()} EMPTY`); }
+    if (--p.ammo <= 0) { c.power = null; if (c.isPlayer) this.hud.toast(tr('{p} EMPTY', { p: tr(POWERS[p.type].name).toUpperCase() })); }
   }
 
   railgun(c) {
@@ -466,8 +554,7 @@ export class Game {
   hitObstacle(x, y, z) {
     for (const o of this.arena.obstacles) {
       if (o.dead || y > o.h + 0.3) continue;
-      if (o.kind === 'circle') { if (Math.hypot(x - o.x, z - o.z) < o.r) return o; }
-      else if (Math.abs(x - o.x) < o.hw && Math.abs(z - o.z) < o.hd) return o;
+      if (insideObstacle(o, x, z)) return o;
     }
     return null;
   }
@@ -604,8 +691,8 @@ export class Game {
           if (!c.alive || Math.hypot(c.x - d.x, c.z - d.z) > 3.2) continue;
           const type = d.type;
           c.power = { type, ammo: POWERS[type].ammo };
-          if (c.isPlayer) { this.stats.airdrops++; sfx.powerup(); this.hud.announce(POWERS[type].name.toUpperCase(), `${POWERS[type].desc} · rocket button`, 'blue'); }
-          else if (Math.hypot(c.x - this.player.x, c.z - this.player.z) < 70) this.hud.feedText(`${c.data.name} grabbed the ${POWERS[type].name}`);
+          if (c.isPlayer) { this.stats.airdrops++; sfx.powerup(); this.hud.announce(tr(POWERS[type].name).toUpperCase(), tr('{p} · rocket button', { p: tr(POWERS[type].desc) }), 'blue'); }
+          else if (Math.hypot(c.x - this.player.x, c.z - this.player.z) < 70) this.hud.feedText(tr('{car} grabbed the {p}', { car: c.data.name, p: tr(POWERS[type].name) }));
           this.scene.remove(d.mesh);
           return false;
         }
@@ -627,7 +714,7 @@ export class Game {
     this.scene.add(g);
     const type = pick(Object.keys(POWERS));
     this.drops.push({ x: s.x, z: s.z, y: 40, mesh: g, chute, landed: false, type });
-    this.hud.announce('AIRDROP INCOMING', 'Follow the blue smoke', 'blue');
+    this.hud.announce(tr('AIRDROP INCOMING'), tr('Follow the blue smoke'), 'blue');
     sfx.alarm();
   }
 
@@ -645,7 +732,7 @@ export class Game {
     this.eventT = R(28, 38);
     const ev = MAP_EVENT[this.map.id];
     if (ev === 'artillery') {
-      this.hud.announce('ARTILLERY STRIKE', 'Get out of the red circles', 'red'); sfx.alarm();
+      this.hud.announce(tr('ARTILLERY STRIKE'), tr('Get out of the red circles'), 'red'); sfx.alarm();
       const alive = this.cars.filter((c) => c.alive);
       for (let i = 0; i < 7; i++) {
         const c = i < 4 ? pick(alive) : null;
@@ -657,7 +744,7 @@ export class Game {
       if (!tanks.length) return;
       const t = tanks.reduce((a, b) => (Math.hypot(a.x - this.player.x, a.z - this.player.z) < Math.hypot(b.x - this.player.x, b.z - this.player.z) ? a : b));
       t.ruptured = true;
-      this.hud.announce('TANK RUPTURE', 'A fuel tank is about to blow', 'red'); sfx.alarm();
+      this.hud.announce(tr('TANK RUPTURE'), tr('A fuel tank is about to blow'), 'red'); sfx.alarm();
       this.addStrike(t.x, t.z, t.r + 9, 2.6, 75, () => {
         this.zones.push({ x: t.x, z: t.z, r: t.r + 4, t: 9, dps: 16, owner: null });
         t.mesh.material = t.mesh.material.clone(); t.mesh.material.color.multiplyScalar(0.25);
@@ -665,7 +752,7 @@ export class Game {
       }, 2.2);
     } else {
       this.storm = 14;
-      this.hud.announce('SANDSTORM', 'Visibility dropping', 'gold'); sfx.wind();
+      this.hud.announce(tr('SANDSTORM'), tr('Visibility dropping'), 'gold'); sfx.wind();
     }
   }
   addStrike(x, z, r, delay, dmg, after = null, size = 1) {
@@ -692,7 +779,7 @@ export class Game {
 
   // ---------- damage / death ----------
   damage(c, amt, by, quiet = false, cause = 'gun') {
-    if (!c.alive || amt <= 0 || this.state === 'countdown') return;
+    if (!c.alive || amt <= 0 || this.state === 'countdown' || c.invuln > 0) return;
     if (c.specialOn === 'shield') { if (!quiet && Math.random() < 0.3) this.fx.spark(c.x, 1.5, c.z); return; }
     c.hp -= amt; c.lastHit = this.time;
     if (by && by !== c) { c.lastAttacker = by; c.lastCause = cause; }
@@ -702,7 +789,9 @@ export class Game {
   }
 
   kill(c) {
-    c.alive = false; c.hp = 0; c.deathT = 0;
+    c.alive = false; c.hp = 0; c.deathT = 0; c.mesh.visible = true;
+    c.lives = Math.max(0, c.lives - 1);
+    if (c.lives > 0) c.respawnT = 3.2;
     c.specialOn = null; if (c.bubble) c.bubble.visible = false;
     // the wreck is thrown into the air and tumbles
     c.vy = R(10, 15); c.srx = R(-5, 5); c.srz = R(-7, 7); c.y = 0.01;
@@ -725,19 +814,20 @@ export class Game {
       this.lastKillT = this.time;
       this.stats.streakMax = Math.max(this.stats.streakMax, this.streak);
       const st = STREAKS[Math.min(5, this.streak)];
-      if (this.streak >= 2 && st) { this.stats.bonus.push({ label: st[0].toLowerCase().replace(/^./, (m) => m.toUpperCase()), pts: st[1] }); this.hud.announce(st[0], `+${st[1]} streak bonus`, 'gold'); sfx.streak(this.streak); }
-      else if (!c.bounty) this.hud.announce('WRECKED', c.data.name, 'kill');
+      if (this.streak >= 2 && st) { this.stats.bonus.push({ label: st[0].toLowerCase().replace(/^./, (m) => m.toUpperCase()), pts: st[1] }); this.hud.announce(tr(st[0]), tr('+{n} streak bonus', { n: st[1] }), 'gold'); sfx.streak(this.streak); }
+      else if (!c.bounty) this.hud.announce(tr('WRECKED'), c.data.name, 'kill');
     } else if (!killer && !c.isPlayer && this.stats.firstBlood === false) { /* environment kill, no first blood */ }
     if (c.bounty) {
       if (killer && killer.isPlayer) {
         const pts = Math.round(100 * (this.diff.reward || 1));
-        this.stats.bounty++; this.stats.bonus.push({ label: 'Bounty claimed', pts });
-        this.hud.announce('BOUNTY CLAIMED', `+${pts}`, 'gold'); sfx.streak(3);
-        this.setBounty(null, false);
-      } else if (killer && killer.alive) this.setBounty(killer, true);
-      else this.setBounty(null, false);
+        this.stats.bounty++; this.stats.bonus.push({ label: 'Crown claimed', pts });
+        this.hud.announce(this.t('CROWN CLAIMED'), `+${pts}`, 'gold'); sfx.streak(3);
+      }
+      if (this.mode === 'survival') this.setBounty(null, false);
+      else if (c.lives === 0) this.setBounty(null, false);
     }
-    if (c.isPlayer && c.bounty) this.setBounty(null, false);
+    if (c.isPlayer && c.lives > 0) this.hud.announce(this.t('WRECKED'), this.t(c.lives === 1 ? 'Last life · back in 3s' : '{n} lives left · back in 3s', { n: c.lives }), 'red');
+    this.updateLeader();
   }
 
   updateWreck(c, dt) {
@@ -774,7 +864,7 @@ export class Game {
         if (!c.alive || Math.hypot(c.x - p.x, c.z - p.z) > 3) continue;
         if (p.type === 'health') { if (c.hp >= c.maxHp) continue; c.hp = Math.min(c.maxHp, c.hp + c.maxHp * 0.4); this.fx.heal(c.x, c.z); }
         else { if (c.rockets >= 12) continue; c.rockets = Math.min(12, c.rockets + 4); }
-        if (c.isPlayer) { sfx.pickup(); this.hud.toast(p.type === 'health' ? '+ ARMOR REPAIRED' : '+4 ROCKETS'); }
+        if (c.isPlayer) { sfx.pickup(); this.hud.toast(tr(p.type === 'health' ? '+ ARMOR REPAIRED' : '+4 ROCKETS')); }
         p.respawn = 16; p.mesh.visible = false; break;
       }
     }
@@ -836,6 +926,9 @@ export class Game {
     }
   }
 
+  t(s, v) { return tr(s, v); }
+  camHeading() { return Math.atan2(this.camLook.x - this.camPos.x, this.camLook.z - this.camPos.z); }
+
   // ---------- camera ----------
   snapCamera() { this.updateCamera(1, true); }
   updateCamera(dt, snap = false) {
@@ -862,9 +955,19 @@ export class Game {
 
   // ---------- end ----------
   checkEnd() {
-    if (!this.player.alive) { this.result = this.mode === 'survival' ? 'survival' : 'loss'; this.state = 'ending'; this.endT = 3; sfx.lose(); this.hud.banner(this.mode === 'survival' ? `WAVE ${this.wave}` : 'WRECKED', false); return; }
-    if (this.mode === 'deathmatch' && this.cars.filter((c) => c.alive).length === 1) { this.result = 'win'; this.state = 'ending'; this.endT = 3; sfx.win(); this.hud.banner('VICTORY', true); }
+    const p = this.player;
+    if (!p.alive && p.lives === 0) { this.result = this.mode === 'survival' ? 'survival' : 'loss'; this.state = 'ending'; this.endT = 3; sfx.lose(); this.hud.banner(this.mode === 'survival' ? `${this.t('WAVE')} ${this.wave}` : this.t('WRECKED'), false); return; }
+    if (this.mode !== 'deathmatch') return;
+    const left = this.cars.filter((c) => this.inPlay(c));
+    if (left.length === 1 && left[0] === p) { this.result = 'win'; this.state = 'ending'; this.endT = 3; sfx.win(); this.hud.banner(this.t('VICTORY'), true); return; }
+    if (this.time - 3.5 >= TIME_LIMIT) { // time up: most kills wins (a tie goes to the player)
+      const top = Math.max(...this.cars.map((c) => c.kills));
+      const win = p.kills >= top;
+      this.result = win ? 'win' : 'loss'; this.state = 'ending'; this.endT = 3;
+      if (win) { sfx.win(); this.hud.banner(this.t('VICTORY'), true); } else { sfx.lose(); this.hud.banner(this.t('TIME UP'), false); }
+    }
   }
+  timeLeft() { return this.mode === 'deathmatch' ? Math.max(0, TIME_LIMIT - Math.max(0, this.time - 3.5)) : null; }
   finish() {
     if (this.over) return;
     this.over = true; this.running = false; sfx.engineStop();

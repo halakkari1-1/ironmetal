@@ -1,0 +1,35 @@
+// Quick visual pass: lobby (EN and AR), settings, setup, a fight with the lives HUD, and the view over the wall.
+import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs';
+const [url, out] = process.argv.slice(2);
+const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+const ctx = await browser.newContext({ viewport: { width: 915, height: 412 }, deviceScaleFactor: 1.5, hasTouch: true, isMobile: true });
+const page = await ctx.newPage();
+const errs = []; page.on('pageerror', (e) => errs.push(e.message + '\n' + e.stack)); page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
+await page.goto(url); await page.waitForFunction(() => document.getElementById('loader').hidden, null, { timeout: 120000 }); await page.waitForTimeout(800);
+await page.screenshot({ path: `${out}/1-lobby-en.png` });
+await page.tap('#btnSettings'); await page.waitForTimeout(300);
+await page.tap('[data-lang="ar"]'); await page.waitForTimeout(400);
+await page.screenshot({ path: `${out}/2-settings-ar.png` });
+await page.evaluate(() => document.querySelector('#settings .plate').scrollTop = 999); await page.waitForTimeout(200);
+await page.screenshot({ path: `${out}/2b-settings-ar-bottom.png` });
+await page.tap('#setBack'); await page.waitForTimeout(400);
+await page.screenshot({ path: `${out}/3-lobby-ar.png` });
+await page.tap('#btnGarage'); await page.waitForTimeout(500);
+await page.screenshot({ path: `${out}/4-garage-ar.png` });
+await page.tap('#gBack'); await page.tap('#btnUpgrade'); await page.waitForTimeout(400);
+await page.screenshot({ path: `${out}/5-upgrade-ar.png` });
+await page.tap('#uBack'); await page.tap('#btnPlay'); await page.waitForTimeout(400);
+await page.screenshot({ path: `${out}/6-setup-ar.png` });
+await page.tap('#sFight'); await page.waitForTimeout(1500);
+const info = await page.evaluate(() => { const g = window.__ironmetal.game; for (let f = 0; f < 200; f++) g.update(1 / 30); const p = g.player; p.hp = 1; g.damage(p, 50, null, 'gun'); for (let f = 0; f < 20; f++) g.update(1 / 30); return { lives: p.lives, alive: p.alive, respawnT: p.respawnT.toFixed(1), stacks: g.arena.stacks.length, calls: window.__ironmetal.renderer.info.render.calls }; });
+await page.waitForTimeout(300);
+await page.screenshot({ path: `${out}/7-dead-ar.png` });
+const info2 = await page.evaluate(() => { const g = window.__ironmetal.game; for (let f = 0; f < 120; f++) g.update(1 / 30); return { lives: g.player.lives, alive: g.player.alive, inv: g.player.invuln.toFixed(1) }; });
+await page.waitForTimeout(300);
+await page.screenshot({ path: `${out}/8-respawn-ar.png` });
+// look over the wall
+await page.evaluate(() => { const g = window.__ironmetal.game, p = g.player; p.x = 0; p.z = g.arena.half - 12; p.heading = 0; g.snapCamera(); for (let f = 0; f < 60; f++) g.update(1 / 30); });
+await page.waitForTimeout(400);
+await page.screenshot({ path: `${out}/9-district.png` });
+console.log(JSON.stringify(info), JSON.stringify(info2)); console.log(errs.length ? errs.join('\n') : 'no errors');
+await browser.close();

@@ -3,6 +3,10 @@
 
 let ctx = null, master = null, sfxBus = null, musicBus = null, reverb = null, noiseBuf = null;
 let sfxOn = true, musicOn = true;
+let vol = { master: 0.8, music: 0.6, sfx: 0.9 };
+// Optional recorded track for the lobby: drop an MP3 at assets/music/lobby.mp3 and it replaces the synthesized riff there.
+const TRACK_URL = new URL('../assets/music/lobby.mp3', import.meta.url).href;
+let track = null, trackGain = null, trackReady = false;
 let engine = null;
 
 function makeCurve(k) {
@@ -17,10 +21,10 @@ function init() {
   const AC = window.AudioContext || window.webkitAudioContext;
   if (!AC) return;
   ctx = new AC();
-  master = ctx.createGain(); master.gain.value = 0.8;
+  master = ctx.createGain(); master.gain.value = vol.master;
   const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -12; comp.ratio.value = 5; comp.attack.value = 0.004; comp.release.value = 0.2;
   master.connect(comp); comp.connect(ctx.destination);
-  sfxBus = ctx.createGain(); sfxBus.gain.value = sfxOn ? 0.85 : 0; sfxBus.connect(master);
+  sfxBus = ctx.createGain(); sfxBus.gain.value = sfxOn ? 0.85 * vol.sfx : 0; sfxBus.connect(master);
   musicBus = ctx.createGain(); musicBus.gain.value = 0; musicBus.connect(master);
   noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
   const d = noiseBuf.getChannelData(0);
@@ -31,7 +35,15 @@ function init() {
   reverb = ctx.createConvolver(); reverb.buffer = ir;
   const wet = ctx.createGain(); wet.gain.value = 0.22; reverb.connect(wet); wet.connect(master);
   CURVE = makeCurve(420);
+  try {
+    track = new Audio(); track.loop = true; track.preload = 'auto'; track.src = TRACK_URL;
+    track.addEventListener('canplaythrough', () => { trackReady = true; if (music.playing && music.where === 'lobby') music.start(music.level, 'lobby'); }, { once: true });
+    track.addEventListener('error', () => { trackReady = false; });
+    trackGain = ctx.createGain(); trackGain.gain.value = 0;
+    ctx.createMediaElementSource(track).connect(trackGain); trackGain.connect(musicBus);
+  } catch (e) { track = null; }
 }
+const musicTarget = (level) => (musicOn ? level * vol.music * 1.4 : 0);
 
 function noise(dur, { type = 'lowpass', freq = 1000, q = 1, gain = 0.5, attack = 0.002, sweepTo = null, delay = 0, out = null, rate = null } = {}) {
   const t = ctx.currentTime + delay;
@@ -144,12 +156,18 @@ const SONG = [['A1', 'gallop'], ['A2', 'gallop'], ['A1', 'gallop'], ['A2', 'gall
 const BPM = 168, STEP = 60 / BPM / 4, E2 = 82.41;
 
 const music = {
-  playing: false, timer: null, next: 0, step: 0, bar: 0, level: 0.55,
-  start(level = 0.55) {
+  playing: false, timer: null, next: 0, step: 0, bar: 0, level: 0.55, where: 'lobby', synth: true,
+  start(level = 0.55, where = 'lobby') {
     init(); if (!ctx) return;
-    this.level = level;
+    this.level = level; this.where = where;
     musicBus.gain.cancelScheduledValues(ctx.currentTime);
-    musicBus.gain.setTargetAtTime(musicOn ? level : 0, ctx.currentTime, 0.4);
+    musicBus.gain.setTargetAtTime(musicTarget(level), ctx.currentTime, 0.4);
+    const useTrack = where === 'lobby' && trackReady && track;
+    this.synth = !useTrack;
+    if (track) {
+      if (useTrack) { trackGain.gain.setTargetAtTime(1, ctx.currentTime, 0.5); if (track.paused) track.play().catch(() => {}); }
+      else { trackGain.gain.setTargetAtTime(0, ctx.currentTime, 0.3); setTimeout(() => { if (!this.playing || this.synth) track.pause(); }, 1200); }
+    }
     if (this.playing) return;
     this.playing = true; this.next = ctx.currentTime + 0.1; this.step = 0; this.bar = 0;
     this.timer = setInterval(() => this.schedule(), 50);
@@ -160,7 +178,7 @@ const music = {
     setTimeout(() => { if (musicBus.gain.value < 0.02) { clearInterval(this.timer); this.playing = false; } }, fade * 1000 + 200);
   },
   schedule() {
-    if (ctx.state !== 'running') return;
+    if (ctx.state !== 'running' || !this.synth) { if (!this.synth) this.next = ctx.currentTime + 0.1; return; }
     if (this.next < ctx.currentTime - 0.2) this.next = ctx.currentTime + 0.05; // skip ahead after a long stall instead of bursting
     while (this.next < ctx.currentTime + 0.35) { this.play(this.next); this.next += STEP; this.step++; if (this.step === 16) { this.step = 0; this.bar = (this.bar + 1) % SONG.length; } }
   },
@@ -200,8 +218,15 @@ function boomSlot() { const n = ctx.currentTime; boomTimes = boomTimes.filter((t
 
 export const sfx = {
   unlock() { init(); if (ctx && ctx.state !== 'running') ctx.resume().catch(() => {}); },
-  setEnabled(v) { sfxOn = v; if (sfxBus) sfxBus.gain.value = v ? 0.85 : 0; },
-  setMusic(v) { musicOn = v; if (musicBus && music.playing) musicBus.gain.setTargetAtTime(v ? music.level : 0, ctx.currentTime, 0.2); },
+  setEnabled(v) { sfxOn = v; if (sfxBus) sfxBus.gain.value = v ? 0.85 * vol.sfx : 0; },
+  setMusic(v) { musicOn = v; if (musicBus && music.playing) musicBus.gain.setTargetAtTime(musicTarget(music.level), ctx.currentTime, 0.2); },
+  setVolumes(v) {
+    vol = { ...vol, ...v };
+    if (!ctx) return;
+    master.gain.setTargetAtTime(vol.master, ctx.currentTime, 0.05);
+    sfxBus.gain.setTargetAtTime(sfxOn ? 0.85 * vol.sfx : 0, ctx.currentTime, 0.05);
+    if (music.playing) musicBus.gain.setTargetAtTime(musicTarget(music.level), ctx.currentTime, 0.05);
+  },
   music,
   click() { if (!ok()) return; tone(220, 0.06, { type: 'square', gain: 0.1, to: 110 }); noise(0.05, { type: 'highpass', freq: 3000, gain: 0.12 }); },
   confirm() { if (!ok()) return; tone(110, 0.15, { type: 'sawtooth', gain: 0.18, to: 220 }); noise(0.2, { type: 'bandpass', freq: 1500, gain: 0.15 }); },
@@ -272,4 +297,8 @@ export const sfx = {
   },
 };
 
-document.addEventListener('visibilitychange', () => { if (!document.hidden && ctx && ctx.state !== 'running') ctx.resume().catch(() => {}); });
+document.addEventListener('visibilitychange', () => {
+  if (!ctx) return;
+  if (document.hidden) { if (track && !track.paused) track.pause(); }
+  else { if (ctx.state !== 'running') ctx.resume().catch(() => {}); if (track && music.playing && !music.synth) track.play().catch(() => {}); }
+});

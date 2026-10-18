@@ -140,7 +140,7 @@ export const DIFFICULTY = [
   { id: 'hard', name: 'Warlord', enemies: 5, dmg: 0.9, accuracy: 0.85, aggression: 1, focus: 0.8, level: 2, hp: 1, maxPrice: 99999, reward: 2.5, base: 250 },
 ];
 
-export const KILL_REWARD = 30;
+export const KILL_REWARD = 18;
 export const START_POINTS = 300;
 
 // Daily contracts: three per day, picked from these templates with a seed from the date.

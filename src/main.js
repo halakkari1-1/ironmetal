@@ -1,6 +1,6 @@
 // App controller: renderer, garage showroom, menus, HUD, input and the match lifecycle.
 import * as THREE from 'three';
-import { CARS, UPGRADES, MAX_UPGRADE, MAPS, DIFFICULTY, KILL_REWARD, carStats, upgradeCost } from './data.js';
+import { CARS, UPGRADES, MAX_UPGRADE, MAPS, DIFFICULTY, KILL_REWARD, CONTRACTS, carStats, upgradeCost } from './data.js';
 import { buildCar, preloadWarhorse } from './cars3d.js';
 import { loadKit, KIT, building, propMesh, barrelGeometry } from './kit.js';
 import { Game, POWERS } from './game.js';
@@ -11,6 +11,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { save } from './save.js';
 import { sfx } from './audio.js';
 import { quality, TIERS } from './quality.js';
+import { t, applyLang, initLang, getLang } from './i18n.js';
 
 const $ = (id) => document.getElementById(id);
 const fmt = (n) => Math.round(n).toLocaleString('en-US');
@@ -155,7 +156,8 @@ class Showroom {
     if (this.drop > 0) { this.drop = Math.max(0, this.drop - dt * 3.2); const k = this.drop; this.car.position.y = 0.36 + k * k * 3; if (this.drop === 0) sfx.click(); }
     const portrait = this.camera.aspect < 1;
     const a = this.camera.aspect, squarish = Math.max(0, 1.75 - a); // 0 on 16:9+, ~0.42 on 4:3
-    const off = portrait ? 0 : (this.focus === 'right' ? -3.2 : this.focus === 'left' ? 3.4 : 0) * (1 - squarish * 0.55);
+    const flip = document.documentElement.dir === 'rtl' ? -1 : 1; // Arabic mirrors the layout
+    const off = portrait ? 0 : (this.focus === 'right' ? -3.2 : this.focus === 'left' ? 3.4 : 0) * (1 - squarish * 0.55) * flip;
     this.camX += (off - this.camX) * Math.min(1, dt * 4);
     const dist = portrait ? 24 : 15 + squarish * 15;
     this.camera.position.set(this.camX + 2.2, 4.6, dist * 0.92);
@@ -175,10 +177,10 @@ let setupMap = MAPS[0], setupDiff = DIFFICULTY[0], setupMode = 'deathmatch';
 let lastConfig = null;
 
 // ---------- screens ----------
-function show(id) { for (const s of ['menu', 'setup', 'history', 'contracts', 'settings', 'hud', 'pause', 'results']) $(s).hidden = s !== id && !(id === 'pause' && s === 'hud'); }
+function show(id) { for (const s of ['menu', 'setup', 'history', 'contracts', 'settings', 'layoutEdit', 'hud', 'pause', 'results']) $(s).hidden = s !== id && !(id === 'pause' && s === 'hud'); }
 
 function statRows(car, up, compareTo = null) {
-  const s = car.stats, rows = [['Speed', 'speed', s.speed], ['Armor', 'armor', s.armor], ['Guns', 'gun', s.gun], ['Rockets', 'rocket', s.rocket]];
+  const s = car.stats, rows = [[t('Speed'), 'speed', s.speed], [t('Armor'), 'armor', s.armor], [t('Guns'), 'gun', s.gun], [t('Rockets'), 'rocket', s.rocket]];
   return rows.map(([label, key, v]) => {
     const bonus = (up[key] || 0) * 0.6;
     return `<div class="stat"><span>${label}</span><div class="bar"><i style="width:${v * 10}%"></i>${bonus ? `<i class="up" style="left:${v * 10}%;width:${bonus * 10}%"></i>` : ''}</div><span class="num">${v}${bonus ? '+' : ''}</span></div>`;
@@ -187,12 +189,12 @@ function statRows(car, up, compareTo = null) {
 
 function fillPanel(car, eyebrow) {
   const up = save.owns(car.id) ? save.upgrades(car.id) : {};
-  $('cpEyebrow').textContent = eyebrow;
+  $('cpEyebrow').textContent = t(eyebrow);
   $('cpName').textContent = car.name;
-  $('cpDriver').textContent = `Driver: ${car.driver}`;
+  $('cpDriver').textContent = t('Driver: {d}', { d: t(car.driver) });
   $('cpStats').innerHTML = statRows(car, up);
-  $('cpSpecial').textContent = `Special: ${car.special.name}`;
-  $('cpSpecialDesc').textContent = car.special.desc;
+  $('cpSpecial').textContent = t(car.special.name);
+  $('cpSpecialDesc').textContent = t(car.special.desc);
 }
 
 function refreshPoints() { $('points').textContent = fmt(save.get().points); }
@@ -216,14 +218,14 @@ function renderGarage() {
   room.show(car.id);
   fillPanel(car, owned ? (sel ? 'Selected' : 'Owned') : 'Locked');
   $('gCount').textContent = `${browseI + 1} / ${CARS.length}`;
-  $('gStory').textContent = car.story;
+  $('gStory').textContent = t(car.story);
   const price = $('gPrice'), act = $('gAction');
-  if (owned) { price.hidden = true; act.textContent = sel ? 'Selected' : 'Select'; act.disabled = sel; }
+  if (owned) { price.hidden = true; act.textContent = t(sel ? 'Selected' : 'Select'); act.disabled = sel; }
   else {
     price.hidden = false;
     const afford = save.get().points >= car.price;
     price.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="${afford ? '#f0b429' : '#9a9282'}" stroke-width="2.2" class="lock"><rect x="5" y="11" width="14" height="10"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span class="num" style="color:${afford ? 'var(--fg)' : 'var(--muted)'}">${fmt(car.price)}</span>`;
-    act.textContent = afford ? 'Buy' : `Need ${fmt(car.price - save.get().points)}`; act.disabled = !afford;
+    act.textContent = afford ? t('Buy') : t('Need {n}', { n: fmt(car.price - save.get().points) }); act.disabled = !afford;
   }
 }
 
@@ -231,11 +233,11 @@ function renderUpgrades() {
   const car = save.selectedCar(), up = save.upgrades(car.id), pts = save.get().points;
   room.show(car.id); fillPanel(car, 'Upgrading');
   const coin = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="12" cy="12" r="4"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>';
-  $('upList').innerHTML = `<div class="eyebrow">Workshop</div>` + UPGRADES.map((u) => {
+  $('upList').innerHTML = `<div class="eyebrow">${t('Workshop')}</div>` + UPGRADES.map((u) => {
     const lvl = up[u.id], maxed = lvl >= MAX_UPGRADE, cost = upgradeCost(car, lvl);
-    const label = u.id === 'special' ? car.special.name : u.name;
-    return `<div class="uprow"><b>${label}</b><small>${u.desc}</small><div class="pips">${Array.from({ length: MAX_UPGRADE }, (_, i) => `<i class="${i < lvl ? 'on' : ''}"></i>`).join('')}</div>
-      <button class="btn ${!maxed && pts >= cost ? 'primary' : ''}" data-up="${u.id}" ${maxed || pts < cost ? 'disabled' : ''}>${maxed ? 'Max' : coin + fmt(cost)}</button></div>`;
+    const label = t(u.id === 'special' ? car.special.name : u.name);
+    return `<div class="uprow"><b>${label}</b><small>${t(u.desc)}</small><div class="pips">${Array.from({ length: MAX_UPGRADE }, (_, i) => `<i class="${i < lvl ? 'on' : ''}"></i>`).join('')}</div>
+      <button class="btn ${!maxed && pts >= cost ? 'primary' : ''}" data-up="${u.id}" ${maxed || pts < cost ? 'disabled' : ''}>${maxed ? t('Max') : coin + fmt(cost)}</button></div>`;
   }).join('');
 }
 
@@ -249,40 +251,96 @@ $('upList').addEventListener('click', (e) => {
 
 // setup sheet
 const MODES = [
-  { id: 'deathmatch', name: 'Deathmatch', desc: 'Last car running wins. Bounty, airdrops, arena events.' },
+  { id: 'deathmatch', name: 'Deathmatch', desc: 'Three lives each. Most kills wears the crown. 5 minutes.' },
   { id: 'survival', name: 'Survival', desc: 'Endless waves that all hunt you. How far can you go?' },
 ];
 function renderSetup() {
-  $('modeSeg').innerHTML = MODES.map((m) => `<button data-mode="${m.id}" aria-pressed="${m.id === setupMode}"><b>${m.name}</b><span>${m.desc}</span></button>`).join('');
+  $('modeSeg').innerHTML = MODES.map((m) => `<button data-mode="${m.id}" aria-pressed="${m.id === setupMode}"><b>${t(m.name)}</b><span>${t(m.desc)}</span></button>`).join('');
   const surv = setupMode === 'survival';
   $('diffBox').hidden = surv; $('bestBox').hidden = !surv;
-  $('bestWave').textContent = `Wave ${save.get().best.wave}`;
+  $('bestWave').textContent = t('Wave {n}', { n: save.get().best.wave });
   $('mapList').innerHTML = MAPS.map((m) => `<button class="mapcard" data-map="${m.id}" aria-pressed="${m === setupMap}">
     <div class="art" style="background:#1a1712 url('assets/maps/${m.id}.jpg') center/cover"></div>
-    <b>${m.name}</b><em>${m.tag}</em><span>${m.desc}</span></button>`).join('');
-  $('diffSeg').innerHTML = DIFFICULTY.map((d) => `<button data-diff="${d.id}" aria-pressed="${d === setupDiff}">${d.name}<small>${d.enemies} enemies</small></button>`).join('');
-  $('sReward').textContent = surv ? `${fmt(KILL_REWARD * 1.2)}/kill + wave bonuses` : `Win: ${fmt(setupDiff.base)} + ${fmt(KILL_REWARD * setupDiff.reward)}/kill`;
+    <b>${t(m.name)}</b><em>${t(m.tag)}</em><span>${t(m.desc)}</span></button>`).join('');
+  $('diffSeg').innerHTML = DIFFICULTY.map((d) => `<button data-diff="${d.id}" aria-pressed="${d === setupDiff}">${t(d.name)}<small>${t('{n} enemies', { n: d.enemies })}</small></button>`).join('');
+  $('sReward').textContent = surv ? t('{a}/kill + wave bonuses', { a: fmt(KILL_REWARD * 1.2) }) : t('Win: {a} + {b}/kill', { a: fmt(setupDiff.base), b: fmt(KILL_REWARD * setupDiff.reward) });
 }
 $('modeSeg').addEventListener('click', (e) => { const b = e.target.closest('[data-mode]'); if (!b) return; setupMode = b.dataset.mode; sfx.click(); renderSetup(); });
 $('mapList').addEventListener('click', (e) => { const b = e.target.closest('[data-map]'); if (!b) return; setupMap = MAPS.find((m) => m.id === b.dataset.map); sfx.click(); renderSetup(); });
 $('diffSeg').addEventListener('click', (e) => { const b = e.target.closest('[data-diff]'); if (!b) return; setupDiff = DIFFICULTY.find((d) => d.id === b.dataset.diff); sfx.click(); renderSetup(); });
 
+const SCHEMES = [['direction', 'Direction', 'Point the stick where you want to go'], ['classic', 'Classic', 'Up to drive, left and right to steer'], ['autogas', 'Auto gas', 'The car drives itself; you only steer']];
 function renderSettings() {
   const st = save.get();
-  $('gfxSeg').innerHTML = [['auto', 'Auto'], ['high', 'High'], ['medium', 'Medium'], ['low', 'Low']].map(([id, l]) => `<button data-gfx="${id}" aria-pressed="${st.graphics === id}">${l}</button>`).join('');
-  $('ctlSeg').innerHTML = [[0.85, 'Small'], [1, 'Normal'], [1.2, 'Large']].map(([v, l]) => `<button data-ctl="${v}" aria-pressed="${+st.controls === v}">${l}</button>`).join('');
-  $('gfxNote').textContent = st.graphics === 'auto' ? `Auto: now ${TIERS[quality.tierId].label.toLowerCase()}, adjusts to keep the game smooth` : 'Fixed quality';
+  $('steerSeg').innerHTML = SCHEMES.map(([id, l]) => `<button data-steer="${id}" aria-pressed="${(st.scheme || 'direction') === id}">${t(l)}</button>`).join('');
+  $('steerNote').textContent = t(SCHEMES.find((x) => x[0] === (st.scheme || 'direction'))[2]);
+  $('volMaster').value = Math.round(st.volume.master * 100); $('volMusic').value = Math.round(st.volume.music * 100); $('volSfx').value = Math.round(st.volume.sfx * 100);
+  $('gfxSeg').innerHTML = [['auto', 'Auto'], ['high', 'High'], ['medium', 'Medium'], ['low', 'Low']].map(([id, l]) => `<button data-gfx="${id}" aria-pressed="${st.graphics === id}">${t(l)}</button>`).join('');
+  $('ctlSeg').innerHTML = [[0.85, 'Small'], [1, 'Normal'], [1.2, 'Large']].map(([v, l]) => `<button data-ctl="${v}" aria-pressed="${+st.controls === v}">${t(l)}</button>`).join('');
+  $('gfxNote').textContent = st.graphics === 'auto' ? t('Auto: now {q}, adjusts to keep the game smooth', { q: t(TIERS[quality.tierId].label).toLowerCase() }) : t('Fixed quality');
+  $('langSeg').innerHTML = [['en', 'English'], ['ar', 'العربية']].map(([id, l]) => `<button data-lang="${id}" aria-pressed="${getLang() === id}" lang="${id}">${l}</button>`).join('');
 }
-function applyControls() { document.documentElement.style.setProperty('--ctl', save.get().controls || 1); }
+function applyControls() { const L = save.get().layout || {}; document.documentElement.style.setProperty('--ctl', (save.get().controls || 1) * ((L.stick && L.stick.k) || 1)); placeButtons('b', L); }
+
+// ---------- touch button layout ----------
+// Defaults are offsets from the bottom-right corner (px at size 1); a saved layout stores centres as screen fractions.
+const BTN = { Gun: { r: 74, b: 72, size: 108, font: 16 }, Rocket: { r: 176, b: 64, size: 76, font: 13 }, Special: { r: 80, b: 174, size: 76, font: 13 } };
+function btnCenter(id, L) {
+  const g = save.get().controls || 1, d = BTN[id], u = L[id], W = innerWidth, H = innerHeight;
+  return u && u.fx != null ? { x: u.fx * W, y: u.fy * H } : { x: W - d.r * g - 12, y: H - d.b * g };
+}
+function placeButtons(prefix, L) {
+  const g = save.get().controls || 1;
+  for (const id of Object.keys(BTN)) {
+    const el = $(prefix + id); if (!el) continue;
+    const k = ((L[id] && L[id].k) || 1) * g, c = btnCenter(id, L), size = BTN[id].size * k;
+    Object.assign(el.style, { left: `${c.x}px`, top: `${c.y}px`, width: `${size}px`, height: `${size}px`, fontSize: `${BTN[id].font * Math.min(1.3, k)}px` });
+  }
+}
+const editor = { work: {}, sel: 'Gun', drag: null };
+function openEditor() {
+  editor.work = JSON.parse(JSON.stringify(save.get().layout || {})); editor.sel = 'Gun';
+  show('layoutEdit'); drawEditor();
+}
+function drawEditor() {
+  placeButtons('e', editor.work);
+  const st = $('eStick'), k = ((editor.work.stick && editor.work.stick.k) || 1) * (save.get().controls || 1), size = 130 * k;
+  Object.assign(st.style, { left: `${innerWidth * 0.2}px`, top: `${innerHeight * 0.68}px`, width: `${size}px`, height: `${size}px` });
+  for (const id of Object.keys(BTN)) $('e' + id).classList.toggle('sel', editor.sel === id);
+  st.classList.toggle('sel', editor.sel === 'stick');
+  $('eSize').value = Math.round(((editor.work[editor.sel] && editor.work[editor.sel].k) || 1) * 100);
+}
+for (const id of Object.keys(BTN)) {
+  const el = $('e' + id);
+  el.addEventListener('pointerdown', (e) => { el.setPointerCapture(e.pointerId); editor.sel = id; const c = btnCenter(id, editor.work); editor.drag = { id, ox: e.clientX - c.x, oy: e.clientY - c.y }; drawEditor(); });
+  el.addEventListener('pointermove', (e) => {
+    if (!editor.drag || editor.drag.id !== id) return;
+    const x = Math.max(30, Math.min(innerWidth - 30, e.clientX - editor.drag.ox)), y = Math.max(30, Math.min(innerHeight - 30, e.clientY - editor.drag.oy));
+    editor.work[id] = Object.assign(editor.work[id] || {}, { fx: x / innerWidth, fy: y / innerHeight }); drawEditor();
+  });
+  for (const ev of ['pointerup', 'pointercancel']) el.addEventListener(ev, () => { editor.drag = null; });
+}
+$('eStick').addEventListener('pointerdown', () => { editor.sel = 'stick'; drawEditor(); });
+$('eSize').addEventListener('input', (e) => { editor.work[editor.sel] = Object.assign(editor.work[editor.sel] || {}, { k: +e.target.value / 100 }); drawEditor(); });
+$('steerSeg').addEventListener('click', (e) => { const b = e.target.closest('[data-steer]'); if (!b) return; save.get().scheme = b.dataset.steer; save.write(); sfx.click(); renderSettings(); });
+for (const [id, key] of [['volMaster', 'master'], ['volMusic', 'music'], ['volSfx', 'sfx']]) $(id).addEventListener('input', (e) => { save.get().volume[key] = +e.target.value / 100; initLang();
+sfx.setVolumes(save.get().volume); });
+for (const id of ['volMaster', 'volMusic', 'volSfx']) $(id).addEventListener('change', () => { save.write(); sfx.click(); });
+$('btnEditLayout').addEventListener('click', () => { sfx.click(); openEditor(); });
 $('gfxSeg').addEventListener('click', (e) => { const b = e.target.closest('[data-gfx]'); if (!b) return; save.get().graphics = b.dataset.gfx; save.write(); quality.init(b.dataset.gfx); applyQuality(true); sfx.click(); renderSettings(); });
+$('langSeg').addEventListener('click', (e) => { const b = e.target.closest('[data-lang]'); if (!b) return; save.get().lang = b.dataset.lang; save.write(); sfx.click(); relabel(); renderSettings(); });
 $('ctlSeg').addEventListener('click', (e) => { const b = e.target.closest('[data-ctl]'); if (!b) return; save.get().controls = +b.dataset.ctl; save.write(); applyControls(); sfx.click(); renderSettings(); });
 
+function contractText(c) { // stored text is English; rebuild it from the template so it follows the language
+  const tpl = CONTRACTS.find((x) => x.id === c.id), map = MAPS.find((m) => m.id === c.map);
+  return tpl ? t(tpl.text, { n: c.goal, map: map ? t(map.name) : '' }) : c.text;
+}
 function renderContracts() {
   const list = save.contracts();
-  $('cList').innerHTML = list.map((c) => `<div class="contract ${c.done ? 'done' : ''}"><div><b>${c.text}</b><div class="eyebrow num" style="margin-top:3px">${c.done ? 'Complete' : `${c.progress} / ${c.goal}`}</div></div>
+  $('cList').innerHTML = list.map((c) => `<div class="contract ${c.done ? 'done' : ''}"><div><b>${contractText(c)}</b><div class="eyebrow num" style="margin-top:3px">${c.done ? t('Complete') : `${c.progress} / ${c.goal}`}</div></div>
     <div class="reward num">${c.done ? '&check;' : '+' + fmt(c.reward)}</div><div class="prog"><i style="width:${(c.progress / c.goal) * 100}%"></i></div></div>`).join('');
   const h = new Date(); const left = 24 - h.getHours();
-  $('cDay').textContent = `New contracts in ${left} ${left === 1 ? 'hour' : 'hours'}`;
+  $('cDay').textContent = t(left === 1 ? 'New contracts in {n} hour' : 'New contracts in {n} hours', { n: left });
 }
 function refreshBadge() { const n = save.contracts().filter((c) => !c.done).length; $('cBadge').hidden = !n; $('cBadge').textContent = n; }
 
@@ -290,10 +348,10 @@ function renderHistory() {
   const st = save.get(), h = st.history;
   const rate = st.stats.matches ? Math.round((st.stats.wins / st.stats.matches) * 100) : 0;
   $('hTotals').innerHTML = [['Matches', st.stats.matches], ['Wins', st.stats.wins], ['Win rate', rate + '%'], ['Kills', st.stats.kills]]
-    .map(([k, v]) => `<div class="tot"><span class="eyebrow">${k}</span><b class="num">${typeof v === 'number' ? fmt(v) : v}</b></div>`).join('');
-  $('hList').innerHTML = h.length ? `<table class="hist"><thead><tr><th>Result</th><th>Arena</th><th>Car</th><th>Kills</th><th style="text-align:right">Points</th></tr></thead><tbody>${h.map((e) =>
-    `<tr><td class="${e.result === 'win' ? 'w' : 'l'}">${e.result === 'win' ? 'Victory' : e.result === 'quit' ? 'Left' : e.result === 'survival' ? 'Wave ' + e.wave : 'Wrecked'}</td><td>${e.map} · ${e.diff}</td><td>${e.car}</td><td class="num">${e.kills}</td><td class="num" style="text-align:right">+${fmt(e.points)}</td></tr>`).join('')}</tbody></table>`
-    : '<div class="empty">No battles yet. Your record starts with the first match.</div>';
+    .map(([k, v]) => `<div class="tot"><span class="eyebrow">${t(k)}</span><b class="num">${typeof v === 'number' ? fmt(v) : v}</b></div>`).join('');
+  $('hList').innerHTML = h.length ? `<table class="hist"><thead><tr><th>${t('Result')}</th><th>${t('Arena')}</th><th>${t('Car')}</th><th>${t('Kills')}</th><th class="end">${t('Points')}</th></tr></thead><tbody>${h.map((e) =>
+    `<tr><td class="${e.result === 'win' ? 'w' : 'l'}">${e.result === 'win' ? t('Victory') : e.result === 'quit' ? t('Left') : e.result === 'survival' ? t('Wave {n}', { n: e.wave }) : t('Wrecked')}</td><td>${t(e.map)} · ${t(e.diff)}</td><td>${e.car}</td><td class="num">${e.kills}</td><td class="num end">+${fmt(e.points)}</td></tr>`).join('')}</tbody></table>`
+    : `<div class="empty">${t('No battles yet. Your record starts with the first match.')}</div>`;
 }
 
 // ---------- HUD ----------
@@ -301,8 +359,10 @@ const hud = {
   onStart(g) {
     show('hud');
     $('hName').textContent = g.player.data.name;
-    $('hSpecialLbl').textContent = g.player.data.special.name.split(' ')[0].toUpperCase().slice(0, 6);
+    $('hSpecialLbl').textContent = getLang() === 'ar' ? t('SPEC') : g.player.data.special.name.split(' ')[0].toUpperCase().slice(0, 6);
+    $('hLives').hidden = false; $('hTimer').hidden = g.mode !== 'deathmatch';
     $('keys').hidden = isTouch; $('fireBtns').hidden = !isTouch; $('stick').hidden = !isTouch;
+    applyControls();
     $('feed').innerHTML = ''; $('big').innerHTML = ''; $('toast').textContent = '';
     $('ehps').innerHTML = ''; $('announce').innerHTML = '';
     this.ensureEnemyBars(g);
@@ -310,8 +370,8 @@ const hud = {
   ensureEnemyBars(g) {
     for (const c of g.cars) {
       if (c.isPlayer || c.hpEl) continue;
-      const el = document.createElement('div'); el.className = 'ehp'; el.innerHTML = `<b>${c.data.name}</b><i></i>`;
-      $('ehps').appendChild(el); c.hpEl = el; c.hpFill = el.querySelector('i'); c.hpName = el.querySelector('b');
+      const el = document.createElement('div'); el.className = 'ehp'; el.innerHTML = `<b>${c.data.name}</b><i></i><u></u>`;
+      $('ehps').appendChild(el); c.hpEl = el; c.hpFill = el.querySelector('i'); c.hpName = el.querySelector('b'); c.hpLives = el.querySelector('u');
     }
     for (const el of [...$('ehps').children]) if (!g.cars.some((c) => c.hpEl === el)) el.remove();
   },
@@ -319,29 +379,39 @@ const hud = {
     const a = $('announce');
     a.innerHTML = `<div class="a ${tone}"><b>${title}</b>${sub ? `<span>${sub}</span>` : ''}</div>`;
   },
-  feedText(t) { const d = document.createElement('div'); d.textContent = t; $('feed').prepend(d); setTimeout(() => d.remove(), 3600); },
+  feedText(s) { const d = document.createElement('div'); d.textContent = s; $('feed').prepend(d); setTimeout(() => d.remove(), 3600); },
   whiteout() { const w = $('whiteout'); w.classList.remove('go'); void w.offsetWidth; w.classList.add('go'); },
-  countdown(t) { $('big').innerHTML = `<span>${t}</span>`; if (t === 'FIGHT') setTimeout(() => { if ($('big').textContent === 'FIGHT') $('big').innerHTML = ''; }, 800); },
-  banner(t, win) { $('announce').innerHTML = ''; $('big').innerHTML = `<span class="${win ? 'win' : 'lose'}">${t}</span>`; },
+  countdown(s) { $('big').innerHTML = `<span>${s}</span>`; if (s === t('FIGHT')) setTimeout(() => { if ($('big').textContent === s) $('big').innerHTML = ''; }, 800); },
+  banner(s, win) { $('announce').innerHTML = ''; $('big').innerHTML = `<span class="${win ? 'win' : 'lose'}">${s}</span>`; },
   hurt(a) { const v = $('vignette'); v.style.boxShadow = `inset 0 0 120px 40px rgba(216,56,44,${Math.min(0.75, 0.2 + a / 30)})`; clearTimeout(this.vt); this.vt = setTimeout(() => (v.style.boxShadow = ''), 160); },
   feed(k, v) {
     const d = document.createElement('div');
-    d.innerHTML = k ? `<b>${k.isPlayer ? 'You' : k.data.name}</b> wrecked ${v.isPlayer ? 'you' : v.data.name}` : `${v.isPlayer ? 'You' : v.data.name} crashed out`;
+    d.innerHTML = k ? t('{k} wrecked {v}', { k: `<b>${k.isPlayer ? t('You') : k.data.name}</b>`, v: v.isPlayer ? t('you') : v.data.name }) : t('{v} crashed out', { v: v.isPlayer ? t('You') : v.data.name });
     $('feed').prepend(d); setTimeout(() => d.remove(), 3600);
   },
-  toast(t) { const el = $('toast'); el.textContent = t; clearTimeout(this.tt); this.tt = setTimeout(() => (el.textContent = ''), 1300); },
+  toast(s) { const el = $('toast'); el.textContent = s; clearTimeout(this.tt); this.tt = setTimeout(() => (el.textContent = ''), 1300); },
   flashSpecial() { $('bSpecial').classList.add('on'); setTimeout(() => $('bSpecial').classList.remove('on'), 300); },
   update(g) {
     const p = g.player, frac = Math.max(0, p.hp / p.maxHp);
     $('hBar').style.width = `${frac * 100}%`; $('hBar').classList.toggle('low', frac < 0.3);
     $('hHp').textContent = Math.ceil(Math.max(0, p.hp));
-    $('hKills').textContent = `${p.kills} ${p.kills === 1 ? 'KILL' : 'KILLS'}`;
-    const left = g.cars.filter((c) => !c.isPlayer && c.alive).length;
-    $('hEnemies').innerHTML = g.mode === 'survival' ? `W${g.wave || 0} · ${left}<small>wave · hostiles</small>` : `${left}<small>${left === 1 ? 'enemy left' : 'enemies left'}</small>`;
+    $('hKills').textContent = `${p.kills} ${t(p.kills === 1 ? 'KILL' : 'KILLS')}`;
+    const lv = `${p.lives}|${p.alive}`;
+    if (this.lv !== lv) { this.lv = lv; $('hLives').innerHTML = Array.from({ length: 3 }, (_, i) => `<i class="${i < p.lives ? 'on' : ''}"></i>`).join(''); }
+    const tl = g.timeLeft();
+    if (tl != null) { const m = Math.floor(tl / 60), s2 = String(Math.floor(tl % 60)).padStart(2, '0'); $('hTimer').textContent = `${m}:${s2}`; $('hTimer').classList.toggle('low', tl < 30); }
+    if (g.mode === 'survival') { const left = g.cars.filter((c) => !c.isPlayer && c.alive).length; $('hEnemies').innerHTML = `W${g.wave || 0} · ${left}<small>${t('wave · hostiles')}</small>`; }
+    else { // live scoreboard: top kills, crown holder first
+      const order = [...g.cars].sort((a, b) => b.kills - a.kills || (b.isPlayer ? 1 : 0) - (a.isPlayer ? 1 : 0));
+      const lead = g.cars.find((c) => c.bounty) || order[0], rank = order.indexOf(p) + 1, alive = g.cars.filter((c) => g.inPlay(c)).length;
+      const chip = (c) => `<span class="${c.isPlayer ? 'me' : ''}">${c.bounty ? '\u265B ' : ''}${c.isPlayer ? t('You') : c.data.name.split(' ').pop()} <b>${c.kills}</b>${c.isPlayer ? `<bdi class="rk">#${rank}/${alive}</bdi>` : ''}</span>`;
+      const html = lead === p ? chip(p) : chip(lead) + chip(p);
+      if (this.sb !== html) { this.sb = html; $('hEnemies').innerHTML = `<div class="sb">${html}</div>`; }
+    }
     const rb = $('bRocket');
-    if (p.power) { rb.classList.add('power'); rb.firstChild.textContent = POWERS[p.power.type].short; $('hRockets').textContent = p.power.ammo; }
-    else { rb.classList.remove('power'); rb.firstChild.textContent = 'RKT'; $('hRockets').textContent = p.rockets; }
-    if (!isTouch) $('keys').textContent = p.power ? `F fires the ${POWERS[p.power.type].name} (${p.power.ammo})` : 'W A S D drive · Space fire · F rocket · E special · Esc pause';
+    if (p.power) { rb.classList.add('power'); rb.firstChild.textContent = t(POWERS[p.power.type].short); $('hRockets').textContent = p.power.ammo; }
+    else { rb.classList.remove('power'); rb.firstChild.textContent = t('RKT'); $('hRockets').textContent = p.rockets; }
+    if (!isTouch) $('keys').textContent = p.power ? t('F fires the {p} ({n})', { p: t(POWERS[p.power.type].name), n: p.power.ammo }) : t('W A S D drive · Space fire · F rocket · E special · Esc pause');
     // special cooldown ring
     const cd = $('cdRing'), cx = cd.getContext('2d'), k = p.specialOn ? 1 : 1 - Math.max(0, p.specialCd) / p.stats.specialCooldown;
     cx.clearRect(0, 0, 160, 160); cx.lineWidth = 8;
@@ -352,7 +422,7 @@ const hud = {
     const mm = $('mini'), m = mm.getContext('2d'), W = mm.width, half = g.arena.half, sc = W / (half * 2);
     m.clearRect(0, 0, W, W);
     m.fillStyle = 'rgba(140,130,110,.35)';
-    for (const o of g.arena.obstacles) { if (o.dead) continue; if (o.kind === 'box') m.fillRect((o.x - o.hw + half) * sc, (o.z - o.hd + half) * sc, o.hw * 2 * sc, o.hd * 2 * sc); else { m.beginPath(); m.arc((o.x + half) * sc, (o.z + half) * sc, Math.max(2, o.r * sc), 0, 7); m.fill(); } }
+    for (const o of g.arena.obstacles) { if (o.dead) continue; if (o.kind === 'box') { m.save(); m.translate((o.x + half) * sc, (o.z + half) * sc); m.rotate(-(o.rot || 0)); m.fillRect(-o.hw * sc, -o.hd * sc, o.hw * 2 * sc, o.hd * 2 * sc); m.restore(); } else { m.beginPath(); m.arc((o.x + half) * sc, (o.z + half) * sc, Math.max(2, o.r * sc), 0, 7); m.fill(); } }
     for (const s of g.strikes) { m.strokeStyle = 'rgba(255,60,40,.9)'; m.lineWidth = 2; m.beginPath(); m.arc((s.x + half) * sc, (s.z + half) * sc, s.r * sc, 0, 7); m.stroke(); }
     for (const d of g.drops) { m.fillStyle = '#7fc4ff'; m.fillRect((d.x + half) * sc - 5, (d.z + half) * sc - 5, 10, 10); }
     for (const pk of g.pickups) if (pk.respawn <= 0) { m.fillStyle = pk.type === 'health' ? '#5dff7a' : '#ffb347'; m.fillRect((pk.x + half) * sc - 3, (pk.z + half) * sc - 3, 6, 6); }
@@ -372,7 +442,7 @@ const hud = {
       v.set(c.x, 4.4, c.z).project(g.camera);
       const on = v.z < 1 && Math.abs(v.x) < 1.1 && Math.abs(v.y) < 1.1;
       c.hpEl.hidden = !on;
-      if (on) { c.hpEl.classList.toggle('far', !c.bounty && Math.hypot(c.x - g.player.x, c.z - g.player.z) > 38); c.hpName.textContent = c.bounty ? `\u2605 ${c.data.name} \u2605` : c.data.name; c.hpName.style.color = c.bounty ? '#ffd23a' : ''; c.hpFill.style.background = c.bounty ? '#ffc23a' : ''; c.hpEl.style.left = `${(v.x * 0.5 + 0.5) * w}px`; c.hpEl.style.top = `${(-v.y * 0.5 + 0.5) * h}px`; c.hpFill.style.width = `${Math.max(0, c.hp / c.maxHp) * 100}%`; }
+      if (on) { c.hpEl.classList.toggle('far', !c.bounty && Math.hypot(c.x - g.player.x, c.z - g.player.z) > 38); c.hpName.textContent = c.bounty ? `\u265B ${c.data.name}` : c.data.name; c.hpName.style.color = c.bounty ? '#ffd23a' : ''; c.hpFill.style.background = c.bounty ? '#ffc23a' : ''; c.hpEl.style.left = `${(v.x * 0.5 + 0.5) * w}px`; c.hpEl.style.top = `${(-v.y * 0.5 + 0.5) * h}px`; c.hpFill.style.width = `${Math.max(0, c.hp / c.maxHp) * 100}%`; const lt = g.mode === 'deathmatch' ? '\u2022'.repeat(c.lives) : ''; if (c.hpLives.textContent !== lt) c.hpLives.textContent = lt; }
     }
   },
   onEnd(r) {
@@ -385,18 +455,18 @@ const hud = {
     const prevBest = save.get().best.wave;
     save.record({ date: new Date().toISOString(), map: cfg.map.name, diff: surv ? 'Survival' : d.name, car: cfg.car.name, result: r.result, kills: r.kills, points: total, wave: surv ? r.stats.wave : 0 });
     const doneC = save.applyContracts({ result: r.result, map: cfg.map.id, diff: surv ? 'survival' : d.id, stats: r.stats });
-    $('rMap').textContent = `${cfg.map.name} · ${surv ? 'Survival' : d.name} · ${cfg.car.name}`;
-    $('rTitle').textContent = surv ? `Wave ${r.stats.wave}` : r.result === 'win' ? 'Victory' : 'Wrecked';
+    $('rMap').textContent = `${t(cfg.map.name)} · ${t(surv ? 'Survival' : d.name)} · ${cfg.car.name}`;
+    $('rTitle').textContent = surv ? t('Wave {n}', { n: r.stats.wave }) : t(r.result === 'win' ? 'Victory' : 'Wrecked');
     $('rTitle').style.color = r.result === 'win' || (surv && r.stats.wave > prevBest) ? 'var(--hazard)' : 'var(--blood)';
     const mins = Math.floor(r.time / 60), secs = String(Math.floor(r.time % 60)).padStart(2, '0');
-    const lines = [['Time in arena', `${mins}:${secs}`], ['Kills', `${r.kills} \u00d7 ${fmt(KILL_REWARD * (surv ? 1.2 : d.reward))}`]];
-    if (surv && r.stats.wave > prevBest) lines.push(['New personal best', `Wave ${r.stats.wave}`]);
-    if (r.result === 'win') lines.push(['Victory bonus', `+${fmt(winPts)}`]); else if (showPts) lines.push(['Show-up pay', `+${showPts}`]);
-    for (const b of r.stats.bonus) lines.push([b.label, `+${fmt(b.pts)}`]);
-    $('rLines').innerHTML = lines.map(([a, b]) => `<div><span>${a}</span><span class="num">${b}</span></div>`).join('') + `<div class="total"><span>Scrap earned</span><span class="num">+${fmt(total)}</span></div>`;
-    $('rContracts').innerHTML = doneC.map((c) => `<div class="contract done"><div><b>Contract complete</b><div class="eyebrow">${c.text}</div></div><div class="reward num">+${fmt(c.reward)}</div></div>`).join('');
+    const lines = [[t('Time in arena'), `${mins}:${secs}`], [t('Kills'), `${r.kills} \u00d7 ${fmt(KILL_REWARD * (surv ? 1.2 : d.reward))}`]];
+    if (surv && r.stats.wave > prevBest) lines.push([t('New personal best'), t('Wave {n}', { n: r.stats.wave })]);
+    if (r.result === 'win') lines.push([t('Victory bonus'), `+${fmt(winPts)}`]); else if (showPts) lines.push([t('Show-up pay'), `+${showPts}`]);
+    for (const b of r.stats.bonus) lines.push([t(b.label, { n: b.n }), `+${fmt(b.pts)}`]);
+    $('rLines').innerHTML = lines.map(([a, b]) => `<div><span>${a}</span><span class="num">${b}</span></div>`).join('') + `<div class="total"><span>${t('Scrap earned')}</span><span class="num">+${fmt(total)}</span></div>`;
+    $('rContracts').innerHTML = doneC.map((c) => `<div class="contract done"><div><b>${t('Contract complete')}</b><div class="eyebrow">${contractText(c)}</div></div><div class="reward num">+${fmt(c.reward)}</div></div>`).join('');
     show('results'); mode = 'results';
-    sfx.music.start(0.45);
+    sfx.music.start(0.45, 'game');
   },
 };
 
@@ -410,7 +480,7 @@ async function startMatch(cfg) {
   game = new Game(renderer, hud);
   game.resize(window.innerWidth, window.innerHeight);
   game.start(cfg);
-  sfx.music.start(save.get().music ? 0.16 : 0);
+  sfx.music.start(0.16, 'game');
   game.resize(window.innerWidth, window.innerHeight);
   mode = 'game';
   $('loader').hidden = true;
@@ -434,7 +504,20 @@ const input = {
     const k = this.keys;
     let th = (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0);
     let st = (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0) - (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0);
-    if (this.stickId !== null) { th = -this.jy; st = -this.jx; }
+    const scheme = save.get().scheme || 'direction', p = game.player;
+    if (this.stickId !== null) {
+      const mag = Math.min(1, Math.hypot(this.jx, this.jy));
+      if (scheme === 'direction') { // point where you want to go; the car turns there by itself
+        if (mag < 0.18) { th = 0; st = 0; } else {
+          const ch = game.camHeading(), fx = Math.sin(ch), fz = Math.cos(ch), rx = -Math.cos(ch), rz = Math.sin(ch);
+          const dx = fx * -this.jy + rx * this.jx, dz = fz * -this.jy + rz * this.jx;
+          let diff = Math.atan2(dx, dz) - p.heading; while (diff > Math.PI) diff -= Math.PI * 2; while (diff < -Math.PI) diff += Math.PI * 2;
+          st = Math.max(-1, Math.min(1, diff * 2.6)); th = mag * (1 - 0.4 * Math.min(1, Math.abs(diff) / 1.6));
+          if (Math.abs(diff) > 2.6 && Math.abs(p.speed) < 3) { th = -0.8 * mag; st = -st; } // target right behind: back up and swing round
+        }
+      } else if (scheme === 'autogas') { st = -this.jx; th = this.jy > 0.55 ? -1 : 1; }
+      else { th = -this.jy; st = -this.jx; }
+    } else if (scheme === 'autogas' && isTouch && game.state === 'fight') { th = 1; st = 0; }
     game.setInput(th, st, this.gun || k.has('Space'));
   },
 };
@@ -460,11 +543,11 @@ stick.addEventListener('pointerdown', (e) => {
 });
 stick.addEventListener('pointermove', (e) => {
   if (e.pointerId !== input.stickId) return;
-  let dx = e.clientX - input.sx, dy = e.clientY - input.sy; const d = Math.hypot(dx, dy), max = 55 * (save.get().controls || 1);
+  let dx = e.clientX - input.sx, dy = e.clientY - input.sy; const L0 = save.get().layout || {}, sk = (save.get().controls || 1) * ((L0.stick && L0.stick.k) || 1), d = Math.hypot(dx, dy), max = 55 * sk;
   if (d > max) { dx *= max / d; dy *= max / d; }
   input.jx = dx / max; input.jy = dy / max;
   if (Math.abs(input.jx) < 0.12) input.jx = 0;
-  const k = save.get().controls || 1; knob.style.transform = `translate(calc(-50% + ${dx / k}px), calc(-50% + ${dy / k}px))`;
+  const k = sk; knob.style.transform = `translate(calc(-50% + ${dx / k}px), calc(-50% + ${dy / k}px))`;
 });
 const endStick = (e) => { if (e.pointerId !== input.stickId) return; input.stickId = null; input.jx = input.jy = 0; base.style.display = 'none'; };
 stick.addEventListener('pointerup', endStick); stick.addEventListener('pointercancel', endStick);
@@ -498,6 +581,8 @@ on('gAction', () => {
   else if (save.buy(car)) sfx.purchase(); else sfx.denied();
   renderGarage(); refreshPoints();
 });
+on('eReset', () => { sfx.click(); editor.work = {}; drawEditor(); });
+on('eSave', () => { sfx.confirm(); save.get().layout = editor.work; save.write(); applyControls(); renderSettings(); show('settings'); });
 on('btnSettings', () => { sfx.click(); renderSettings(); show('settings'); });
 on('setBack', () => { sfx.click(); show('menu'); });
 on('btnContracts', () => { sfx.click(); renderContracts(); show('contracts'); });
@@ -539,6 +624,7 @@ function resize() {
   applyQuality();
   room.resize(w, h);
   if (game) game.resize(w, h);
+  applyControls(); if (!$('layoutEdit').hidden) drawEditor();
 }
 addEventListener('resize', resize);
 
@@ -554,8 +640,15 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
+// Re-renders every piece of text after a language change.
+function relabel() {
+  applyLang(save.get().lang);
+  setUI(ui); refreshBadge();
+}
+
 // ---------- boot ----------
-sfx.setEnabled(save.get().sound); sfx.setMusic(save.get().music);
+initLang();
+sfx.setVolumes(save.get().volume); sfx.setEnabled(save.get().sound); sfx.setMusic(save.get().music);
 $('mus').style.display = save.get().music ? 'none' : '';
 refreshBadge(); applyControls();
 $('snd').style.display = save.get().sound ? '' : 'none';

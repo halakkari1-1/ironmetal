@@ -46,6 +46,8 @@ It's a static web game (three.js r160, vendored). Serve the folder and open `ind
 python3 -m http.server 8000
 ```
 
+Music: the lobby track is "THE COST" by Kill Dyll. A commercial release needs the artist's permission or a license.
+
 Controls: on-screen joystick and buttons on touch screens; W A S D, Space (fire), F (rocket), E (special), Esc (pause) on keyboard.
 
 ## Environment kit
@@ -74,7 +76,8 @@ Icon and splash sources live in `resources/`; they are rendered from `tools/bran
 - `src/arena.js` — arena layouts and obstacles
 - `src/kit.js` — environment kit loader: building LODs, props, atlas-textured containers, tanks and barrels
 - `src/fx.js` — particles, explosions, flashes
-- `src/audio.js` — synthesized sound (no audio files)
+- `src/audio.js` — synthesized sound effects and riffs, plus the lobby track in `assets/music/lobby.mp3`
+- `src/i18n.js` — English and Arabic text (English strings are the keys)
 - `src/data.js` — cars, stats, upgrades, maps, difficulty, economy
 - `src/save.js` — progress saved on the device
 - `src/quality.js` — graphics tiers and adaptive resolution
@@ -90,5 +93,10 @@ Icon and splash sources live in `resources/`; they are rendered from `tools/bran
 - [x] Android build: Capacitor wrapper, built by GitHub Actions on every push (APK + AAB on the Releases page)
 - [x] Adaptive resolution for phones and 12" tablets, graphics and control-size settings
 - [x] Five arenas and the garage lobby built from the environment kit (watchtower with LODs, 18 props, containers, tanks)
+- [x] Three lives per car, the crown follows the kill leader, 5-minute deathmatch clock
+- [x] Industrial district outside the walls (warehouses, smoking chimneys, tank farms, container stacks; two draw calls)
+- [x] Smoother steering, three control schemes (Direction, Classic, Auto gas), touch button layout editor
+- [x] Lobby music track, volume sliders (master, music, effects)
+- [x] Light glass UI, Arabic language with the Cairo font and a mirrored right-to-left lobby
 - [ ] Remake the seven procedural cars in Meshy to match the Warhorse
-- [ ] Music, more arenas, daily challenges
+- [ ] More arenas

@@ -15,7 +15,7 @@ for (let d = 0; d < 3; d++) {
       await im.startMatch({ car, upgrades: { gun: L, rocket: L, armor: L, speed: L, special: L }, map: im.MAPS[i % im.MAPS.length], diff: im.DIFFICULTY[d] });
       const g = im.game, p = g.player;
       p.ai = { target: null, retarget: 0, stuck: 0, reverseT: 0, rocketT: 2, strafe: 1, specialT: 3 };
-      for (let f = 0; f < 30 * 240 && g.running; f++) { if (g.state === 'fight' && p.alive) g.think(p, 1 / 30); g.update(1 / 30); }
+      for (let f = 0; f < 30 * 330 && g.running; f++) { if (g.state === 'fight' && p.alive) g.think(p, 1 / 30); g.update(1 / 30); }
       if (g.result === 'win') out.wins++;
       out.kills += p.kills; out.time += g.time;
     }

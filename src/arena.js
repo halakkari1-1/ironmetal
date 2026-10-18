@@ -2,7 +2,8 @@
 // scattered props with collision shapes, explosive barrels, storage tanks, and lighting.
 import * as THREE from 'three';
 import { quality } from './quality.js';
-import { KIT, propInstances, propSize, building, buildingFootprint, barrelGeometry, containerGeometry, mapToRegion, panelCylinder, ATLAS } from './kit.js';
+import { KIT, propInstances, propSize, building, buildingFootprint, barrelGeometry, containerGeometry, mapToRegion, panelCylinder, blockGeometry, ATLAS } from './kit.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 const PS = 1.5;    // prop scale: kit props are true-to-life, game cars are a bit oversized
 const BS = 1.7;    // building scale
@@ -85,10 +86,9 @@ export function buildArena(scene, map) {
     if (!collide && lowTier) return; // low quality: skip pure decoration
     (instances[name] = instances[name] || []).push({ x, z, ry, s });
     if (!collide) return;
-    const sz = propSize(name, PS * s), swap = Math.abs(Math.sin(ry)) > 0.7;
-    const hw = (swap ? sz.z : sz.x) / 2, hd = (swap ? sz.x : sz.z) / 2;
-    if (Math.abs(hw - hd) < 0.35 * Math.max(hw, hd)) obstacles.push({ kind: 'circle', x, z, r: Math.max(hw, hd) * 0.92, h: sz.y });
-    else obstacles.push({ kind: 'box', x, z, hw, hd, h: sz.y });
+    const sz = propSize(name, PS * s), hw = sz.x / 2 * 0.94, hd = sz.z / 2 * 0.94;
+    if (Math.abs(hw - hd) < 0.3 * Math.max(hw, hd)) obstacles.push({ kind: 'circle', x, z, r: (hw + hd) / 2, h: sz.y });
+    else obstacles.push({ kind: 'box', x, z, hw, hd, rot: ry, h: sz.y });
   };
   const bGeo = barrelGeometry();
   const barrels = []; // all barrels draw as one instanced mesh; a destroyed barrel collapses its instance to zero size
@@ -112,16 +112,14 @@ export function buildArena(scene, map) {
     const variant = R() < 0.5 ? 1 : 0, geo = containerGeometry(7.8, 3.3, 3.1, variant);
     const mk = (y, ryy) => { const mm = contMat.clone(); mm.color = new THREE.Color(tints[Math.floor(R() * tints.length)]); const m = new THREE.Mesh(geo, mm); m.position.set(x, y, z); m.rotation.y = ryy; m.castShadow = true; m.receiveShadow = true; grp.add(m); return m; };
     mk(0, ry); if (stack) mk(3.3, ry + (R() - 0.5) * 0.25);
-    const swap = Math.abs(Math.sin(ry)) > 0.7;
-    obstacles.push({ kind: 'box', x, z, hw: swap ? 1.55 : 3.9, hd: swap ? 3.9 : 1.55, h: stack ? 6.6 : 3.3 });
+    obstacles.push({ kind: 'box', x, z, hw: 3.9, hd: 1.55, rot: ry, h: stack ? 6.6 : 3.3 });
   };
   const landmark = (x, z, ry) => {
     const b = building(BS); b.position.set(x, 0, z); b.rotation.y = ry; grp.add(b);
-    const f = buildingFootprint(BS), swap = Math.abs(Math.sin(ry)) > 0.7;
+    const f = buildingFootprint(BS);
     const c = Math.cos(ry), s = Math.sin(ry), cx = (f.minX + f.maxX) / 2, cz = (f.minZ + f.maxZ) / 2;
     const wx = cx * c + cz * s, wz = -cx * s + cz * c;
-    const hw = (swap ? f.maxZ - f.minZ : f.maxX - f.minX) / 2, hd = (swap ? f.maxX - f.minX : f.maxZ - f.minZ) / 2;
-    obstacles.push({ kind: 'box', x: x + wx, z: z + wz, hw, hd, h: f.h, building: true });
+    obstacles.push({ kind: 'box', x: x + wx, z: z + wz, hw: (f.maxX - f.minX) / 2, hd: (f.maxZ - f.minZ) / 2, rot: ry, h: f.h, building: true });
     return b;
   };
 
@@ -135,9 +133,68 @@ export function buildArena(scene, map) {
   grp.add(propInstances('barrier', wall, WS));
   // outer skyline: a few far buildings in the haze (low detail)
   for (let i = 0; i < (lowTier ? 0 : quality.tier.particles < 0.9 ? 2 : 4); i++) {
-    const a = (i / 4) * Math.PI * 2 + 0.6 + R() * 0.5, d = half + 22 + R() * 14;
+    const a = (i / 4) * Math.PI * 2 + 0.6 + R() * 0.5, d = half + 58 + R() * 14;
     const b = building(BS * 1.2); b.position.set(Math.cos(a) * d, 0, Math.sin(a) * d); b.rotation.y = R() * 6.28; b.levels[0].distance = 1e6; b.levels.reverse();
     b.levels[0].distance = 0; grp.add(b);
+  }
+
+  // ---------- industrial district beyond the walls ----------
+  // Warehouses, chimneys, tank farms and container stacks fill the horizon so the arena never sits in an empty field.
+  // Everything is merged into one mesh per material: two draw calls for the whole district.
+  const stacks = [];
+  {
+    const ring = [], full = !lowTier, place2 = (geo, x, z, ry, y = 0) => { const g = geo.clone(); g.rotateY(ry); g.translate(x, y, z); ring.push(g); };
+    const cone = (r, h) => { const g = new THREE.ConeGeometry(r, h, 16, 1, true).toNonIndexed(); mapToRegion(g, ATLAS.greyPlate, 3, 1); g.deleteAttribute('normal'); g.computeVertexNormals(); return g; };
+    const taken = [];
+    const free = (x, z, r) => taken.every((t) => Math.hypot(t[0] - x, t[1] - z) > t[2] + r + 2);
+    const warehouse = (x, z, ry) => {
+      const w = 16 + R() * 12, d = 11 + R() * 6, h = 7 + R() * 5;
+      place2(blockGeometry(w, h, d, R() < 0.5 ? ATLAS.corrugated : ATLAS.corrugated2, ATLAS.greyPlate, ATLAS.shutter, 4.2), x, z, ry);
+      place2(blockGeometry(w * 0.96, 1.2, d * 0.55, ATLAS.greyPlate, ATLAS.plate, null, 4), x, z, ry, h); // roof monitor
+      if (full && R() < 0.65) { // brick-red chimney beside it
+        const cr = 1.1 + R() * 0.5, ch = 18 + R() * 12, ox = (R() < 0.5 ? -1 : 1) * (w / 2 + cr + 0.6);
+        const cx = x + Math.cos(ry) * ox, cz = z - Math.sin(ry) * ox;
+        place2(panelCylinder(cr, ch, ATLAS.concrete, 3, 4, 2), cx, cz, 0);
+        place2(panelCylinder(cr * 1.15, 1, ATLAS.rustPanel, 3, 1, 2), cx, cz, 0, ch - 1.4);
+        stacks.push({ x: cx, y: ch, z: cz });
+      }
+      return Math.hypot(w, d) / 2;
+    };
+    const tankFarm = (x, z) => {
+      const k = 2 + Math.floor(R() * 2);
+      for (let i = 0; i < k; i++) {
+        const r = 3 + R() * 2.2, h = 7 + R() * 6, a = (i / k) * 6.28 + R(), dd = k > 1 ? r + 1.5 : 0;
+        const tx = x + Math.cos(a) * dd, tz = z + Math.sin(a) * dd;
+        place2(panelCylinder(r, h, ATLAS.plate, 6, 5, 2), tx, tz, 0); place2(cone(r * 1.02, r * 0.35), tx, tz, 0, h + r * 0.175);
+      }
+      return 9;
+    };
+    const stack = (x, z, ry) => {
+      const k = 2 + Math.floor(R() * 3);
+      for (let i = 0; i < k; i++) { const lv = i < 2 ? 0 : 1, off = (i % 2) * 3.2 - 1.6; place2(containerGeometry(7.8, 3.3, 3.1, (i + lv) % 2), x + Math.sin(ry) * off, z + Math.cos(ry) * off, ry, lv * 3.3); }
+      return 6;
+    };
+    const near = half + 10, far = half + (full ? 44 : 26), step = full ? 15 : 22;
+    for (let side = 0; side < 4; side++) {
+      for (let along = -far; along <= far; along += step) {
+        for (let depth = near + 7; depth < far; depth += step) {
+          const a = along + (R() - 0.5) * 6, dep = depth + (R() - 0.5) * 5;
+          const [x, z] = side === 0 ? [a, -dep] : side === 1 ? [a, dep] : side === 2 ? [-dep, a] : [dep, a];
+          if (R() < 0.18) continue;
+          const face = Math.atan2(-x, -z), pick = R();
+          const r = pick < 0.55 ? 12 : pick < 0.78 ? 9 : 6;
+          if (!free(x, z, r)) continue;
+          const used = pick < 0.55 ? warehouse(x, z, face + (R() < 0.5 ? 0 : Math.PI / 2)) : pick < 0.78 ? tankFarm(x, z) : stack(x, z, face + Math.PI / 2);
+          taken.push([x, z, used]);
+        }
+      }
+    }
+    if (ring.length) {
+      const mat = KIT.material.clone(); mat.side = THREE.DoubleSide; mat.alphaMap = null; mat.alphaTest = 0; mat.color = new THREE.Color(1.3, 1.22, 1.12);
+      const district = new THREE.Mesh(mergeGeometries(ring, false), mat);
+      district.castShadow = false; district.receiveShadow = false; district.matrixAutoUpdate = false; grp.add(district);
+      ring.forEach((g) => g.dispose());
+    }
   }
 
   // ---------- placement ----------
@@ -238,5 +295,5 @@ export function buildArena(scene, map) {
   const pickupSpots = [];
   for (let i = 0; i < 6; i++) { const a = (i / 6) * Math.PI * 2 + 0.4, d = half * (i % 2 ? 0.42 : 0.25); pickupSpots.push({ x: Math.cos(a) * d, z: Math.sin(a) * d, type: i % 2 ? 'ammo' : 'health' }); }
 
-  return { group: grp, obstacles, spawns, pickupSpots, half, sun };
+  return { group: grp, obstacles, spawns, pickupSpots, half, sun, stacks };
 }

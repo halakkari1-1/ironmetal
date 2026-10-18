@@ -141,6 +141,17 @@ export function containerGeometry(len = 7.8, h = 3.3, w = 3.1, variant = 0) {
   facePanels(out, [-X, h, Z], [1, 0, 0], [0, 0, -1], [0, 1, 0], len, w, P, w, ATLAS.plate); // roof
   return (containerCache[key] = finishGeo(out));
 }
+// Plain building block (no floor) with panelled walls and a roof, origin at ground centre.
+// Each side can take its own atlas region; panel sizes keep the texture at a believable scale.
+export function blockGeometry(w, h, d, walls = ATLAS.corrugated, roof = ATLAS.greyPlate, front = null, panel = 4) {
+  const out = { pos: [], nor: [], uv: [] }, X = w / 2, Z = d / 2;
+  facePanels(out, [-X, 0, Z], [1, 0, 0], [0, 1, 0], [0, 0, 1], w, h, panel, panel, front || walls);
+  facePanels(out, [X, 0, -Z], [-1, 0, 0], [0, 1, 0], [0, 0, -1], w, h, panel, panel, walls);
+  facePanels(out, [X, 0, Z], [0, 0, -1], [0, 1, 0], [1, 0, 0], d, h, panel, panel, walls);
+  facePanels(out, [-X, 0, -Z], [0, 0, 1], [0, 1, 0], [-1, 0, 0], d, h, panel, panel, walls);
+  facePanels(out, [-X, h, Z], [1, 0, 0], [0, 0, -1], [0, 1, 0], w, d, panel * 1.5, panel * 1.5, roof);
+  return finishGeo(out);
+}
 // Remaps an existing geometry's 0..1 UVs onto one atlas region, repeating `rep` times (by duplicating faces is not needed: we clamp to the region).
 export function mapToRegion(geo, region, repU = 1, repV = 1) {
   const [u0, v0, u1, v1] = regionUV(region), uv = geo.attributes.uv;
