@@ -128,8 +128,8 @@ export function carStats(car, up = {}) {
   const s = car.stats;
   const m = (k) => 1 + 0.12 * (up[k] || 0);
   return {
-    maxSpeed: (12.5 + s.speed * 1.35) * (1 + 0.06 * (up.speed || 0)), // a little slower than before, easier to aim
-    accel: (20 + s.speed * 1.6) * m('speed'), // but quicker off the line
+    maxSpeed: (10.5 + s.speed * 1.1) * (1 + 0.05 * (up.speed || 0)), // tuned down twice after playtests: easier to control and aim
+    accel: (17 + s.speed * 1.3) * m('speed'), // still quick off the line
     turn: 1.9 + (s.handling || 6) * 0.11,
     hp: Math.round((70 + s.armor * 15) * m('armor')),
     gunDmg: (1.1 + s.gun * 0.2) * m('gun'),
@@ -145,27 +145,27 @@ export const MAPS = [
   {
     id: 'scrapyard', name: 'Scrapyard', layout: 'scrapyard', tag: 'Junk piles and a watchtower',
     desc: 'Dumpsters, cages and tarp-covered drums around an old watchtower. Plenty of cover, short sight lines.',
-    size: 110, ground: 0x4f4032, groundAlt: 0x3b2f25, fog: 0x7d6a58, skyTop: 0x3b3f4a, light: 0xffcf9a, skyLight: 0xffe6c8, concrete: 0,
+    size: 132, ground: 0x4f4032, groundAlt: 0x3b2f25, fog: 0x7d6a58, skyTop: 0x3b3f4a, light: 0xffcf9a, skyLight: 0xffe6c8, concrete: 0,
   },
   {
     id: 'refinery', name: 'Refinery', layout: 'refinery', tag: 'Fuel tanks ready to blow',
     desc: 'Concrete pads, storage tanks, gas carts and rows of fuel barrels. One stray rocket and the whole row goes up.',
-    size: 120, ground: 0x55524c, groundAlt: 0x44413c, fog: 0x8b9099, skyTop: 0x41505f, light: 0xe6ecff, skyLight: 0xdfe8ff, concrete: 0.8,
+    size: 142, ground: 0x55524c, groundAlt: 0x44413c, fog: 0x8b9099, skyTop: 0x41505f, light: 0xe6ecff, skyLight: 0xdfe8ff, concrete: 0.8,
   },
   {
     id: 'dustbowl', name: 'Dust Bowl', layout: 'dustbowl', tag: 'Open ground, rock pillars',
     desc: 'A dried lake bed broken by rock pillars, barrier lines and a lonely outpost. Fast cars rule here.',
-    size: 130, ground: 0xb08a5a, groundAlt: 0x9c7a4f, fog: 0xd8b98d, skyTop: 0x8fa3b8, light: 0xffe2b0, skyLight: 0xfff0d8, concrete: 0,
+    size: 150, ground: 0xb08a5a, groundAlt: 0x9c7a4f, fog: 0xd8b98d, skyTop: 0x8fa3b8, light: 0xffe2b0, skyLight: 0xfff0d8, concrete: 0,
   },
   {
     id: 'shanty', name: 'Shanty Town', layout: 'shanty', tag: 'Three towers, tight streets',
     desc: 'Three scrap towers form a ring around the market square. Every corner is an ambush.',
-    size: 115, ground: 0x4a3d33, groundAlt: 0x372d26, fog: 0x5d5560, skyTop: 0x241f2c, light: 0xffb27a, skyLight: 0xd9b8a8, concrete: 0.45,
+    size: 138, ground: 0x4a3d33, groundAlt: 0x372d26, fog: 0x5d5560, skyTop: 0x241f2c, light: 0xffb27a, skyLight: 0xd9b8a8, concrete: 0.45,
   },
   {
     id: 'outpost', name: 'The Outpost', layout: 'outpost', tag: 'Fight around the fortress',
     desc: 'A fortified tower inside a ring of concrete barriers with two gates. Circle it, breach it, hold it.',
-    size: 120, ground: 0x6b5a45, groundAlt: 0x574837, fog: 0xa38f7a, skyTop: 0x4d5868, light: 0xffd9a8, skyLight: 0xffeedd, concrete: 0.42,
+    size: 142, ground: 0x6b5a45, groundAlt: 0x574837, fog: 0xa38f7a, skyTop: 0x4d5868, light: 0xffd9a8, skyLight: 0xffeedd, concrete: 0.42,
   },
 ];
 

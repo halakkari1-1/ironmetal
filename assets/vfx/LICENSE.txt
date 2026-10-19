@@ -1,0 +1,3 @@
+Flipbook effects from Unity Labs "Free VFX Image Sequences & Flipbooks" (CC0 1.0, public domain).
+https://unity.com/blog/engine-platform/free-vfx-image-sequences-flipbooks
+Resized and converted to WebP for mobile.

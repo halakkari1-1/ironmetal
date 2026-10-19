@@ -51,7 +51,7 @@ const AR = {
   'Auto: now {q}, adjusts to keep the game smooth': 'تلقائي: هلأ {q}، وبيتعدل ليضل اللعب ناعم', 'Fixed quality': 'جودة ثابتة',
   'Touch controls': 'أزرار اللمس', 'Bigger buttons suit large tablets': 'الأزرار الكبيرة أحسن للتابلت', 'Small': 'صغير', 'Normal': 'عادي', 'Large': 'كبير',
   'Language': 'اللغة', 'Credits': 'الشكر',
-  'Game by': 'لعبة من تطوير', 'Environment art': 'تصميم البيئة', 'Fonts': 'الخطوط',
+  'Game by': 'لعبة من تطوير', 'Environment art': 'تصميم البيئة', 'Visual effects': 'المؤثرات البصرية', 'Fonts': 'الخطوط',
   // editor
   'Edit controls': 'تعديل التحكم', 'Drag a button to move it. Tap one, then use the slider to resize it.': 'اسحب الزر لتحركه. اضغط على زر وبعدين استعمل الشريط لتغير حجمه.',
   'Size': 'الحجم', 'Reset': 'افتراضي', 'Save': 'حفظ', 'STICK': 'العصا',

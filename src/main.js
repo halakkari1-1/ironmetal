@@ -524,7 +524,7 @@ const input = {
           if (Math.abs(diff) > 2.6 && Math.abs(p.speed) < 3) { th = -0.8 * mag; st = -st; } // target right behind: back up and swing round
         }
       } else if (scheme === 'autogas') { st = -this.jx; th = this.jy > 0.55 ? -1 : 1; }
-      else { th = Math.abs(this.jy) < 0.2 ? 0 : -this.jy; st = -Math.sign(this.jx) * Math.min(1, Math.abs(this.jx) * 1.5); } // classic: up drives, down reverses, sideways turns
+      else { th = Math.abs(this.jy) < 0.2 ? 0 : -this.jy; st = -Math.sign(this.jx) * Math.pow(Math.min(1, Math.abs(this.jx) * 1.2), 1.5); } // classic: up drives, down reverses; a soft curve keeps small corrections gentle
     } else if (scheme === 'autogas' && isTouch && game.state === 'fight') { th = 1; st = 0; }
     game.setInput(th, st, this.gun || k.has('Space'));
   },

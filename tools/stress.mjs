@@ -31,7 +31,7 @@ for (let i = 0; i < cars.length; i++) {
       if (f === 260) g.player.power = { type: ['railgun', 'napalm', 'nuke'][idx % 3], ammo: 3 };
       if (f === 900) g.eventT = 0;
     }
-    return { car: carId, map: mapId, mode, wave: g.stats.wave, bonus: g.stats.bonus.length, t: g.time.toFixed(0), state: g.state, result: g.result || '-', playerHp: Math.max(0, g.player.hp).toFixed(0), kills: g.player.kills, alive: g.cars.filter((c) => c.alive).length, specials, particles: g.fx.fire.n + g.fx.hot.n + g.fx.smoke.n, debris: g.fx.debris.length };
+    return { car: carId, map: mapId, mode, wave: g.stats.wave, bonus: g.stats.bonus.length, t: g.time.toFixed(0), state: g.state, result: g.result || '-', playerHp: Math.max(0, g.player.hp).toFixed(0), kills: g.player.kills, alive: g.cars.filter((c) => c.alive).length, specials, particles: g.fx.fire.n + g.fx.hot.n + g.fx.smoke.n + g.fx.flips.reduce((a, f) => a + f.n, 0), debris: g.fx.debris.length };
   }, { carId: cars[i], mapId: map, idx: i, mode: i >= 7 ? 'survival' : 'deathmatch' });
   results.push(r);
 }

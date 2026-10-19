@@ -315,7 +315,7 @@ export class Game {
     if (!ram && !dash && c.speed > s.maxSpeed * (nitro ? 1.75 : 1) * slow) c.speed -= (c.speed - s.maxSpeed * slow) * 2 * dt;
     // steering eases in and out instead of snapping, which keeps the car stable on a touch stick
     c.steerS = (c.steerS || 0) + (c.steer - (c.steerS || 0)) * Math.min(1, dt * (c.isPlayer ? 20 : 12));
-    const turnScale = clamp(c.speed / 4, -1, 1) * (1 - 0.25 * clamp(Math.abs(c.speed) / maxS, 0, 1));
+    const turnScale = clamp(c.speed / 4, -1, 1) * (1 - 0.3 * clamp(Math.abs(c.speed) / maxS, 0, 1)); // a little less twitchy at top speed
     c.heading = wrap(c.heading + c.steerS * s.turn * 1.15 * turnScale * dt + (c.skidT > 0 ? c.skidSpin * Math.min(1, c.skidT) * dt : 0));
     const fx = Math.sin(c.heading), fz = Math.cos(c.heading);
     c.x += (fx * c.speed + c.kx) * dt; c.z += (fz * c.speed + c.kz) * dt;
@@ -329,7 +329,7 @@ export class Game {
     if (Math.abs(c.speed) > 12 && Math.random() < 0.5) this.fx.dust(c.x - fx * 2, c.z - fz * 2, this.map.id === 'dustbowl' ? 1.6 : 0.8);
     if (nitro || ram) this.fx.exhaust(c.x - fx * 2.4, 0.9, c.z - fz * 2.4, fx, fz);
     if (c.hp < c.maxHp * 0.4 && Math.random() < 0.35) this.fx.burn(c.x + fx * 1.2, 1.6, c.z + fz * 1.2);
-    if (c.hp < c.maxHp * 0.2 && Math.random() < 0.5) this.fx.flames(c.x + fx * 1.4, 1.3, c.z + fz * 1.4);
+    if (c.hp < c.maxHp * 0.2 && Math.random() < 0.16) this.fx.flames(c.x + fx * 1.4, 1.3, c.z + fz * 1.4);
   }
 
   // The car body is three circles along its length (sized from its model), so it can get close to things side-on.
@@ -758,7 +758,7 @@ export class Game {
       const n = Math.ceil(zn.r * 0.6);
       if (zn.kind === 'toxic') { for (let i = 0; i < n; i++) if (Math.random() < 0.45) { const a = Math.random() * TAU, d = Math.sqrt(Math.random()) * zn.r; this.fx.toxic(zn.x + Math.cos(a) * d, zn.z + Math.sin(a) * d); } }
       else {
-      for (let i = 0; i < n; i++) if (Math.random() < 0.5) { const a = Math.random() * TAU, d = Math.sqrt(Math.random()) * zn.r; this.fx.flames(zn.x + Math.cos(a) * d, 0.3, zn.z + Math.sin(a) * d, 1.4); }
+      for (let i = 0; i < n; i++) if (Math.random() < 0.14) { const a = Math.random() * TAU, d = Math.sqrt(Math.random()) * zn.r; this.fx.flames(zn.x + Math.cos(a) * d, 0.3, zn.z + Math.sin(a) * d, 1.3); }
       if (Math.random() < 0.3) this.fx.burn(zn.x + R(-zn.r, zn.r) * 0.5, 1, zn.z + R(-zn.r, zn.r) * 0.5);
       }
       for (const c of this.cars) if (c.alive && c !== zn.safe && Math.hypot(c.x - zn.x, c.z - zn.z) < zn.r + HR(c) * 0.5) { this.damage(c, zn.dps * dt, zn.owner, true, zn.kind === 'toxic' ? 'special' : 'fire'); if (zn.kind === 'toxic' && c.isPlayer && !this.poisonMsg) { this.poisonMsg = true; this.hud.toast(tr('POISONED')); setTimeout(() => (this.poisonMsg = false), 2500); } }
@@ -926,7 +926,7 @@ export class Game {
   updateWreck(c, dt) {
     c.deathT += dt;
     if (c.deathT < 8 && Math.random() < 0.55) this.fx.burn(c.x, c.y + 1.4, c.z);
-    if (c.deathT < 4 && Math.random() < 0.7) this.fx.flames(c.x + R(-1, 1), c.y + 1, c.z + R(-1, 1), 1.2);
+    if (c.deathT < 5 && Math.random() < 0.22) this.fx.flames(c.x + R(-1, 1), c.y + 1, c.z + R(-1, 1), 1.3);
     // airborne tumble
     if (c.y > 0 || c.vy > 0) {
       c.vy -= 30 * dt; c.y += c.vy * dt;

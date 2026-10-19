@@ -123,6 +123,74 @@ class System {
   clear() { this.n = 0; this.geo.setDrawRange(0, 0); }
 }
 
+// ---------- flipbook particles ----------
+// Pre-rendered simulations (Unity Labs VFX flipbooks, CC0) played back frame by frame on each particle,
+// with a cross-fade between neighbouring frames so even 25-frame explosions look smooth.
+const FVERT = `
+attribute float size; attribute vec4 pcolor; attribute float rot; attribute float frame;
+varying vec4 vColor; varying float vRot; varying float vFrame;
+uniform float scale;
+void main() {
+  vColor = pcolor; vRot = rot; vFrame = frame;
+  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  gl_PointSize = size * scale / max(0.1, -mv.z);
+  gl_Position = projectionMatrix * mv;
+}`;
+const FFRAG = `
+uniform sampler2D map; uniform float boost; uniform vec2 grid; uniform float frames;
+varying vec4 vColor; varying float vRot; varying float vFrame;
+vec4 cell(float f, vec2 q) {
+  float col = mod(f, grid.x), row = floor(f / grid.x);
+  return texture2D(map, vec2((col + q.x) / grid.x, 1.0 - (row + q.y) / grid.y));
+}
+void main() {
+  vec2 p = gl_PointCoord - 0.5;
+  float c = cos(vRot), s = sin(vRot);
+  vec2 q = vec2(c * p.x - s * p.y, s * p.x + c * p.y) + 0.5;
+  if (q.x < 0.0 || q.x > 1.0 || q.y < 0.0 || q.y > 1.0) discard;
+  q = clamp(q, 0.004, 0.996); // keep away from the neighbouring cell
+  float f0 = floor(vFrame), k = vFrame - f0;
+  vec4 t = mix(cell(f0, q), cell(min(f0 + 1.0, frames - 1.0), q), k);
+  float a = t.a * vColor.a;
+  if (a < 0.01) discard;
+  gl_FragColor = vec4(vColor.rgb * t.rgb * boost, a);
+}`;
+const FLIP = {}; // name -> { tex, cols, rows, frames }
+function flipTex(name, cols, rows) {
+  if (FLIP[name]) return FLIP[name];
+  const tex = new THREE.TextureLoader().load(new URL(`../assets/vfx/${name}.webp`, import.meta.url).href);
+  tex.colorSpace = THREE.SRGBColorSpace; tex.generateMipmaps = false; tex.minFilter = THREE.LinearFilter; // mips would bleed cells together
+  return (FLIP[name] = { tex, cols, rows, frames: cols * rows });
+}
+class FlipSystem extends System {
+  constructor(max, additive, sheet, boost) {
+    super(max, additive, sheet.tex, boost);
+    this.sheet = sheet;
+    this.frame = new Float32Array(max); this.fps = new Float32Array(max); this.f0 = new Float32Array(max);
+    this.geo.setAttribute('frame', new THREE.BufferAttribute(this.frame, 1).setUsage(THREE.DynamicDrawUsage));
+    this.mat.vertexShader = FVERT; this.mat.fragmentShader = FFRAG;
+    this.mat.uniforms.grid = { value: new THREE.Vector2(sheet.cols, sheet.rows) }; this.mat.uniforms.frames = { value: sheet.frames };
+  }
+  // fps 0 plays the whole sequence once over the particle's life; fps > 0 loops at that rate (flames)
+  spawnF(x, y, z, vx, vy, vz, life, s0, s1, c0, c1, grav = 0, drag = 1, delay = 0, fps = 0, spin = null) {
+    const n = this.n; this.spawn(x, y, z, vx, vy, vz, life, s0, s1, c0, c1, grav, drag, delay);
+    if (this.n === n) return;
+    this.fps[n] = fps; this.f0[n] = fps ? Math.random() * this.sheet.frames : 0; this.frame[n] = this.f0[n];
+    if (spin !== null) this.spin[n] = spin;
+  }
+  update(dt) {
+    const F = this.sheet.frames;
+    for (let i = 0; i < this.n; i++) {
+      if (this.delay[i] > 0) continue;
+      const t = 1 - this.life[i] / this.maxLife[i];
+      this.frame[i] = this.fps[i] ? (this.f0[i] + (this.maxLife[i] - this.life[i]) * this.fps[i]) % (F - 1) : Math.min(F - 1.001, t * (F - 1));
+    }
+    super.update(dt);
+    this.geo.attributes.frame.needsUpdate = true;
+  }
+  kill(i) { const j = this.n - 1; this.frame[i] = this.frame[j]; this.fps[i] = this.fps[j]; this.f0[i] = this.f0[j]; super.kill(i); }
+}
+
 const R = (a, b) => a + Math.random() * (b - a);
 let PUFF = null, SCORCH = null;
 
@@ -135,6 +203,17 @@ export class FX {
     this.hot = new System(900, true, PUFF, 2.4); // sparks and flashes: small, very bright, they bloom
     this.smoke.points.renderOrder = 1; this.fire.points.renderOrder = 2; this.hot.points.renderOrder = 3;
     scene.add(this.smoke.points, this.fire.points, this.hot.points);
+    // flipbook layers: real explosion/fire/smoke simulations
+    this.fbBlast = new FlipSystem(40, false, flipTex('explosion_big', 5, 5), 1.45);
+    this.fbBlastS = new FlipSystem(70, false, flipTex('explosion', 5, 5), 1.4);
+    this.fbFire = new FlipSystem(260, true, flipTex('flame', 16, 4), 1.05);
+    this.fbFire2 = new FlipSystem(140, true, flipTex('flame_b', 16, 4), 1.05);
+    this.fbBall = new FlipSystem(160, true, flipTex('fireball', 8, 8), 1.25);
+    this.fbSmoke = new FlipSystem(320, false, flipTex('smoke', 8, 8), 1);
+    this.fbCloud = new FlipSystem(200, false, flipTex('cloud', 8, 8), 1);
+    this.fbDisc = new FlipSystem(60, false, flipTex('disc', 16, 4), 1);
+    this.flips = [this.fbSmoke, this.fbCloud, this.fbDisc, this.fbBlast, this.fbBlastS, this.fbFire, this.fbFire2, this.fbBall];
+    this.flips.forEach((f, i) => { f.points.renderOrder = 1 + i * 0.1; scene.add(f.points); });
     this.lights = [0, 1, 2].map(() => { const l = new THREE.PointLight(0xff9a40, 0, 55, 1.5); scene.add(l); return { l, t: 0 }; });
     this.li = 0;
     for (const l of this.lines || []) this.scene.remove(l.m);
@@ -143,7 +222,7 @@ export class FX {
     this.debrisMat = [new THREE.MeshStandardMaterial({ color: 0x2a2724, metalness: 0.7, roughness: 0.5, flatShading: true }), new THREE.MeshStandardMaterial({ color: 0x5a3018, metalness: 0.4, roughness: 0.8, flatShading: true })];
     this.scorchGeo = new THREE.PlaneGeometry(1, 1);
   }
-  setScale(h) { for (const s of [this.smoke, this.fire, this.hot]) s.mat.uniforms.scale.value = h * 0.9; }
+  setScale(h) { for (const s of [this.smoke, this.fire, this.hot, ...this.flips]) s.mat.uniforms.scale.value = h * 0.9; }
 
   light(x, y, z, power, color = 0xff9a40) {
     const L = this.lights[this.li++ % this.lights.length];
@@ -151,35 +230,40 @@ export class FX {
   }
 
   explosion(x, z, size = 1, opts = {}) {
-    const y = 1.0;
-    // 1) white-hot core flash
-    this.hot.spawn(x, y + 0.8, z, 0, 0, 0, 0.1, 4 * size, 9 * size, [1, 0.75, 0.45, 0.55], [1, 0.35, 0.08, 0]);
-    // 2) rolling fireball
-    for (let i = 0; i < 16 * size; i++) {
-      const a = Math.random() * 6.28, el = R(-0.2, 1.2), s = R(3, 9) * size;
-      this.fire.spawn(x + R(-0.5, 0.5), y + R(0, 1), z + R(-0.5, 0.5), Math.cos(a) * s * Math.cos(el), Math.sin(el) * s + 2, Math.sin(a) * s * Math.cos(el),
-        R(0.5, 1.0), R(2, 3.5) * size, R(5, 8) * size, [1, R(0.45, 0.6), 0.15, 0.42], [0.45, 0.06, 0.02, 0], -3, 2.6, R(0, 0.08));
+    const y = 1.0, big = size >= 1.2;
+    // 1) flash
+    this.hot.spawn(x, y + 0.8, z, 0, 0, 0, 0.09, 5 * size, 11 * size, [1, 0.8, 0.55, 0.6], [1, 0.4, 0.1, 0]);
+    // 2) the main blast: one big simulated explosion (fire turning into its own smoke), plus offset secondary bursts
+    (big ? this.fbBlast : this.fbBlastS).spawnF(x, y + 1.6 * size, z, 0, 1.2, 0, R(1.3, 1.6) * Math.max(1, size * 0.9), 7.5 * size, 10.5 * size, [1, 1, 1, 1], [1, 1, 1, 0.85], -0.4, 1);
+    const extra = Math.round(2 + size * 2);
+    for (let i = 0; i < extra; i++) {
+      const a = Math.random() * 6.28, d = R(1, 2.6) * size;
+      this.fbBlastS.spawnF(x + Math.cos(a) * d, y + R(0.6, 2) * size, z + Math.sin(a) * d, Math.cos(a) * 2, R(0.5, 2.5), Math.sin(a) * 2, R(1.1, 1.5), R(3.5, 5.5) * size, R(6, 8) * size, [1, 1, 1, 1], [1, 1, 1, 0.7], -0.3, 1.2, R(0.04, 0.22));
     }
-    // 3) thick smoke column that takes over as the fire dies
-    for (let i = 0; i < 26 * size; i++) {
-      const a = Math.random() * 6.28, s = R(1, 4.5) * size, dark = R(0.04, 0.1);
-      this.smoke.spawn(x + R(-1.2, 1.2), y + R(0.5, 2.5), z + R(-1.2, 1.2), Math.cos(a) * s, R(2.5, 6), Math.sin(a) * s,
-        R(2.2, 4.2), R(3.5, 5) * size, R(10, 15) * size, [dark, dark * 0.95, dark * 0.9, 0.92], [0.18, 0.17, 0.16, 0], -0.8, 0.9, R(0.12, 0.35));
+    // 3) fire billows thrown outward
+    for (let i = 0; i < 6 * size; i++) {
+      const a = Math.random() * 6.28, sp = R(4, 9) * size;
+      this.fbBall.spawnF(x, y + 0.6, z, Math.cos(a) * sp, R(2, 6), Math.sin(a) * sp, R(0.45, 0.8), R(1.6, 2.6) * size, R(3.5, 5) * size, [1, 0.85, 0.7, 0.9], [0.9, 0.35, 0.12, 0], -2, 2.4, 0, 0);
     }
-    // 4) sparks and burning bits arcing out
-    for (let i = 0; i < 34 * size; i++) {
+    // 4) the smoke column that lingers after
+    for (let i = 0; i < 6 * size; i++) {
+      const a = Math.random() * 6.28, sp = R(0.5, 2.5) * size, dk = R(0.18, 0.3);
+      this.fbSmoke.spawnF(x + R(-1, 1) * size, y + R(1.5, 3) * size, z + R(-1, 1) * size, Math.cos(a) * sp, R(2, 4.5), Math.sin(a) * sp, R(3.2, 5), R(5, 7) * size, R(12, 17) * size, [dk, dk * 0.95, dk * 0.9, 0.85], [0.35, 0.34, 0.33, 0], -0.4, 0.6, R(0.5, 1.0));
+    }
+    // 5) ground dust ring
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * 6.28 + R(-0.3, 0.3), sp = R(10, 16) * size;
+      this.fbDisc.spawnF(x + Math.cos(a), 0.6, z + Math.sin(a), Math.cos(a) * sp, R(0.3, 1), Math.sin(a) * sp, R(0.9, 1.4), 2.5 * size, 6.5 * size, [0.62, 0.55, 0.47, 0.7], [0.6, 0.53, 0.45, 0], 0, 3);
+    }
+    // 6) sparks and burning bits arcing out
+    for (let i = 0; i < 30 * size; i++) {
       const a = Math.random() * 6.28, s = R(12, 32) * size;
       this.hot.spawn(x, y + 0.5, z, Math.cos(a) * s, R(6, 20), Math.sin(a) * s, R(0.5, 1.2), R(0.18, 0.32), 0.08, [1, 0.8, 0.4, 1], [1, 0.3, 0.05, 0], 26, 0.6);
     }
-    // 5) dust shock ring along the ground
-    for (let i = 0; i < 26 * size; i++) {
-      const a = (i / (26 * size)) * 6.28, s = R(14, 22) * size;
-      this.smoke.spawn(x + Math.cos(a), 0.4, z + Math.sin(a), Math.cos(a) * s, R(0.3, 1.5), Math.sin(a) * s, R(0.7, 1.3), 1.5 * size, 5 * size, [0.36, 0.3, 0.24, 0.4], [0.36, 0.3, 0.24, 0], 0, 3.5);
-    }
-    // 6) debris
+    // 7) debris
     const chunks = Math.round((opts.debris ?? 6) * size);
     for (let i = 0; i < chunks; i++) this.chunk(x, y + 0.5, z, size, opts.burning !== false);
-    // 7) light + scorch
+    // 8) light + scorch
     this.light(x, 4, z, 85 * size);
     this.scorch(x, z, 4.5 * size);
   }
@@ -211,8 +295,10 @@ export class FX {
     this.smoke.spawn(x, y, z, R(-1, 1), R(0.5, 1.5), R(-1, 1), 0.5, 0.6, 1.8, [0.5, 0.48, 0.45, 0.5], [0.5, 0.48, 0.45, 0]);
   }
   impact(x, z) { this.smoke.spawn(x, 0.3, z, R(-1, 1), R(1, 3), R(-1, 1), R(0.4, 0.7), 0.6, 2, [0.55, 0.47, 0.38, 0.6], [0.55, 0.47, 0.38, 0], 3); }
-  muzzle(x, y, z, dx, dz, isPlayer) {
-    this.hot.spawn(x, y, z, dx * 4, 0, dz * 4, 0.05, R(1.6, 2.4), 0.8, [1, 0.85, 0.45, 1], [1, 0.5, 0.1, 0]);
+  muzzle(x, y, z, dx, dz, isPlayer) { // a single fireball frame flashed for a few hundredths of a second
+    this.fbBall.spawnF(x + dx * 0.4, y, z + dz * 0.4, dx * 6, 0, dz * 6, 0.06, R(1.1, 1.6), R(1.6, 2.2), [1, 0.95, 0.8, 1], [1, 0.6, 0.25, 0], 0, 1, 0, 0);
+    this.hot.spawn(x, y, z, dx * 4, 0, dz * 4, 0.05, R(1.2, 1.8), 0.6, [1, 0.85, 0.45, 1], [1, 0.5, 0.1, 0]);
+    if (Math.random() < 0.25) this.hot.spawn(x, y, z, dx * 3 + R(-2, 2), R(1, 3), dz * 3 + R(-2, 2), 0.25, 0.12, 0.05, [1, 0.8, 0.4, 1], [1, 0.4, 0.1, 0], 20, 0.5); // ejected spark
     this.hot.spawn(x + dx * 0.5, y, z + dz * 0.5, dx * 10, 0, dz * 10, 0.04, 1.2, 0.5, [1, 0.8, 0.4, 1], [1, 0.4, 0.1, 0]);
     if (isPlayer && Math.random() < 0.5) this.light(x, y + 0.3, z, 18, 0xffb060);
   }
@@ -220,16 +306,19 @@ export class FX {
     this.hot.spawn(x, y, z, R(-0.4, 0.4), R(-0.4, 0.4), R(-0.4, 0.4), 0.09, 1.3, 0.5, [1, 0.8, 0.45, 1], [1, 0.4, 0.1, 0]);
     this.smoke.spawn(x, y, z, R(-0.5, 0.5), R(0.3, 1.2), R(-0.5, 0.5), R(0.9, 1.6), 0.9, 3.6, [0.6, 0.58, 0.55, 0.55], [0.45, 0.44, 0.42, 0]);
   }
-  burn(x, y, z) {
-    this.smoke.spawn(x + R(-0.6, 0.6), y, z + R(-0.6, 0.6), R(-0.4, 0.4), R(2, 4.5), R(-0.4, 0.4), R(1.8, 3.2), 1.6, 6.5, [0.05, 0.045, 0.04, 0.8], [0.14, 0.13, 0.12, 0], -0.3, 0.5);
+  burn(x, y, z) { // thick dark smoke rolling off damaged cars and wrecks
+    if (Math.random() < 0.5) return; // fewer, larger puffs: the flipbook carries the detail
+    const dk = R(0.12, 0.22);
+    this.fbSmoke.spawnF(x + R(-0.5, 0.5), y + 0.3, z + R(-0.5, 0.5), R(-0.5, 0.5), R(2, 3.8), R(-0.5, 0.5), R(2.2, 3.4), 1.6, R(6, 8.5), [dk, dk * 0.95, dk * 0.9, 0.8], [0.3, 0.29, 0.28, 0], -0.25, 0.5);
   }
-  flames(x, y, z, k = 1) {
-    this.fire.spawn(x + R(-0.5, 0.5), y, z + R(-0.5, 0.5), R(-0.4, 0.4), R(2, 4), R(-0.4, 0.4), R(0.35, 0.65), R(1.2, 2) * k, 0.5, [1, 0.65, 0.2, 0.95], [0.8, 0.12, 0.02, 0], -2);
+  flames(x, y, z, k = 1) { // licking flames, looped simulation
+    const sys = Math.random() < 0.6 ? this.fbFire : this.fbFire2;
+    sys.spawnF(x + R(-0.4, 0.4), y + 0.9 * k, z + R(-0.4, 0.4), R(-0.3, 0.3), R(0.6, 1.4), R(-0.3, 0.3), R(0.6, 0.9), R(2.4, 3.2) * k, R(2.8, 3.6) * k, [1, 0.72, 0.45, 0.8], [0.9, 0.4, 0.2, 0], -0.5, 1, 0, 26, 0);
   }
   flame(x, y, z, dx, dz) {
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 3; i++) {
       const sp = R(15, 24), a = R(-0.2, 0.2), c = Math.cos(a), s = Math.sin(a);
-      this.fire.spawn(x, y, z, (dx * c - dz * s) * sp, R(0, 2.5), (dx * s + dz * c) * sp, R(0.35, 0.6), 0.7, R(4, 6), [1, 0.85, 0.4, 1], [0.7, 0.12, 0.02, 0], -3, 1.4);
+      this.fbBall.spawnF(x, y, z, (dx * c - dz * s) * sp, R(0, 2.5), (dx * s + dz * c) * sp, R(0.35, 0.6), 0.9, R(4.5, 6.5), [1, 0.9, 0.7, 1], [0.8, 0.3, 0.1, 0], -3, 1.4, 0, 0);
     }
     if (Math.random() < 0.4) this.smoke.spawn(x + dx * 8, y + 1, z + dz * 8, dx * 6, R(2, 4), dz * 6, R(1, 1.6), 2, 6, [0.12, 0.11, 0.1, 0.5], [0.2, 0.2, 0.2, 0]);
   }
@@ -245,11 +334,13 @@ export class FX {
 
   // ---------- ability effects ----------
   toxic(x, z) { // green poison haze hugging the ground
+    if (Math.random() < 0.5) this.fbCloud.spawnF(x + R(-0.8, 0.8), R(0.4, 1.2), z + R(-0.8, 0.8), R(-0.5, 0.5), R(0.3, 1), R(-0.5, 0.5), R(1.5, 2.4), R(2, 2.8), R(4.5, 6), [0.45, 1.25, 0.3, 0.55], [0.3, 0.8, 0.15, 0], -0.05, 0.6);
     this.smoke.spawn(x + R(-0.8, 0.8), R(0.3, 1.2), z + R(-0.8, 0.8), R(-0.6, 0.6), R(0.4, 1.4), R(-0.6, 0.6), R(1.2, 2), R(1.6, 2.4), R(4, 6), [0.35, 0.95, 0.2, 0.32], [0.2, 0.55, 0.1, 0], -0.1, 0.6);
     if (Math.random() < 0.35) this.hot.spawn(x + R(-1, 1), R(0.2, 0.8), z + R(-1, 1), 0, R(1, 2.5), 0, R(0.4, 0.8), 0.6, 0.15, [0.6, 1, 0.3, 1], [0.2, 0.9, 0.1, 0]);
   }
   smokeScreen(x, z, r) { // thick grey cover around the car
     const a = Math.random() * 6.28, d = Math.sqrt(Math.random()) * r;
+    if (Math.random() < 0.6) return this.fbCloud.spawnF(x + Math.cos(a) * d, R(0.6, 1.8), z + Math.sin(a) * d, R(-1, 1), R(0.2, 0.9), R(-1, 1), R(2.6, 3.6), R(2.5, 3.5), R(6, 8), [0.75, 0.75, 0.73, 0.65], [0.7, 0.7, 0.68, 0], -0.05, 0.5);
     this.smoke.spawn(x + Math.cos(a) * d, R(0.4, 1.8), z + Math.sin(a) * d, R(-1.2, 1.2), R(0.3, 1.2), R(-1.2, 1.2), R(2.2, 3.2), R(2, 3), R(5, 7), [0.6, 0.6, 0.58, 0.42], [0.5, 0.5, 0.48, 0], -0.1, 0.5);
   }
   trailColor(x, y, z, c) { this.hot.spawn(x + R(-0.4, 0.4), y, z + R(-0.4, 0.4), R(-0.5, 0.5), R(0, 0.8), R(-0.5, 0.5), 0.35, 1.4, 0.3, [c[0], c[1], c[2], 1], [c[0] * 0.6, c[1] * 0.4, c[2] * 0.8, 0]); }
@@ -273,6 +364,7 @@ export class FX {
   update(dt) {
     if (this.lines) this.lines = this.lines.filter((l) => { l.t -= dt; l.m.material.opacity = 0.55 * Math.max(0, l.t / l.life); if (l.t <= 0) { this.scene.remove(l.m); l.m.geometry.dispose(); l.m.material.dispose(); return false; } return true; });
     this.smoke.update(dt); this.fire.update(dt); this.hot.update(dt);
+    for (const f of this.flips) f.update(dt);
     for (const L of this.lights) if (L.t > 0) { L.t -= dt; L.l.intensity *= Math.exp(-dt * 10); if (L.t <= 0) L.l.intensity = 0; }
     this.rings = this.rings.filter((r) => {
       r.t += dt; const k = r.t / 0.45;
@@ -298,6 +390,7 @@ export class FX {
   }
   clear() {
     this.smoke.clear(); this.fire.clear(); this.hot.clear();
+    for (const f of this.flips) f.clear();
     for (const r of this.rings) this.scene.remove(r.m);
     for (const d of this.debris) this.scene.remove(d.m);
     for (const s of this.scorches) this.scene.remove(s.m);

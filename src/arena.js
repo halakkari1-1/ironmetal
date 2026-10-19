@@ -205,7 +205,7 @@ export function buildArena(scene, map) {
     if (Math.abs(x) > half - r - 3 || Math.abs(z) > half - r - 3) return false;
     for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2 + Math.PI / 2; if (Math.hypot(x - Math.cos(a) * spawnR, z - Math.sin(a) * spawnR) < r + 7) return false; }
     if (Math.hypot(x, z) < r + 5) return false;
-    return obstacles.every((o) => Math.hypot(o.x - x, o.z - z) > r + (o.r || Math.hypot(o.hw, o.hd)) + 4.5);
+    return obstacles.every((o) => Math.hypot(o.x - x, o.z - z) > r + (o.r || Math.hypot(o.hw, o.hd)) + 7.5); // wide lanes between cover
   };
   const place = (count, r, fn) => { let k = 0, tries = 0; while (k < count && tries++ < 500) { const x = (R() * 2 - 1) * half, z = (R() * 2 - 1) * half; if (clear(x, z, r)) { fn(x, z); k++; } } };
   const quarter = () => Math.floor(R() * 4) * (Math.PI / 2) + (R() - 0.5) * 0.25;

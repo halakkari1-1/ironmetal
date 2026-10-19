@@ -70,6 +70,11 @@ the 331-part FBX was split into a watchtower (49k triangles near, 15k far) and 1
 packed as base64 GLBs in `kit_models.js`. All pieces share one 2K/1K texture atlas. The conversion pages live in the
 session workspace, not in this repo.
 
+## Effects
+
+Explosions, fire, smoke and muzzle flashes play pre-rendered simulations: Unity Labs' free VFX flipbooks
+(CC0), resized to WebP atlases in `assets/vfx/` and played per particle with frame cross-fading (`src/fx.js`).
+
 ## Android build
 
 Every push to `main` runs `.github/workflows/android.yml` on GitHub's servers and publishes
