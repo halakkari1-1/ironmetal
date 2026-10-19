@@ -1048,6 +1048,18 @@ export class Game {
       look = new THREE.Vector3(p.x + fx * (mode === 'far' ? 6 : 8), mode === 'far' ? 1.5 : 1.8, p.z + fz * (mode === 'far' ? 6 : 8));
       k = snap ? 1 : 1 - Math.exp(-dt * (mode === 'far' ? 4.5 : 6));
     }
+    if (mode !== 'hood') { // never let the camera go behind the arena walls or into tall cover: pull it in and lift it
+      const lim = this.arena.half + 1.2, dx = want.x - p.x, dz = want.z - p.z; // the low barriers may sit under the camera; the buildings behind them may not
+      let t = 1;
+      if (Math.abs(want.x) > lim && Math.abs(dx) > 0.01) t = Math.min(t, (Math.sign(dx) * lim - p.x) / dx);
+      if (Math.abs(want.z) > lim && Math.abs(dz) > 0.01) t = Math.min(t, (Math.sign(dz) * lim - p.z) / dz);
+      for (let i = 1; i <= 10; i++) { // tall obstacles between car and camera
+        const u = (i / 10) * t, h = 1.5 + (want.y - 1.5) * u;
+        const o = this.hitObstacle(p.x + dx * u, h, p.z + dz * u);
+        if (o && o.h > 2.5) { t = Math.max(0.25, u - 0.12); break; }
+      }
+      if (t < 1) { t = Math.max(0.25, t); want.set(p.x + dx * t, want.y * (0.35 + 0.65 * t) + (1 - t) * 2.5, p.z + dz * t); look.set(look.x - fx * (1 - t) * 3, look.y, look.z - fz * (1 - t) * 3); }
+    }
     if (this.camModeT > 0) { this.camModeT -= dt; k = Math.max(k, 0.25); } // quick glide when switching
     this.camPos.lerp(want, k); this.camLook.lerp(look, snap || mode === 'hood' ? Math.max(k, 1 - Math.exp(-dt * 20)) : 1 - Math.exp(-dt * 7));
     this.camera.position.copy(this.camPos);
