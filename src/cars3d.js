@@ -356,6 +356,7 @@ export function preloadModel(id) {
 }
 export function preloadModels(ids) { return Promise.all([...new Set(ids)].map((id) => preloadModel(id).catch(() => null))); }
 export const modelReady = (id) => !!(MODELS[id] && MODELS[id].scene);
+export const getModel = (id) => (MODELS[id] && MODELS[id].scene) || null;
 // kept for older call sites
 export const preloadWarhorse = () => preloadModel('ghost');
 

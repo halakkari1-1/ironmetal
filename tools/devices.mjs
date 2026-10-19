@@ -22,7 +22,7 @@ for (const d of DEVICES) {
   await page.tap('#sFight'); await page.waitForTimeout(1200);
   await page.evaluate(() => { const g = window.__ironmetal.game; for (let f = 0; f < 150; f++) g.update(1 / 30); });
   await page.waitForTimeout(600);
-  await page.screenshot({ path: `${out}/${d.name}-4-hud.png`, scale: 'css' });
+  await page.screenshot({ path: `${out}/${d.name}-4-hud.png`, scale: 'css', timeout: 180000 });
   const r = await page.evaluate(() => { const c = document.getElementById('view'); return { css: `${innerWidth}x${innerHeight}`, render: `${c.width}x${c.height}`, mpx: (c.width * c.height / 1e6).toFixed(2) }; });
   console.log(d.name, JSON.stringify(r), errs.length ? errs : 'ok');
   await ctx.close();

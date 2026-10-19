@@ -2,12 +2,15 @@
 (colour 1024, normal and metal/rough 512, JPEG), then wrapped as a base64 script so it loads
 from file:// and from hosts that will not serve .glb.
 
-Usage: python3 -I tools/prep_car.py in.glb <car_id>   -> assets/models/<car_id>.glb and .js
+Usage: python3 -I tools/prep_car.py in.glb <id> [colour_size] [detail_size]   -> assets/models/<id>.glb and .js
+(defaults 1024 and 512; the skyscraper uses 2048 and 1024)
 """
 import base64, io, json, struct, sys, os
 from PIL import Image
 
 src, cid = sys.argv[1], sys.argv[2]
+COL = int(sys.argv[3]) if len(sys.argv) > 3 else 1024
+DET = int(sys.argv[4]) if len(sys.argv) > 4 else 512
 out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'assets', 'models')
 raw = open(src, 'rb').read()
 jl = struct.unpack('<I', raw[12:16])[0]
@@ -17,15 +20,15 @@ binc = raw[20 + jl + 8:]
 size_for = {}  # image index -> size
 for m in j.get('materials', []):
     pbr = m.get('pbrMetallicRoughness', {})
-    for key, sz in (('baseColorTexture', 1024), ('metallicRoughnessTexture', 512)):
+    for key, sz in (('baseColorTexture', COL), ('metallicRoughnessTexture', DET)):
         if key in pbr: size_for[j['textures'][pbr[key]['index']]['source']] = sz
-    if 'normalTexture' in m: size_for[j['textures'][m['normalTexture']['index']]['source']] = 512
+    if 'normalTexture' in m: size_for[j['textures'][m['normalTexture']['index']]['source']] = DET
 img_views = {im['bufferView']: i for i, im in enumerate(j.get('images', []))}
 new_bin, views = b'', []
 for vi, bv in enumerate(j['bufferViews']):
     data = binc[bv.get('byteOffset', 0):bv.get('byteOffset', 0) + bv['byteLength']]
     if vi in img_views:
-        ii = img_views[vi]; sz = size_for.get(ii, 512)
+        ii = img_views[vi]; sz = size_for.get(ii, DET)
         im = Image.open(io.BytesIO(data)).convert('RGB').resize((sz, sz), Image.LANCZOS)
         o = io.BytesIO(); im.save(o, 'JPEG', quality=86 if sz >= 1024 else 90); data = o.getvalue()
         j['images'][ii]['mimeType'] = 'image/jpeg'

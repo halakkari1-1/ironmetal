@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { CARS, UPGRADES, MAX_UPGRADE, MAPS, DIFFICULTY, KILL_REWARD, CONTRACTS, carStats, upgradeCost } from './data.js';
 import { buildCar, preloadModel, preloadModels, modelReady } from './cars3d.js';
-import { loadKit, KIT, building, propMesh, barrelGeometry } from './kit.js';
+import { loadKit } from './kit.js';
 import { Game, POWERS } from './game.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -34,110 +34,96 @@ bloom.enabled = quality.tier.bloom;
 function draw(scene, camera) { renderPass.scene = scene; renderPass.camera = camera; composer.render(); }
 
 // ---------- garage showroom ----------
+// The lobby is a painted night scene (assets/lobby/lobby.jpg) with the real 3D car standing on its glowing ring.
+// The image is drawn "cover" style; the camera is solved each resize so the 3D ground lines up with the ring
+// in the picture. The car turns on the ring, casts its shadow onto the picture and is lit by the scene's lamps.
+const LOBBY = {
+  url: new URL('../assets/lobby/lobby.jpg', import.meta.url).href,
+  w: 2576, h: 1448,          // source size the numbers below were measured on (any resolution with this aspect works)
+  ring: [0.6724, 0.674],     // ring centre as fractions of the image
+  ringA: 0.2686,             // ring half-width as a fraction of image width
+  ringB: 0.0622,             // ring half-height as a fraction of image height
+  focal: 0.898,              // lens focal length in image heights (puts the horizon where the picture has it)
+  radius: 5,                 // the ring's radius in world metres
+  // animated light spots laid over the picture: [x, y, size (fraction of image height), colour, flicker style]
+  glows: [[0.083, 0.42, 0.06, '255,170,80', 'a'], [0.165, 0.465, 0.07, '255,170,80', 'b'], [0.966, 0.5, 0.07, '255,170,80', 'a'],
+    [0.022, 0.17, 0.05, '255,140,60', 'c'], [0.03, 0.31, 0.05, '255,140,60', 'b'], [0.613, 0.25, 0.05, '255,80,40', 'c'],
+    [0.548, 0.18, 0.06, '255,120,40', 'a'], [0.841, 0.14, 0.11, '210,225,255', 'm'], [0.80, 0.33, 0.08, '255,120,50', 'b'],
+    [0.47, 0.37, 0.07, '255,110,40', 'c'], [0.335, 0.47, 0.05, '255,170,80', 'a']],
+};
 class Showroom {
   constructor() {
     const s = this.scene = new THREE.Scene();
-    s.background = new THREE.Color(0x0d0c0a); s.fog = new THREE.Fog(0x0d0c0a, 18, 46);
-    this.camera = new THREE.PerspectiveCamera(36, 1, 0.1, 200);
-    s.add(new THREE.HemisphereLight(0xffeedd, 0x1a1510, 0.55));
-    const key = new THREE.SpotLight(0xffd2a0, 260, 40, 0.55, 0.6, 1.4); key.position.set(4, 13, 7); key.castShadow = true; key.shadow.mapSize.set(1024, 1024); key.shadow.bias = -0.0005; s.add(key, key.target);
-    const rim = new THREE.SpotLight(0x7fa6ff, 180, 40, 0.7, 0.7, 1.4); rim.position.set(-7, 6, -8); s.add(rim, rim.target);
-    const fill = new THREE.PointLight(0xe0682c, 20, 14, 1.6); fill.position.set(0, 0.6, 5); s.add(fill);
-
-    const c = document.createElement('canvas'); c.width = c.height = 512; const g = c.getContext('2d');
-    g.fillStyle = '#2a2722'; g.fillRect(0, 0, 512, 512);
-    for (let i = 0; i < 7000; i++) { const v = Math.random() < 0.5 ? 0 : 255; g.fillStyle = `rgba(${v},${v},${v},${Math.random() * 0.06})`; g.fillRect(Math.random() * 512, Math.random() * 512, 2, 2); }
-    g.strokeStyle = 'rgba(0,0,0,0.45)'; g.lineWidth = 3; for (let i = 0; i <= 512; i += 128) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i, 512); g.moveTo(0, i); g.lineTo(512, i); g.stroke(); }
-    for (let i = 0; i < 10; i++) { g.fillStyle = 'rgba(5,4,3,0.25)'; g.beginPath(); g.ellipse(Math.random() * 512, Math.random() * 512, 20 + Math.random() * 40, 10 + Math.random() * 20, Math.random() * 3, 0, 7); g.fill(); }
-    const ft = new THREE.CanvasTexture(c); ft.wrapS = ft.wrapT = THREE.RepeatWrapping; ft.repeat.set(8, 8); ft.colorSpace = THREE.SRGBColorSpace;
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), new THREE.MeshStandardMaterial({ map: ft, roughness: 0.6, metalness: 0.3 }));
-    floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; s.add(floor); this.floor = floor;
-
-    const steel = new THREE.MeshStandardMaterial({ color: 0x2d2b27, metalness: 0.8, roughness: 0.4, flatShading: true });
-    this.platform = new THREE.Group(); s.add(this.platform); this.key = key;
-    const base = new THREE.Mesh(new THREE.CylinderGeometry(4.6, 4.9, 0.35, 40), steel); base.position.y = 0.17; base.receiveShadow = true; base.castShadow = true;
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(4.65, 0.05, 6, 64), new THREE.MeshBasicMaterial({ color: 0xe0682c })); ring.rotation.x = Math.PI / 2; ring.position.y = 0.36;
-    this.platform.add(base, ring);
-    for (let i = 0; i < 24; i++) { const a = (i / 24) * Math.PI * 2; const b = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.04, 0.12), new THREE.MeshStandardMaterial({ color: 0x46413a, metalness: 0.7 })); b.position.set(Math.cos(a) * 4.1, 0.36, Math.sin(a) * 4.1); b.rotation.y = -a; this.platform.add(b); }
-
-    const old = this.old = new THREE.Group(); s.add(old);
-    const prop = new THREE.MeshStandardMaterial({ color: 0x3a3630, roughness: 0.9, flatShading: true });
-    const red = new THREE.MeshStandardMaterial({ color: 0x6e2216, roughness: 0.6, metalness: 0.4, flatShading: true });
-    const tire = new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.95 });
-    [[-7.5, -5], [-6.4, -5.6], [8, -6], [9.1, -5.2]].forEach(([x, z], i) => { const b = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 1.7, 10), i % 2 ? prop : red); b.position.set(x, 0.85, z); b.castShadow = true; old.add(b); });
-    for (let i = 0; i < 4; i++) { const t = new THREE.Mesh(new THREE.TorusGeometry(0.9, 0.35, 8, 14), tire); t.rotation.x = Math.PI / 2; t.position.set(-9, 0.35 + i * 0.62, -1.5); t.castShadow = true; old.add(t); }
-    const wall = new THREE.Mesh(new THREE.BoxGeometry(40, 14, 1), new THREE.MeshStandardMaterial({ color: 0x1c1a16, roughness: 0.9 })); wall.position.set(0, 7, -14); old.add(wall);
-    for (let i = -3; i <= 3; i++) { const p = new THREE.Mesh(new THREE.BoxGeometry(0.6, 14, 0.6), steel); p.position.set(i * 6, 7, -13.3); old.add(p); }
-    const stripe = new THREE.Mesh(new THREE.BoxGeometry(40, 0.5, 0.1), new THREE.MeshBasicMaterial({ color: 0x8e3a14 })); stripe.position.set(0, 2.2, -13.45); old.add(stripe);
-    for (const x of [-6, 0, 6]) { // hanging work lamps
-      const lamp = new THREE.Mesh(new THREE.ConeGeometry(0.5, 0.5, 12, 1, true), new THREE.MeshStandardMaterial({ color: 0x222, side: THREE.DoubleSide })); lamp.position.set(x, 9, -4); old.add(lamp);
-      const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.18, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffd9a0 })); bulb.position.set(x, 8.75, -4); old.add(bulb);
-    }
-    // drifting dust in the key light
-    const n = 220, pos = new Float32Array(n * 3);
-    for (let i = 0; i < n; i++) pos.set([(Math.random() - 0.5) * 16, Math.random() * 9, (Math.random() - 0.5) * 12], i * 3);
+    this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 200);
+    const tex = this.bg = new THREE.TextureLoader().load(LOBBY.url, () => this.layout());
+    tex.colorSpace = THREE.SRGBColorSpace; tex.generateMipmaps = false; tex.minFilter = THREE.LinearFilter;
+    s.background = tex;
+    // light that matches the picture: warm lamps front-left, cold moon behind-right, orange glow from the ring
+    s.add(new THREE.HemisphereLight(0x8a90b0, 0x2a1810, 0.45));
+    const key = this.key = new THREE.SpotLight(0xffa860, 150, 40, 0.6, 0.7, 1.3); key.position.set(-7, 7, 6); key.castShadow = true;
+    key.shadow.mapSize.set(1024, 1024); key.shadow.bias = -0.0005; s.add(key, key.target);
+    const moon = new THREE.DirectionalLight(0xaec4ff, 1.4); moon.position.set(8, 9, -10); s.add(moon);
+    const ringLight = this.ringLight = new THREE.PointLight(0xff7a30, 30, 12, 1.6); ringLight.position.set(0, 0.4, 0); s.add(ringLight);
+    // invisible ground that only shows the car's shadow on top of the picture
+    const ground = new THREE.Mesh(new THREE.CircleGeometry(14, 40), new THREE.ShadowMaterial({ opacity: 0.55 }));
+    ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; s.add(ground);
+    this.platform = new THREE.Group(); s.add(this.platform);
+    // a few embers drifting up past the car
+    const n = 60, pos = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) pos.set([(Math.random() - 0.5) * 14, Math.random() * 7, (Math.random() - 0.5) * 8], i * 3);
     const dg = new THREE.BufferGeometry(); dg.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    this.dust = new THREE.Points(dg, new THREE.PointsMaterial({ color: 0xffd8a8, size: 0.05, transparent: true, opacity: 0.5, depthWrite: false }));
-    s.add(this.dust);
-
-    this.car = null; this.carId = null; this.spin = 0.5; this.yaw = 0.6; this.drop = 0; this.focus = 'right';
-    this.camX = 0;
-    this.dragging = false;
+    this.embers = new THREE.Points(dg, new THREE.PointsMaterial({ color: 0xffa050, size: 0.07, transparent: true, opacity: 0.8, depthWrite: false, blending: THREE.AdditiveBlending }));
+    s.add(this.embers);
+    this.car = null; this.carId = null; this.spin = 0.35; this.yaw = 0.6; this.drop = 0; this.focus = 'right';
+    this.dragging = false; this.t = 0; this.w = 1; this.h = 1;
+    this.buildGlows();
   }
-  // Replaces the placeholder backdrop with the real environment kit: an open yard at dusk in front of a watchtower.
-  dress() {
-    if (this.dressed || !KIT.loaded) return;
-    this.dressed = true;
-    const s = this.scene;
-    s.remove(this.old);
-    const c = document.createElement('canvas'); c.width = 2; c.height = 256; const g = c.getContext('2d'), grd = g.createLinearGradient(0, 0, 0, 256);
-    grd.addColorStop(0, '#15131c'); grd.addColorStop(0.55, '#3b2d2a'); grd.addColorStop(0.75, '#6a4632'); grd.addColorStop(1, '#6a4632');
-    g.fillStyle = grd; g.fillRect(0, 0, 2, 256);
-    const sky = new THREE.CanvasTexture(c); sky.colorSpace = THREE.SRGBColorSpace; s.background = sky;
-    s.fog = new THREE.Fog(0x4a352b, 24, 75);
-    const tex = new THREE.TextureLoader().load(new URL('../assets/kit/ground_concrete.jpg', import.meta.url).href);
-    tex.colorSpace = THREE.SRGBColorSpace; tex.wrapS = tex.wrapT = THREE.MirroredRepeatWrapping; tex.repeat.set(9, 9); tex.anisotropy = 4;
-    this.floor.material = new THREE.MeshStandardMaterial({ map: tex, color: 0x8a8278, roughness: 0.9, metalness: 0.05 });
-    const tower = building(1.7); tower.levels[1].distance = 1e6; tower.position.set(3, 0, -19); tower.rotation.y = 0.35; s.add(tower);
-    const put = (name, x, z, ry, sc = 1.35) => { const m = propMesh(name, sc); m.position.set(x, 0, z); m.rotation.y = ry; s.add(m); return m; };
-    put('dumpster', -9, -6, 0.35); put('tarpDrums', -11.5, -2.2, 1.2); put('boxes', -7.4, -3.6, 0.6); put('jugCrate', -6.8, -4.6, 2);
-    put('gasCart', 9, -6.5, -0.5); put('cylinders', 10.8, -3.2, 0.9); put('cylinder', 7.6, -8.4, 0); put('cylinder', 8.1, -8.9, 0);
-    put('cage', 13, -11, -0.3); put('pole', -6.5, -13, 0.4); put('shelf', -13, -8, 0.8); put('crates', 11.5, -0.5, 0.2);
-    const bm = KIT.material.clone(); bm.side = THREE.FrontSide; bm.color = new THREE.Color(1.15, 0.9, 0.85);
-    for (const [x, z] of [[-10.8, 1.2], [-9.2, 1.9], [12.2, 2.6]]) { const b = new THREE.Mesh(barrelGeometry(), bm); b.position.set(x, 0, z); b.rotation.y = x; b.castShadow = true; s.add(b); }
-    // sodium work lights on the tower and a warm fill from the left
-    const lamp = new THREE.PointLight(0xff9a48, 160, 30, 1.6); lamp.position.set(-1, 6.5, -13); s.add(lamp);
-    const lamp2 = new THREE.PointLight(0xffb070, 70, 22, 1.6); lamp2.position.set(-10, 3.5, -4); s.add(lamp2);
-    this.lamps = [lamp, lamp2];
-    s.traverse((o) => { if (o.isMesh && o !== this.floor) { o.castShadow = true; o.receiveShadow = true; } });
+  dress() { /* kept for older call sites: the lobby no longer needs the environment kit */ }
+  // CSS light spots over the picture (lamps flicker, fires breathe, the moon glows); they cost nothing on the GPU.
+  buildGlows() {
+    const box = this.glowBox = document.createElement('div'); box.id = 'lobbyGlow';
+    for (const [, , , rgb, style] of LOBBY.glows) { const d = document.createElement('i'); d.className = `g-${style}`; d.style.background = `radial-gradient(circle, rgba(${rgb},.55) 0%, rgba(${rgb},.18) 35%, rgba(${rgb},0) 70%)`; box.appendChild(d); }
+    const fog = document.createElement('b'); fog.className = 'fog'; box.appendChild(fog);
+    document.body.insertBefore(box, document.getElementById('vignette'));
+  }
+  // Cover-fit the picture and solve the camera so the 3D ring sits on the painted one.
+  layout() {
+    const W = this.w, H = this.h, s = Math.max(W / LOBBY.w, H / LOBBY.h), iw = LOBBY.w * s, ih = LOBBY.h * s, oy = (H - ih) / 2;
+    const ox = Math.min(0, Math.max(W - iw, 0.64 * W - LOBBY.ring[0] * iw)); // on narrower screens crop toward the ring so the car stays in view
+    const t = this.bg; t.repeat.set(W / iw, H / ih); t.offset.set(-ox / iw, (1 - t.repeat.y) / 2);
+    const f = LOBBY.focal * ih, aPx = LOBBY.ringA * iw, bPx = LOBBY.ringB * ih;
+    const d = (f * LOBBY.radius) / aPx, el = Math.asin(Math.min(0.5, bPx / aPx));
+    const cam = this.camera; cam.fov = (2 * Math.atan(H / 2 / f) * 180) / Math.PI; cam.aspect = W / H;
+    cam.position.set(0, d * Math.sin(el), d * Math.cos(el)); cam.lookAt(0, 0, 0);
+    const cx = ox + LOBBY.ring[0] * iw, cy = oy + LOBBY.ring[1] * ih;
+    cam.setViewOffset(W, H, W / 2 - cx, H / 2 - cy, W, H); cam.updateProjectionMatrix();
+    LOBBY.glows.forEach(([gx, gy, gs], i) => { const el2 = this.glowBox.children[i], sz = gs * ih * 2; Object.assign(el2.style, { left: `${ox + gx * iw - sz / 2}px`, top: `${oy + gy * ih - sz / 2}px`, width: `${sz}px`, height: `${sz}px` }); });
+    Object.assign(this.glowBox.lastChild.style, { top: `${oy + 0.47 * ih}px`, height: `${0.16 * ih}px` });
   }
   show(id) {
     this.want = id;
     if (this.carId === id && this.car) return;
-    if (!modelReady(id)) { // load first, keep the current car on the platform meanwhile
+    if (!modelReady(id)) { // load first, keep the current car on the ring meanwhile
       preloadModel(id).then(() => { if (this.want === id) this.show(id); }).catch(() => {});
       return;
     }
     if (this.car) this.platform.remove(this.car);
-    this.car = buildCar(id); this.car.position.y = 0.36; this.carId = id;
-    const d = this.car.userData.dims; this.carLen = d ? d.L : 5;
+    this.car = buildCar(id); this.carId = id;
+    const dm = this.car.userData.dims; this.car.scale.setScalar(dm ? Math.min(1, (LOBBY.radius * 1.75) / dm.L) : 1); // long trucks still fit the ring
     this.platform.add(this.car); this.drop = 1;
   }
-  resize(w, h) { this.camera.aspect = w / h; this.camera.updateProjectionMatrix(); }
+  resize(w, h) { this.w = w; this.h = h; this.layout(); }
+  setVisible(v) { this.glowBox.hidden = !v; }
   update(dt) {
+    this.t += dt;
     if (!this.dragging) this.yaw += dt * this.spin;
     this.platform.rotation.y = this.yaw;
-    if (this.drop > 0) { this.drop = Math.max(0, this.drop - dt * 3.2); const k = this.drop; this.car.position.y = 0.36 + k * k * 3; if (this.drop === 0) sfx.click(); }
-    const portrait = this.camera.aspect < 1;
-    const a = this.camera.aspect, squarish = Math.max(0, 1.75 - a); // 0 on 16:9+, ~0.42 on 4:3
-    const flip = document.documentElement.dir === 'rtl' ? -1 : 1; // Arabic mirrors the layout
-    const off = portrait ? 0 : (this.focus === 'right' ? -3.2 : this.focus === 'left' ? 3.4 : 0) * (1 - squarish * 0.55) * flip;
-    this.camX += (off - this.camX) * Math.min(1, dt * 4);
-    const dist = (portrait ? 24 : 15 + squarish * 15) * Math.max(1, Math.pow((this.carLen || 5) / 5.2, 0.85)); // big machines step the camera back
-    this.camera.position.set(this.camX + 2.2, 4.6, dist * 0.92);
-    this.camera.lookAt(this.camX, 1.3, 0);
-    this.dust.rotation.y += dt * 0.02;
-    if (this.lamps) { this.lamps[0].intensity = 160 * (0.92 + Math.random() * 0.08); }
+    if (this.drop > 0 && this.car) { this.drop = Math.max(0, this.drop - dt * 3.2); const k = this.drop; this.car.position.y = k * k * 3; if (this.drop === 0) sfx.click(); }
+    this.ringLight.intensity = 26 + Math.sin(this.t * 2.2) * 6; // the ring breathes
+    this.key.intensity = 150 * (0.94 + Math.random() * 0.06); // sodium lamps buzz
+    const p = this.embers.geometry.attributes.position, a = p.array;
+    for (let i = 0; i < a.length; i += 3) { a[i + 1] += dt * (0.4 + (i % 7) * 0.08); a[i] += Math.sin(this.t + i) * dt * 0.15; if (a[i + 1] > 7) a[i + 1] = 0; }
+    p.needsUpdate = true;
   }
   render() { draw(this.scene, this.camera); }
 }
@@ -194,11 +180,10 @@ function setUI(next) {
   $('mainActions').hidden = next !== 'main';
   $('garageUI').hidden = next !== 'garage';
   $('upgradeUI').hidden = next !== 'upgrade';
-  $('carpanel').hidden = false;
+  $('carpanel').hidden = next === 'upgrade'; // the workshop list takes the left side; the car stays on its ring
   $('menu').classList.toggle('sub', next !== 'main');
   $('menu').classList.toggle('garage', next === 'garage');
   $('gStory').hidden = $('gCount').hidden = $('cpSW').hidden = next !== 'garage';
-  room.focus = next === 'upgrade' ? 'left' : 'right';
   if (next === 'main') { const car = save.selectedCar(); room.show(car.id); fillPanel(car, 'Your ride'); }
   if (next === 'garage') { browseI = CARS.findIndex((c) => c.id === save.get().selected); renderGarage(); }
   if (next === 'upgrade') renderUpgrades();
@@ -386,7 +371,7 @@ const hud = {
   },
   toast(s) { const el = $('toast'); el.textContent = s; clearTimeout(this.tt); this.tt = setTimeout(() => (el.textContent = ''), 1300); },
   flashSpecial() { $('bSpecial').classList.add('on'); setTimeout(() => $('bSpecial').classList.remove('on'), 300); },
-  update(g) {
+  update(g, dt = 1 / 60) {
     const p = g.player, frac = Math.max(0, p.hp / p.maxHp);
     $('hBar').style.width = `${frac * 100}%`; $('hBar').classList.toggle('low', frac < 0.3);
     $('hHp').textContent = Math.ceil(Math.max(0, p.hp));
@@ -422,11 +407,19 @@ const hud = {
       cx.strokeStyle = st === 'active' ? '#58a8ff' : st === 'ready' ? '#7cc441' : '#e0682c'; cx.beginPath(); cx.arc(80, 80, 72, -Math.PI / 2, -Math.PI / 2 + Math.min(1, k) * Math.PI * 2); cx.stroke();
       const b = $('bSpecial'); b.dataset.state = st; $('hSpecialCd').textContent = secs;
     }
-    // minimap
+    // minimap: 12 times a second is plenty; the obstacle layer is drawn once per arena (and when a barrel goes) and reused
+    this.mmT = (this.mmT || 0) + dt;
+    if (this.mmT < 1 / 12) { this.updateBars(g); return; }
+    this.mmT = 0;
     const mm = $('mini'), m = mm.getContext('2d'), W = mm.width, half = g.arena.half, sc = W / (half * 2);
-    m.clearRect(0, 0, W, W);
-    m.fillStyle = 'rgba(140,130,110,.35)';
-    for (const o of g.arena.obstacles) { if (o.dead) continue; if (o.kind === 'box') { m.save(); m.translate((o.x + half) * sc, (o.z + half) * sc); m.rotate(-(o.rot || 0)); m.fillRect(-o.hw * sc, -o.hd * sc, o.hw * 2 * sc, o.hd * 2 * sc); m.restore(); } else { m.beginPath(); m.arc((o.x + half) * sc, (o.z + half) * sc, Math.max(2, o.r * sc), 0, 7); m.fill(); } }
+    const live = g.arena.obstacles.reduce((n, o) => n + (o.dead ? 0 : 1), 0);
+    if (this.mmArena !== g.arena || this.mmLive !== live) {
+      this.mmArena = g.arena; this.mmLive = live;
+      const L = this.mmLayer || (this.mmLayer = document.createElement('canvas')); L.width = L.height = W; const lc = L.getContext('2d');
+      lc.fillStyle = 'rgba(140,130,110,.35)';
+      for (const o of g.arena.obstacles) { if (o.dead) continue; if (o.kind === 'box') { lc.save(); lc.translate((o.x + half) * sc, (o.z + half) * sc); lc.rotate(-(o.rot || 0)); lc.fillRect(-o.hw * sc, -o.hd * sc, o.hw * 2 * sc, o.hd * 2 * sc); lc.restore(); } else { lc.beginPath(); lc.arc((o.x + half) * sc, (o.z + half) * sc, Math.max(2, o.r * sc), 0, 7); lc.fill(); } }
+    }
+    m.clearRect(0, 0, W, W); m.drawImage(this.mmLayer, 0, 0);
     for (const s of g.strikes) { m.strokeStyle = 'rgba(255,60,40,.9)'; m.lineWidth = 2; m.beginPath(); m.arc((s.x + half) * sc, (s.z + half) * sc, s.r * sc, 0, 7); m.stroke(); }
     for (const d of g.drops) { m.fillStyle = '#7fc4ff'; m.fillRect((d.x + half) * sc - 5, (d.z + half) * sc - 5, 10, 10); }
     for (const pk of g.pickups) if (pk.respawn <= 0) { m.fillStyle = pk.type === 'health' ? '#5dff7a' : '#ffb347'; m.fillRect((pk.x + half) * sc - 3, (pk.z + half) * sc - 3, 6, 6); }
@@ -438,15 +431,18 @@ const hud = {
       if (c.bounty) { m.strokeStyle = '#ffd23a'; m.lineWidth = 2; m.beginPath(); m.arc(0, 0, 11, 0, 7); m.stroke(); }
       m.beginPath(); m.moveTo(0, -9); m.lineTo(6, 6); m.lineTo(-6, 6); m.closePath(); m.fill(); m.restore();
     }
-    // enemy health bars
-    const w = window.innerWidth, h = window.innerHeight, v = new THREE.Vector3();
+    this.updateBars(g);
+  },
+  // enemy health bars follow the cars every frame
+  updateBars(g) {
+    const w = window.innerWidth, h = window.innerHeight, v = this.v3 || (this.v3 = new THREE.Vector3());
     for (const c of g.cars) {
       if (!c.hpEl) continue;
       if (!c.alive) { c.hpEl.hidden = true; continue; }
-      v.set(c.x, 4.4, c.z).project(g.camera);
+      const dm = c.mesh.userData.dims; v.set(c.x, (dm ? dm.H : 3.6) + 0.9, c.z).project(g.camera); // just above the roof
       const on = v.z < 1 && Math.abs(v.x) < 1.1 && Math.abs(v.y) < 1.1;
       c.hpEl.hidden = !on;
-      if (on) { c.hpEl.classList.toggle('far', !c.bounty && Math.hypot(c.x - g.player.x, c.z - g.player.z) > 38); c.hpName.textContent = c.bounty ? `\u265B ${c.data.name}` : c.data.name; c.hpName.style.color = c.bounty ? '#ffd23a' : ''; c.hpFill.style.background = c.bounty ? '#ffc23a' : ''; c.hpEl.style.left = `${(v.x * 0.5 + 0.5) * w}px`; c.hpEl.style.top = `${(-v.y * 0.5 + 0.5) * h}px`; c.hpFill.style.width = `${Math.max(0, c.hp / c.maxHp) * 100}%`; const lt = g.mode === 'deathmatch' ? '\u2022'.repeat(c.lives) : ''; if (c.hpLives.textContent !== lt) c.hpLives.textContent = lt; }
+      if (on) { c.hpEl.classList.toggle('far', !c.bounty && Math.hypot(c.x - g.player.x, c.z - g.player.z) > 38); if (c.hpCrown !== !!c.bounty) { c.hpCrown = !!c.bounty; c.hpName.textContent = c.bounty ? `\u265B ${c.data.name}` : c.data.name; c.hpName.style.color = c.bounty ? '#ffd23a' : ''; c.hpFill.style.background = c.bounty ? '#ffc23a' : ''; } c.hpEl.style.left = `${(v.x * 0.5 + 0.5) * w}px`; c.hpEl.style.top = `${(-v.y * 0.5 + 0.5) * h}px`; c.hpFill.style.width = `${Math.max(0, c.hp / c.maxHp) * 100}%`; const lt = g.mode === 'deathmatch' ? '\u2022'.repeat(c.lives) : ''; if (c.hpLives.textContent !== lt) c.hpLives.textContent = lt; }
     }
   },
   onEnd(r) {
@@ -481,8 +477,9 @@ async function startMatch(cfg) {
   $('loader').hidden = false; $('loader').style.opacity = 1;
   // load the player's car and every car that can show up as an enemy in this match
   const maxP = cfg.mode === 'survival' ? 99999 : cfg.diff.maxPrice;
-  await preloadModels([cfg.car.id, ...CARS.filter((c) => c.price <= maxP).map((c) => c.id)]);
+  await preloadModels([cfg.car.id, ...CARS.filter((c) => c.price <= maxP).map((c) => c.id), 'skyscraper']);
   await loadKit();
+  room.setVisible(false);
   game = new Game(renderer, hud);
   game.resize(window.innerWidth, window.innerHeight);
   game.start(cfg);
@@ -497,7 +494,7 @@ async function startMatch(cfg) {
 
 function toMenu() {
   if (game) { game.dispose(); game = null; }
-  mode = 'menu'; show('menu'); setUI('main'); refreshBadge();
+  mode = 'menu'; show('menu'); setUI('main'); refreshBadge(); room.setVisible(true);
   sfx.music.start(0.5);
   $('rotate').classList.remove('need');
   input.reset();
@@ -648,13 +645,19 @@ function resize() {
 addEventListener('resize', resize);
 
 let last = performance.now();
+// Frame pacing saves battery: matches run at up to 60 fps (even on 90/120 Hz screens), menus at 30,
+// and a paused or finished match only redraws a few times a second.
+let acc = 0;
 function frame(now) {
-  const raw = (now - last) / 1000, dt = Math.min(0.05, raw); last = now;
+  requestAnimationFrame(frame);
+  const target = mode === 'game' ? 60 : mode === 'menu' ? 30 : 8;
+  acc += now - last;
+  if (acc < 1000 / target - 2) { last = now; return; }
+  const raw = acc / 1000, dt = Math.min(0.05, raw); acc = 0; last = now;
   if (mode === 'game' && raw < 0.5) { const q = quality.sample(raw); if (q) applyQuality(q === 'tier'); }
   if (mode === 'game') { input.apply(); game.update(dt); draw(game.scene, game.camera); }
   else if ((mode === 'paused' || mode === 'results') && game) draw(game.scene, game.camera);
   else { room.update(dt); room.render(); }
-  requestAnimationFrame(frame);
 }
 
 // Re-renders every piece of text after a language change.
@@ -672,7 +675,7 @@ $('snd').style.display = save.get().sound ? '' : 'none';
 resize();
 show('menu'); setUI('main');
 requestAnimationFrame(frame);
-Promise.all([preloadModel(save.get().selected).catch(() => {}), loadKit().then(() => room.dress()).catch((e) => console.warn('kit failed', e))]).finally(() => {
+Promise.all([preloadModel(save.get().selected).catch(() => {})]).finally(() => {
   setUI(ui);
   // the rest of the roster loads in the background, one at a time, so browsing the garage is instant
   CARS.reduce((p, c) => p.then(() => new Promise((r) => setTimeout(r, 120))).then(() => preloadModel(c.id).catch(() => {})), Promise.resolve());

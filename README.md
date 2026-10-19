@@ -70,6 +70,16 @@ the 331-part FBX was split into a watchtower (49k triangles near, 15k far) and 1
 packed as base64 GLBs in `kit_models.js`. All pieces share one 2K/1K texture atlas. The conversion pages live in the
 session workspace, not in this repo.
 
+## Lobby and skyline
+
+The lobby is a painted night scene (`assets/lobby/lobby.jpg`); the real 3D car stands on its glowing ring. The camera
+is solved from the ring's measured position (`LOBBY` in `src/main.js`), so a new picture only needs new numbers there.
+CSS light spots make lamps flicker and fires breathe. Ruined skyscrapers (`assets/models/skyscraper.js`, Meshy,
+full geometry, textures 2K/1K) ring every arena with smoke columns and fires; 8/6/4 of them by graphics tier.
+
+Battery: matches render at up to 60 fps, menus at 30, pause and results at 8; the minimap redraws 12 times a
+second from a cached obstacle layer; bullets are pooled.
+
 ## Effects
 
 Explosions, fire, smoke and muzzle flashes play pre-rendered simulations: Unity Labs' free VFX flipbooks

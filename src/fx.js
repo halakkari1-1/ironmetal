@@ -137,7 +137,7 @@ void main() {
   gl_Position = projectionMatrix * mv;
 }`;
 const FFRAG = `
-uniform sampler2D map; uniform float boost; uniform vec2 grid; uniform float frames;
+uniform sampler2D map; uniform float boost; uniform vec2 grid; uniform float frames; uniform float cellAspect;
 varying vec4 vColor; varying float vRot; varying float vFrame;
 vec4 cell(float f, vec2 q) {
   float col = mod(f, grid.x), row = floor(f / grid.x);
@@ -147,6 +147,7 @@ void main() {
   vec2 p = gl_PointCoord - 0.5;
   float c = cos(vRot), s = sin(vRot);
   vec2 q = vec2(c * p.x - s * p.y, s * p.x + c * p.y) + 0.5;
+  q.x = (q.x - 0.5) / cellAspect + 0.5; // tall cells (flames) keep their proportions inside the square sprite
   if (q.x < 0.0 || q.x > 1.0 || q.y < 0.0 || q.y > 1.0) discard;
   q = clamp(q, 0.004, 0.996); // keep away from the neighbouring cell
   float f0 = floor(vFrame), k = vFrame - f0;
@@ -156,11 +157,11 @@ void main() {
   gl_FragColor = vec4(vColor.rgb * t.rgb * boost, a);
 }`;
 const FLIP = {}; // name -> { tex, cols, rows, frames }
-function flipTex(name, cols, rows) {
+function flipTex(name, cols, rows, cellAspect = 1) {
   if (FLIP[name]) return FLIP[name];
   const tex = new THREE.TextureLoader().load(new URL(`../assets/vfx/${name}.webp`, import.meta.url).href);
   tex.colorSpace = THREE.SRGBColorSpace; tex.generateMipmaps = false; tex.minFilter = THREE.LinearFilter; // mips would bleed cells together
-  return (FLIP[name] = { tex, cols, rows, frames: cols * rows });
+  return (FLIP[name] = { tex, cols, rows, frames: cols * rows, cellAspect });
 }
 class FlipSystem extends System {
   constructor(max, additive, sheet, boost) {
@@ -169,7 +170,7 @@ class FlipSystem extends System {
     this.frame = new Float32Array(max); this.fps = new Float32Array(max); this.f0 = new Float32Array(max);
     this.geo.setAttribute('frame', new THREE.BufferAttribute(this.frame, 1).setUsage(THREE.DynamicDrawUsage));
     this.mat.vertexShader = FVERT; this.mat.fragmentShader = FFRAG;
-    this.mat.uniforms.grid = { value: new THREE.Vector2(sheet.cols, sheet.rows) }; this.mat.uniforms.frames = { value: sheet.frames };
+    this.mat.uniforms.grid = { value: new THREE.Vector2(sheet.cols, sheet.rows) }; this.mat.uniforms.frames = { value: sheet.frames }; this.mat.uniforms.cellAspect = { value: sheet.cellAspect };
   }
   // fps 0 plays the whole sequence once over the particle's life; fps > 0 loops at that rate (flames)
   spawnF(x, y, z, vx, vy, vz, life, s0, s1, c0, c1, grav = 0, drag = 1, delay = 0, fps = 0, spin = null) {
@@ -206,12 +207,12 @@ export class FX {
     // flipbook layers: real explosion/fire/smoke simulations
     this.fbBlast = new FlipSystem(40, false, flipTex('explosion_big', 5, 5), 1.45);
     this.fbBlastS = new FlipSystem(70, false, flipTex('explosion', 5, 5), 1.4);
-    this.fbFire = new FlipSystem(260, true, flipTex('flame', 16, 4), 1.05);
-    this.fbFire2 = new FlipSystem(140, true, flipTex('flame_b', 16, 4), 1.05);
+    this.fbFire = new FlipSystem(260, true, flipTex('flame', 16, 4, 0.5), 1.05);
+    this.fbFire2 = new FlipSystem(140, true, flipTex('flame_b', 16, 4, 0.5), 1.05);
     this.fbBall = new FlipSystem(160, true, flipTex('fireball', 8, 8), 1.25);
     this.fbSmoke = new FlipSystem(320, false, flipTex('smoke', 8, 8), 1);
     this.fbCloud = new FlipSystem(200, false, flipTex('cloud', 8, 8), 1);
-    this.fbDisc = new FlipSystem(60, false, flipTex('disc', 16, 4), 1);
+    this.fbDisc = new FlipSystem(60, false, flipTex('disc', 16, 4, 0.5), 1);
     this.flips = [this.fbSmoke, this.fbCloud, this.fbDisc, this.fbBlast, this.fbBlastS, this.fbFire, this.fbFire2, this.fbBall];
     this.flips.forEach((f, i) => { f.points.renderOrder = 1 + i * 0.1; scene.add(f.points); });
     this.lights = [0, 1, 2].map(() => { const l = new THREE.PointLight(0xff9a40, 0, 55, 1.5); scene.add(l); return { l, t: 0 }; });
@@ -332,6 +333,10 @@ export class FX {
     for (let i = 0; i < n; i++) { const t = i / n; this.hot.spawn(ax + (bx - ax) * t, ay + (by - ay) * t, az + (bz - az) * t, 0, 0, 0, 0.18, 1.1, 0.2, [0.5, 0.85, 1, 1], [0.2, 0.4, 1, 0]); }
   }
 
+  towerSmoke(x, y, z) { // a thick column drifting off a burning skyscraper
+    const dk = R(0.1, 0.18);
+    this.fbSmoke.spawnF(x + R(-2, 2), y, z + R(-2, 2), R(1, 3), R(3, 5), R(-1, 1), R(6, 9), R(10, 14), R(28, 40), [dk, dk * 0.95, dk * 0.9, 0.75], [0.3, 0.29, 0.28, 0], -0.15, 0.25);
+  }
   // ---------- ability effects ----------
   toxic(x, z) { // green poison haze hugging the ground
     if (Math.random() < 0.5) this.fbCloud.spawnF(x + R(-0.8, 0.8), R(0.4, 1.2), z + R(-0.8, 0.8), R(-0.5, 0.5), R(0.3, 1), R(-0.5, 0.5), R(1.5, 2.4), R(2, 2.8), R(4.5, 6), [0.45, 1.25, 0.3, 0.55], [0.3, 0.8, 0.15, 0], -0.05, 0.6);

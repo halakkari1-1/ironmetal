@@ -239,8 +239,9 @@ export class Game {
       if (c.crown) c.crown.rotation.y += dt * 2;
     }
     this.collideCars();
-    for (const st of this.arena.stacks || []) if (Math.random() < dt * 2.2) // chimney smoke drifting off the district
+    for (const st of this.arena.stacks || []) if (st.big) { if (Math.random() < dt * 3) this.fx.towerSmoke(st.x, st.y, st.z); } else if (Math.random() < dt * 2.2) // chimney smoke drifting off the district
       this.fx.smoke.spawn(st.x + R(-0.4, 0.4), st.y, st.z + R(-0.4, 0.4), R(1.5, 3), R(2, 3.5), R(-0.5, 0.5), R(5, 7), 3, 11, [0.3, 0.28, 0.26, 0.45], [0.42, 0.4, 0.38, 0], -0.15, 0.3);
+    for (const b of this.arena.blazes || []) if (Math.random() < dt * 5) this.fx.flames(b.x, b.y, b.z, 3.2); // fires in the skyscrapers
     this.wrecks = this.wrecks.filter((w) => { // old wrecks smoulder, then sink out of the way
       w.t += dt;
       if (w.t < 5 && Math.random() < 0.3) this.fx.burn(w.mesh.position.x, w.mesh.position.y + 1.2, w.mesh.position.z);
@@ -418,7 +419,7 @@ export class Game {
     if (c.firing && c.gunCd <= 0 && this.state === 'fight' && c.jamT <= 0) { this.fireGun(c); c.gunCd = 0.09; }
   }
 
-  worldPoint(c, local) { return v3.copy(local).applyAxisAngle(THREE.Object3D.DEFAULT_UP, c.heading).add(new THREE.Vector3(c.x, 0, c.z)).clone(); }
+  worldPoint(c, local) { v3.copy(local).applyAxisAngle(THREE.Object3D.DEFAULT_UP, c.heading); v3.x += c.x; v3.z += c.z; return v3.clone(); }
 
   aimAt(c, range, cone) {
     let best = null, bestScore = Infinity;
@@ -448,7 +449,8 @@ export class Game {
     const spread = c.isPlayer ? 0.03 : 0.03 + (1 - this.diff.accuracy) * 0.16;
     dir += R(-spread, spread);
     const dx = Math.sin(dir), dz = Math.cos(dir);
-    const b = new THREE.Mesh(this.bulletGeo, c.isPlayer ? this.bulletMat : this.enemyBulletMat);
+    const b = (this.bulletPool || (this.bulletPool = [])).pop() || new THREE.Mesh(this.bulletGeo, this.bulletMat); // tracers are recycled, not re-created
+    b.material = c.isPlayer ? this.bulletMat : this.enemyBulletMat;
     b.position.copy(m); b.rotation.y = dir;
     this.scene.add(b);
     this.bullets.push({ mesh: b, x: m.x, y: m.y, z: m.z, dx, dz, life: 0.5, owner: c, dmg: c.stats.gunDmg * c.dmgMul });
@@ -663,7 +665,7 @@ export class Game {
         if (Math.abs(b.x) > this.arena.half || Math.abs(b.z) > this.arena.half) hit = true;
       }
       if (!hit && b.life <= 0) this.fx.impact(b.x, b.z);
-      if (hit || b.life <= 0) { this.scene.remove(b.mesh); return false; }
+      if (hit || b.life <= 0) { this.scene.remove(b.mesh); this.bulletPool.push(b.mesh); return false; }
       b.mesh.position.set(b.x, b.y, b.z);
       return true;
     });
@@ -1036,16 +1038,17 @@ export class Game {
     const dm = p.mesh.userData.dims || { L: 5.2, H: 2.2 }, size = Math.max(1, dm.L / 5.2), portrait = this.camera.aspect < 1;
     let mode = this.camMode || 'near'; if (mode === 'hood' && !p.alive) mode = 'near';
     const speedPull = clamp(Math.abs(p.speed) / 40, 0, 1) * (mode === 'far' ? 2.5 : 1.5);
-    let want, look, k;
+    const want = this.camWant || (this.camWant = new THREE.Vector3()), look = this.camAim || (this.camAim = new THREE.Vector3());
+    let k;
     if (mode === 'hood') {
       const h = dm.H * 0.95 + 0.3, f = dm.L * 0.02; // just over the roof: the front of the car stays in view
-      want = new THREE.Vector3(p.x + fx * f, h, p.z + fz * f);
-      look = new THREE.Vector3(p.x + fx * 30, h - 2.6, p.z + fz * 30);
+      want.set(p.x + fx * f, h, p.z + fz * f);
+      look.set(p.x + fx * 30, h - 2.6, p.z + fz * 30);
       k = snap ? 1 : 1 - Math.exp(-dt * 30); // locked to the car
     } else {
       const back = (mode === 'far' ? (portrait ? 17 : 13) : (portrait ? 12 : 8.5)) * size, up = (mode === 'far' ? (portrait ? 11 : 7.5) : (portrait ? 7.5 : 4.6)) * Math.sqrt(size);
-      want = new THREE.Vector3(p.x - fx * (back + speedPull), up + speedPull * 0.3, p.z - fz * (back + speedPull));
-      look = new THREE.Vector3(p.x + fx * (mode === 'far' ? 6 : 8), mode === 'far' ? 1.5 : 1.8, p.z + fz * (mode === 'far' ? 6 : 8));
+      want.set(p.x - fx * (back + speedPull), up + speedPull * 0.3, p.z - fz * (back + speedPull));
+      look.set(p.x + fx * (mode === 'far' ? 6 : 8), mode === 'far' ? 1.5 : 1.8, p.z + fz * (mode === 'far' ? 6 : 8));
       k = snap ? 1 : 1 - Math.exp(-dt * (mode === 'far' ? 4.5 : 6));
     }
     if (mode !== 'hood') { // never let the camera go behind the arena walls or into tall cover: pull it in and lift it

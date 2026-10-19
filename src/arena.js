@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { quality } from './quality.js';
 import { KIT, propInstances, propSize, building, buildingFootprint, barrelGeometry, containerGeometry, mapToRegion, panelCylinder, blockGeometry, ATLAS } from './kit.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { getModel } from './cars3d.js';
 
 const PS = 1.5;    // prop scale: kit props are true-to-life, game cars are a bit oversized
 const BS = 1.7;    // building scale
@@ -131,8 +132,8 @@ export function buildArena(scene, map) {
     for (const [x, z, ry] of [[p, -half, 0], [p, half, Math.PI], [-half, p, Math.PI / 2], [half, p, -Math.PI / 2]]) wall.push({ x, z, ry: ry + (R() - 0.5) * 0.06, s: 1 });
   }
   grp.add(propInstances('barrier', wall, WS));
-  // outer skyline: a few far buildings in the haze (low detail)
-  for (let i = 0; i < (lowTier ? 0 : quality.tier.particles < 0.9 ? 2 : 4); i++) {
+  // outer skyline: a few far buildings in the haze (low detail); the skyscrapers replace them when loaded
+  for (let i = 0; i < (lowTier || getModel('skyscraper') ? 0 : quality.tier.particles < 0.9 ? 2 : 4); i++) {
     const a = (i / 4) * Math.PI * 2 + 0.6 + R() * 0.5, d = half + 62 + R() * 14;
     const b = building(BS * 1.2); b.position.set(Math.cos(a) * d, 0, Math.sin(a) * d); b.rotation.y = R() * 6.28; b.levels[0].distance = 1e6; b.levels.reverse();
     b.levels[0].distance = 0; grp.add(b);
@@ -141,7 +142,7 @@ export function buildArena(scene, map) {
   // ---------- industrial district beyond the walls ----------
   // A street front of warehouses hugs the barriers; taller works, chimneys and tank farms rise behind it.
   // Everything is merged into a single mesh: one draw call for the whole district.
-  const stacks = [];
+  const stacks = [], blazes = [];
   {
     const ring = [], full = !lowTier, place2 = (geo, x, z, ry, y = 0) => { const g = geo.clone(); g.rotateY(ry); g.translate(x, y, z); ring.push(g); };
     const cone = (r, h) => { const g = new THREE.ConeGeometry(r, h, 16, 1, true).toNonIndexed(); mapToRegion(g, ATLAS.greyPlate, 3, 1); g.deleteAttribute('normal'); g.computeVertexNormals(); return g; };
@@ -174,6 +175,32 @@ export function buildArena(scene, map) {
         u += w;
       }
     }
+    // Ruined skyscrapers (Meshy model, full detail) tower over everything behind the street front.
+    // Each is its own mesh sharing one geometry, so the ones off screen are skipped by frustum culling.
+    const towers = [], sky = getModel('skyscraper');
+    if (sky) {
+      const per = quality.tier.particles >= 0.9 ? 2 : quality.tier.particles >= 0.6 ? 1.5 : 1;
+      const sb = new THREE.Box3().setFromObject(sky), ssz = sb.getSize(new THREE.Vector3());
+      for (let side = 0; side < 4; side++) {
+        const n = per === 1.5 ? (side % 2 ? 1 : 2) : per;
+        for (let i = 0; i < n; i++) {
+          const hgt = 58 + R() * 22, sc = hgt / ssz.y, hw = Math.max(ssz.x, ssz.z) * sc / 2;
+          const along = n === 1 ? (R() - 0.5) * half * 0.6 : (i ? 1 : -1) * half * (0.45 + R() * 0.2);
+          const dist = edge + D1 + 6 + hw;
+          const [x, z] = side === 0 ? [along, -dist] : side === 1 ? [along, dist] : side === 2 ? [-dist, along] : [dist, along];
+          const m = sky.clone(true); m.scale.setScalar(sc); m.rotation.y = R() * Math.PI * 2;
+          m.position.set(x - (sb.min.x + sb.max.x) / 2 * sc, -sb.min.y * sc - 1.5, z - (sb.min.z + sb.max.z) / 2 * sc); // sunk a little into the ground
+          m.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
+          grp.add(m); towers.push({ x, z, r: hw });
+          stacks.push({ x: x + R(-0.2, 0.2) * hw, y: hgt * 0.97, z: z + R(-0.2, 0.2) * hw, big: true }); // smoke rising off the broken top
+          for (let k = 0; k < 2; k++) { // fires burning in the broken floors on the side facing the arena
+            const fy = hgt * (0.3 + R() * 0.5), toward = Math.atan2(-x, -z);
+            blazes.push({ x: x + Math.sin(toward) * hw * 0.85, y: fy, z: z + Math.cos(toward) * hw * 0.85 });
+          }
+        }
+      }
+    }
+    const nearTower = (x, z) => towers.some((t) => Math.hypot(t.x - x, t.z - z) < t.r + 10);
     // Row 2: taller works behind the street front, with chimneys and tank farms poking out above it.
     if (full) {
       const dist2 = edge + D1 + 9;
@@ -181,6 +208,7 @@ export function buildArena(scene, map) {
         const span = half + D1 + 12;
         for (let u = -span; u < span; u += 18 + R() * 10) {
           const [x, z] = side === 0 ? [u, -dist2] : side === 1 ? [u, dist2] : side === 2 ? [-dist2, u] : [dist2, u];
+          if (nearTower(x, z)) continue;
           const pick = R();
           if (pick < 0.5) {
             const w = 14 + R() * 10, h = 16 + R() * 14;
@@ -297,5 +325,5 @@ export function buildArena(scene, map) {
   const pickupSpots = [];
   for (let i = 0; i < 6; i++) { const a = (i / 6) * Math.PI * 2 + 0.4, d = half * (i % 2 ? 0.42 : 0.25); pickupSpots.push({ x: Math.cos(a) * d, z: Math.sin(a) * d, type: i % 2 ? 'ammo' : 'health' }); }
 
-  return { group: grp, obstacles, spawns, pickupSpots, half, sun, stacks };
+  return { group: grp, obstacles, spawns, pickupSpots, half, sun, stacks, blazes };
 }

@@ -31,12 +31,8 @@ html.ar .bar > i{inset:0 0 0 auto}html.ar .bar > i.up{right:auto}
 html.ar .special{border-left:0;border-right:3px solid var(--rust)}
 html.ar .hist th{text-align:right}
 .hist .end{text-align:end}
-/* Arabic mirrors the lobby: car panel on the right, actions on the left, the car framed on the left */
-html.ar .carpanel{left:auto;right:max(16px,env(safe-area-inset-right,0px))}
-html.ar .actions{right:auto;left:max(16px,env(safe-area-inset-left,0px))}
-html.ar .actions.left{left:auto;right:max(16px,env(safe-area-inset-right,0px))}
-html.ar .storybox,html.ar .uplist{right:auto;left:max(16px,env(safe-area-inset-left,0px))}
-html.ar .arrows{padding:0 calc(min(330px,34vw) + 36px) 0 max(16px,env(safe-area-inset-left,0px))}
+/* the car stands on the painted ring on the right, so panels stay on the left in both languages */
+html.ar .actions{flex-direction:row-reverse}html.ar .arrows{flex-direction:row-reverse}
 html.ar .badge{right:auto;left:-6px}
 #hud,#layoutEdit .fire{direction:ltr}
 #hud .sb .rk{unicode-bidi:isolate;direction:ltr;color:var(--muted);font-size:12px;margin-inline-start:2px}
@@ -115,7 +111,7 @@ html.ar .chip{padding:5px 6px 5px 16px}html.ar .chip .lbl{letter-spacing:0;font-
 .counter{font:800 14px var(--ui);letter-spacing:.2em;color:var(--muted)}
 
 /* upgrades */
-.uplist{position:absolute;right:max(16px,env(safe-area-inset-right,0px));top:calc(max(12px,env(safe-area-inset-top,0px)) + 62px);bottom:max(14px,env(safe-area-inset-bottom,0px));width:min(360px,38vw);padding:14px 16px;display:flex;flex-direction:column;gap:8px;overflow-y:auto}
+.uplist{position:absolute;left:max(16px,env(safe-area-inset-left,0px));top:calc(max(12px,env(safe-area-inset-top,0px)) + 62px);bottom:max(14px,env(safe-area-inset-bottom,0px));width:min(360px,38vw);padding:14px 16px;display:flex;flex-direction:column;gap:8px;overflow-y:auto}
 .actions.left{right:auto;bottom:auto;top:max(12px,env(safe-area-inset-top,0px));left:max(16px,env(safe-area-inset-left,0px))}
 #menu.sub .topbar .logo{visibility:hidden}
 .carpanel .story{font:400 12.5px/1.5 var(--body);color:#cfc6b4;margin:-4px 0 10px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
@@ -285,6 +281,16 @@ html.ar .chip{padding:5px 6px 5px 16px}html.ar .chip .lbl{letter-spacing:0;font-
 @media (min-width:1180px) and (min-height:740px){#menu,#setup,#history,#contracts,#settings,#results,#pause{zoom:1.18}#hud .hp,#hud .center,#mini,#pausebtn{zoom:1.2}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 #hud .plate,#hud .fbtn,#hud #mini,#hud .btn,#hud #cambtn{-webkit-backdrop-filter:none;backdrop-filter:none}#hud .plate{background:rgba(20,18,14,.55)}
+/* lobby: animated light over the painted backdrop (compositor-only animations: opacity and transform) */
+#lobbyGlow{position:fixed;inset:0;pointer-events:none;overflow:hidden}
+#lobbyGlow i{position:absolute;border-radius:50%;mix-blend-mode:screen;will-change:opacity}
+#lobbyGlow .g-a{animation:flkA 2.7s infinite steps(1)}#lobbyGlow .g-b{animation:flkB 4.3s ease-in-out infinite}
+#lobbyGlow .g-c{animation:flkC 1.4s ease-in-out infinite alternate}#lobbyGlow .g-m{animation:flkB 9s ease-in-out infinite;opacity:.6}
+#lobbyGlow .fog{position:absolute;left:-50%;width:200%;background:radial-gradient(ellipse 22% 60% at 30% 50%,rgba(150,140,160,.22),transparent 70%),radial-gradient(ellipse 18% 50% at 70% 55%,rgba(170,150,150,.18),transparent 70%);animation:fog 38s linear infinite alternate;will-change:transform}
+@keyframes flkA{0%,100%{opacity:.9}7%{opacity:.4}9%{opacity:.95}46%{opacity:.85}48%{opacity:.25}51%{opacity:.9}}
+@keyframes flkB{0%,100%{opacity:.55}50%{opacity:1}}
+@keyframes flkC{0%{opacity:.5;transform:scale(.92)}100%{opacity:1;transform:scale(1.08)}}
+@keyframes fog{0%{transform:translateX(-10%)}100%{transform:translateX(18%)}}
 [hidden]{display:none!important}
 </style>
 
