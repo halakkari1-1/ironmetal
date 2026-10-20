@@ -10,7 +10,7 @@ const AR = {
   'Upgrade': 'تطوير', 'Garage': 'الكراج', 'Play': 'العب', 'Enter the arena': 'ادخل الحلبة',
   'Driver file': 'ملف السائق', 'Back': 'رجوع', 'Select': 'اختيار', 'Buy': 'شراء', 'Need {n}': 'بدك {n}',
   'Workshop': 'الورشة', 'Max': 'أقصى', 'Scrap': 'خردة', 'Scrap points': 'نقاط الخردة',
-  'Daily contracts': 'المهام اليومية', 'Battle history': 'سجل المعارك', 'Music': 'الموسيقى', 'Settings': 'الإعدادات', 'Sound effects': 'المؤثرات',
+  'Daily contracts': 'المهام اليومية', 'Battle history': 'سجل المعارك', 'Music': 'الموسيقى', 'Settings': 'الإعدادات', 
   'Previous car': 'السيارة السابقة', 'Next car': 'السيارة التالية', 'Pause': 'إيقاف مؤقت',
   // upgrades
   'Machine Gun': 'الرشاش', 'Bullet damage': 'ضرر الرصاص', 'Rocket damage and blast': 'ضرر وانفجار الصواريخ',
@@ -51,7 +51,7 @@ const AR = {
   'Auto: now {q}, adjusts to keep the game smooth': 'تلقائي: هلأ {q}، وبيتعدل ليضل اللعب ناعم', 'Fixed quality': 'جودة ثابتة',
   'Touch controls': 'أزرار اللمس', 'Bigger buttons suit large tablets': 'الأزرار الكبيرة أحسن للتابلت', 'Small': 'صغير', 'Normal': 'عادي', 'Large': 'كبير',
   'Language': 'اللغة', 'Credits': 'الشكر',
-  'Game by': 'لعبة من تطوير', 'Environment art': 'تصميم البيئة', 'Visual effects': 'المؤثرات البصرية', 'Fonts': 'الخطوط',
+  'Game by': 'لعبة من تطوير', 'Environment art': 'تصميم البيئة', 'Visual effects': 'المؤثرات البصرية', 'Sound effects': 'المؤثرات الصوتية', 'Fonts': 'الخطوط',
   // editor
   'Edit controls': 'تعديل التحكم', 'Drag a button to move it. Tap one, then use the slider to resize it.': 'اسحب الزر لتحركه. اضغط على زر وبعدين استعمل الشريط لتغير حجمه.',
   'Size': 'الحجم', 'Reset': 'افتراضي', 'Save': 'حفظ', 'STICK': 'العصا',

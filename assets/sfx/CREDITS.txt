@@ -1,0 +1,16 @@
+IronMetal sound effects - all recordings are CC0 (public domain) from freesound.org.
+Attribution is not required; listed here as thanks.
+
+gun_1..4        482122  "Clean machine gun burst"           qubodup
+gun_heavy_1..3  183656  "50 caliber MG"                     qubodup
+gun_light_1..3  239596  "Gatling gun close"                 mikewest
+boom_rocket     258195  "Deep explosion"                    kodack
+boom_car        235968  "explosion_01"                      tommccann
+boom_small      442958  "Explosion"                         qubodup
+launch          398213  "CAS missile launching"             morganpurkis
+launch_heavy    162380  "Tomahawk missile rocket launch 1"  qubodup
+incoming        398255  "Bomb dropping"                     morganpurkis
+strike          719426  "Missile or bomb incoming whoosh and explosion"  zapsplat
+
+Files were trimmed, converted to mono 44.1 kHz mp3 and peak-normalised to -1 dB.
+Per-car engine/ability recordings (optional) go in this folder too; see README.txt.

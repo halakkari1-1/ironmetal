@@ -6,6 +6,12 @@ import { KIT, propInstances, propSize, building, buildingFootprint, barrelGeomet
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { getModel } from './cars3d.js';
 
+// Building models placed around the arena (assets/models/<id>.js). tall: ruined tower; otherwise a wide industrial block.
+export const SKYLINE = [
+  { id: 'skyscraper', tall: true }, { id: 'spire', tall: true }, { id: 'ascent', tall: true },
+  { id: 'refinery', tall: false }, { id: 'foundry', tall: false },
+];
+
 const PS = 1.5;    // prop scale: kit props are true-to-life, game cars are a bit oversized
 const BS = 1.7;    // building scale
 const WS = 1.6;    // wall (jersey barrier) scale
@@ -133,7 +139,7 @@ export function buildArena(scene, map) {
   }
   grp.add(propInstances('barrier', wall, WS));
   // outer skyline: a few far buildings in the haze (low detail); the skyscrapers replace them when loaded
-  for (let i = 0; i < (lowTier || getModel('skyscraper') ? 0 : quality.tier.particles < 0.9 ? 2 : 4); i++) {
+  for (let i = 0; i < (lowTier || getModel('skyscraper') || getModel('spire') ? 0 : quality.tier.particles < 0.9 ? 2 : 4); i++) {
     const a = (i / 4) * Math.PI * 2 + 0.6 + R() * 0.5, d = half + 62 + R() * 14;
     const b = building(BS * 1.2); b.position.set(Math.cos(a) * d, 0, Math.sin(a) * d); b.rotation.y = R() * 6.28; b.levels[0].distance = 1e6; b.levels.reverse();
     b.levels[0].distance = 0; grp.add(b);
@@ -175,27 +181,46 @@ export function buildArena(scene, map) {
         u += w;
       }
     }
-    // Ruined skyscrapers (Meshy model, full detail) tower over everything behind the street front.
-    // Each is its own mesh sharing one geometry, so the ones off screen are skipped by frustum culling.
-    const towers = [], sky = getModel('skyscraper');
-    if (sky) {
-      const per = quality.tier.particles >= 0.9 ? 2 : quality.tier.particles >= 0.6 ? 1.5 : 1;
-      const sb = new THREE.Box3().setFromObject(sky), ssz = sb.getSize(new THREE.Vector3());
+    // Skyline: ruined towers and wrecked works (Meshy models, full geometry) close in the square behind the street front.
+    // Tall towers alternate with wide industrial blocks along each side; every building is its own mesh sharing its
+    // model's geometry and materials, so the ones off screen are skipped by frustum culling. Gaps between them are
+    // filled by the procedural row below. Phones with smaller budgets get fewer per side.
+    const towers = [];
+    const KINDS = SKYLINE.map((k) => ({ ...k, model: getModel(k.id) })).filter((k) => k.model);
+    if (KINDS.length) {
+      for (const k of KINDS) { k.box = new THREE.Box3().setFromObject(k.model); k.size = k.box.getSize(new THREE.Vector3()); }
+      const tall = KINDS.filter((k) => k.tall), wide = KINDS.filter((k) => !k.tall);
+      const perSide = quality.tier.particles >= 0.9 ? 4 : quality.tier.particles >= 0.6 ? 3 : 2;
+      const span = half + D1 + 6;
+      let turn = 0;
       for (let side = 0; side < 4; side++) {
-        const n = per === 1.5 ? (side % 2 ? 1 : 2) : per;
-        for (let i = 0; i < n; i++) {
-          const hgt = 58 + R() * 22, sc = hgt / ssz.y, hw = Math.max(ssz.x, ssz.z) * sc / 2;
-          const along = n === 1 ? (R() - 0.5) * half * 0.6 : (i ? 1 : -1) * half * (0.45 + R() * 0.2);
-          const dist = edge + D1 + 6 + hw;
-          const [x, z] = side === 0 ? [along, -dist] : side === 1 ? [along, dist] : side === 2 ? [-dist, along] : [dist, along];
-          const m = sky.clone(true); m.scale.setScalar(sc); m.rotation.y = R() * Math.PI * 2;
-          m.position.set(x - (sb.min.x + sb.max.x) / 2 * sc, -sb.min.y * sc - 1.5, z - (sb.min.z + sb.max.z) / 2 * sc); // sunk a little into the ground
+        for (let i = 0; i < perSide; i++) {
+          // alternate tall/wide around the ring, rotating through each list so every model shows up
+          const list = (turn % 2 ? wide : tall).length ? (turn % 2 ? wide : tall) : KINDS;
+          const kind = list[Math.floor(turn / 2) % list.length]; turn++;
+          const hgt = kind.tall ? 58 + R() * 22 : 36 + R() * 10, sc = hgt / kind.size.y;
+          const quarter = Math.floor(R() * 4), ry = quarter * Math.PI / 2 + (R() - 0.5) * 0.25;
+          // footprint across / along the side for a right-angle turn
+          const fx = (quarter % 2 ? kind.size.z : kind.size.x) * sc, fz = (quarter % 2 ? kind.size.x : kind.size.z) * sc;
+          const [along, deep] = side < 2 ? [fx, fz] : [fz, fx];
+          const slot = (2 * span) / perSide, u = -span + (i + 0.5) * slot + (R() - 0.5) * Math.max(0, slot - along) * 0.6;
+          const dist = edge + D1 + 5 + deep / 2;
+          const [x, z] = side === 0 ? [u, -dist] : side === 1 ? [u, dist] : side === 2 ? [-dist, u] : [dist, u];
+          const m = kind.model.clone(true); m.scale.setScalar(sc); m.rotation.y = ry;
+          const c = new THREE.Vector3((kind.box.min.x + kind.box.max.x) / 2, 0, (kind.box.min.z + kind.box.max.z) / 2).multiplyScalar(sc).applyAxisAngle(new THREE.Vector3(0, 1, 0), ry);
+          m.position.set(x - c.x, -kind.box.min.y * sc - 1.2, z - c.z); // centred on its slot, sunk a little into the ground
           m.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
-          grp.add(m); towers.push({ x, z, r: hw });
-          stacks.push({ x: x + R(-0.2, 0.2) * hw, y: hgt * 0.97, z: z + R(-0.2, 0.2) * hw, big: true }); // smoke rising off the broken top
-          for (let k = 0; k < 2; k++) { // fires burning in the broken floors on the side facing the arena
-            const fy = hgt * (0.3 + R() * 0.5), toward = Math.atan2(-x, -z);
-            blazes.push({ x: x + Math.sin(toward) * hw * 0.85, y: fy, z: z + Math.cos(toward) * hw * 0.85 });
+          grp.add(m);
+          const hw = Math.max(along, deep) / 2;
+          towers.push({ x, z, r: hw });
+          // smoke off the broken top (towers) or the roofline (works), and fires in the floors facing the arena
+          const jx = () => (R() - 0.5) * 0.4 * hw;
+          stacks.push({ x: x + jx(), y: hgt * 0.96, z: z + jx(), big: true });
+          if (!kind.tall && R() < 0.6) stacks.push({ x: x + jx(), y: hgt * 0.9, z: z + jx() });
+          const toward = Math.atan2(-x, -z);
+          for (let k = 0; k < (kind.tall ? 2 : 1); k++) {
+            const fy = hgt * (kind.tall ? 0.3 + R() * 0.5 : 0.35 + R() * 0.35), sw = (R() - 0.5) * 0.6;
+            blazes.push({ x: x + Math.sin(toward + sw) * deep * 0.48, y: fy, z: z + Math.cos(toward + sw) * deep * 0.48 });
           }
         }
       }

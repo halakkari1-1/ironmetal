@@ -3,7 +3,8 @@ import * as THREE from 'three';
 import { CARS, UPGRADES, MAX_UPGRADE, MAPS, DIFFICULTY, KILL_REWARD, CONTRACTS, carStats, upgradeCost } from './data.js';
 import { buildCar, preloadModel, preloadModels, modelReady } from './cars3d.js';
 import { loadKit } from './kit.js';
-import { Game, POWERS } from './game.js';
+import { Game, POWERS, PROP_MODELS } from './game.js';
+import { SKYLINE } from './arena.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
@@ -477,7 +478,7 @@ async function startMatch(cfg) {
   $('loader').hidden = false; $('loader').style.opacity = 1;
   // load the player's car and every car that can show up as an enemy in this match
   const maxP = cfg.mode === 'survival' ? 99999 : cfg.diff.maxPrice;
-  await preloadModels([cfg.car.id, ...CARS.filter((c) => c.price <= maxP).map((c) => c.id), 'skyscraper']);
+  await preloadModels([cfg.car.id, ...CARS.filter((c) => c.price <= maxP).map((c) => c.id), ...SKYLINE.map((k) => k.id), ...PROP_MODELS]);
   await loadKit();
   room.setVisible(false);
   game = new Game(renderer, hud);

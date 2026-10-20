@@ -3,7 +3,7 @@ import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs';
 const [url, out] = process.argv.slice(2);
 const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 const ctx = await browser.newContext({ viewport: { width: 915, height: 412 }, deviceScaleFactor: 1.5, hasTouch: true, isMobile: true });
-const page = await ctx.newPage();
+const page = await ctx.newPage(); page.setDefaultTimeout(240000); // software rendering of the full skyline is slow
 const errs = []; page.on('pageerror', (e) => errs.push(e.message + '\n' + e.stack)); page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
 await page.goto(url); await page.waitForFunction(() => document.getElementById('loader').hidden, null, { timeout: 120000 }); await page.waitForTimeout(800);
 await page.screenshot({ path: `${out}/1-lobby-en.png` });
@@ -20,7 +20,7 @@ await page.tap('#gBack'); await page.tap('#btnUpgrade'); await page.waitForTimeo
 await page.screenshot({ path: `${out}/5-upgrade-ar.png` });
 await page.tap('#uBack'); await page.tap('#btnPlay'); await page.waitForTimeout(400);
 await page.screenshot({ path: `${out}/6-setup-ar.png` });
-await page.tap('#sFight'); await page.waitForTimeout(1500);
+await page.tap('#sFight'); await page.waitForFunction(() => window.__ironmetal.game, null, { timeout: 180000 }); await page.waitForTimeout(500);
 const info = await page.evaluate(() => { const g = window.__ironmetal.game; for (let f = 0; f < 200; f++) g.update(1 / 30); const p = g.player; p.hp = 1; g.damage(p, 50, null, 'gun'); for (let f = 0; f < 20; f++) g.update(1 / 30); return { lives: p.lives, alive: p.alive, respawnT: p.respawnT.toFixed(1), stacks: g.arena.stacks.length, calls: window.__ironmetal.renderer.info.render.calls }; });
 await page.waitForTimeout(300);
 await page.screenshot({ path: `${out}/7-dead-ar.png` });

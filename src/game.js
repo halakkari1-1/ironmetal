@@ -2,7 +2,7 @@
 // Modes: 'deathmatch' (last car running) and 'survival' (endless waves that all hunt the player).
 import * as THREE from 'three';
 import { CARS, carStats, KILL_REWARD } from './data.js';
-import { buildCar, wreck } from './cars3d.js';
+import { buildCar, wreck, getModel } from './cars3d.js';
 import { t as tr } from './i18n.js';
 import { buildArena } from './arena.js';
 import { FX } from './fx.js';
@@ -50,6 +50,22 @@ export function insideObstacle(o, x, z) {
   if (o.kind === 'circle') return Math.hypot(x - o.x, z - o.z) < o.r;
   const cs = Math.cos(o.rot || 0), sn = Math.sin(o.rot || 0), dx = x - o.x, dz = z - o.z;
   return Math.abs(dx * cs - dz * sn) < o.hw && Math.abs(dx * sn + dz * cs) < o.hd;
+}
+
+// Prop models (assets/models/<id>.js) used in a match; main.js preloads them with the cars.
+export const PROP_MODELS = ['crown', 'medkit', 'ammo', 'dropcrate', 'parachute'];
+const propBoxes = new Map();
+// A copy of a prop model scaled so its longest side is `size`, centred on its pivot (or standing on it with
+// { stand: true }). Copies share the loaded geometry and materials. Null if the model isn't loaded, so callers
+// can fall back to the simple procedural version.
+function propModel(id, size, { stand = false } = {}) {
+  const src = getModel(id); if (!src) return null;
+  if (!propBoxes.has(id)) propBoxes.set(id, new THREE.Box3().setFromObject(src));
+  const box = propBoxes.get(id), dim = box.getSize(new THREE.Vector3()), k = size / Math.max(dim.x, dim.y, dim.z);
+  const m = src.clone(true); m.scale.setScalar(k);
+  m.position.set(-(box.min.x + box.max.x) / 2 * k, stand ? -box.min.y * k : -(box.min.y + box.max.y) / 2 * k, -(box.min.z + box.max.z) / 2 * k);
+  const g = new THREE.Group(); g.add(m); g.userData.h = dim.y * k;
+  return g;
 }
 
 export class Game {
@@ -170,33 +186,44 @@ export class Game {
     for (const o of this.cars) if (o.crown) { o.mesh.remove(o.crown); o.crown = null; o.bounty = false; }
     if (!c || !c.alive) return;
     c.bounty = true;
-    const g = new THREE.Group(); g.position.copy(this.roofSpot(c)); g.scale.setScalar(0.85); // sits right on the roof
-    const gold = new THREE.MeshStandardMaterial({ color: 0xffc23a, emissive: 0x8a5200, emissiveIntensity: 0.55, metalness: 0.85, roughness: 0.3 });
-    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.6, 0.35, 10, 1, true), gold); band.position.y = 0.17; g.add(band);
-    for (let i = 0; i < 5; i++) { const s = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.5, 4), gold); const a = (i / 5) * TAU; s.position.set(Math.cos(a) * 0.5, 0.57, Math.sin(a) * 0.5); g.add(s); }
+    const g = propModel('crown', 1.3, { stand: true }) || this.simpleCrown();
+    g.position.copy(this.roofSpot(c)); // sits right on the roof
     c.mesh.add(g); c.crown = g;
     if (announce) this.hud.announce(this.t(c.isPlayer ? 'YOU TAKE THE CROWN' : 'NEW LEADER'), c.isPlayer ? this.t('Every car is hunting you now') : this.t('{car} has the most kills', { car: c.data.name }), 'gold');
   }
 
+  simpleCrown() {
+    const g = new THREE.Group(); g.scale.setScalar(0.85);
+    const gold = new THREE.MeshStandardMaterial({ color: 0xffc23a, emissive: 0x8a5200, emissiveIntensity: 0.55, metalness: 0.85, roughness: 0.3 });
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.6, 0.35, 10, 1, true), gold); band.position.y = 0.17; g.add(band);
+    for (let i = 0; i < 5; i++) { const s = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.5, 4), gold); const a = (i / 5) * TAU; s.position.set(Math.cos(a) * 0.5, 0.57, Math.sin(a) * 0.5); g.add(s); }
+    return g;
+  }
+
+  // Health (Neon Medkit Chest) and rocket (Spike Ammo Crate) pickups, floating over a coloured ground ring.
   buildPickups() {
-    const geoH = new THREE.BoxGeometry(1.4, 1.4, 1.4), geoA = new THREE.BoxGeometry(1.8, 1.0, 1.2);
-    const matH = new THREE.MeshStandardMaterial({ color: 0x2b8a3e, emissive: 0x1d6b2c, emissiveIntensity: 0.8 });
-    const matA = new THREE.MeshStandardMaterial({ color: 0x9c6b1f, emissive: 0x7a4a10, emissiveIntensity: 0.7 });
-    const cross = new THREE.MeshBasicMaterial({ color: 0xffffff });
     for (const s of this.arena.pickupSpots) {
       this.nudgeClear(s, 3);
-      const g = new THREE.Group(); g.position.set(s.x, 1.4, s.z);
-      if (s.type === 'health') {
-        g.add(new THREE.Mesh(geoH, matH), new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.3, 1.45), cross), new THREE.Mesh(new THREE.BoxGeometry(0.3, 1.0, 1.45), cross));
-      } else {
-        g.add(new THREE.Mesh(geoA, matA));
-        for (let i = -1; i <= 1; i++) { const r = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.5, 6), new THREE.MeshStandardMaterial({ color: 0xd8d0c0 })); r.position.set(i * 0.45, 0.7, 0); g.add(r); }
-      }
+      const g = propModel(s.type === 'health' ? 'medkit' : 'ammo', 2.1) || this.simplePickup(s.type);
+      g.position.set(s.x, 1.4, s.z);
       const ring = new THREE.Mesh(new THREE.TorusGeometry(1.6, 0.08, 6, 24), new THREE.MeshBasicMaterial({ color: s.type === 'health' ? 0x5dff7a : 0xffb347 }));
       ring.rotation.x = Math.PI / 2; ring.position.y = -1.2; g.add(ring);
       this.scene.add(g);
       this.pickups.push({ ...s, mesh: g, respawn: 0 });
     }
+  }
+  simplePickup(type) {
+    const g = new THREE.Group();
+    if (type === 'health') {
+      const cross = new THREE.MeshBasicMaterial({ color: 0xffffff });
+      g.add(new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.4, 1.4), new THREE.MeshStandardMaterial({ color: 0x2b8a3e, emissive: 0x1d6b2c, emissiveIntensity: 0.8 })),
+        new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.3, 1.45), cross), new THREE.Mesh(new THREE.BoxGeometry(0.3, 1.0, 1.45), cross));
+    } else {
+      g.add(new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.0, 1.2), new THREE.MeshStandardMaterial({ color: 0x9c6b1f, emissive: 0x7a4a10, emissiveIntensity: 0.7 })));
+      const tipMat = new THREE.MeshStandardMaterial({ color: 0xd8d0c0 });
+      for (let i = -1; i <= 1; i++) { const r = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.5, 6), tipMat); r.position.set(i * 0.45, 0.7, 0); g.add(r); }
+    }
+    return g;
   }
   nudgeClear(s, pad) {
     for (const o of this.arena.obstacles) {
@@ -385,7 +412,7 @@ export class Game {
           p.rammed.add(q);
           this.damage(q, 48 * p.stats.specialPower * p.dmgMul, p, false, 'ram');
           q.kx += nx * s * 30; q.kz += nz * s * 30;
-          this.fx.explosion((a.x + b.x) / 2, (a.z + b.z) / 2, 0.45, { debris: 4 }); sfx.explosion(0.5, this.vol(q));
+          this.fx.explosion((a.x + b.x) / 2, (a.z + b.z) / 2, 0.45, { debris: 4 }); sfx.explosion(0.5, this.vol(q), this.panAt(q.x, q.z));
           this.shake = Math.max(this.shake, 0.5);
         }
       }
@@ -455,7 +482,7 @@ export class Game {
     this.scene.add(b);
     this.bullets.push({ mesh: b, x: m.x, y: m.y, z: m.z, dx, dz, life: 0.5, owner: c, dmg: c.stats.gunDmg * c.dmgMul });
     this.fx.muzzle(m.x + dx * 0.6, m.y, m.z + dz * 0.6, dx, dz, c.isPlayer);
-    sfx.gun(this.vol(c) * (c.isPlayer ? 1 : 0.6), (c.data.sound && c.data.sound.gun) || 1);
+    sfx.gun(this.vol(c) * (c.isPlayer ? 1 : 0.6), (c.data.sound && c.data.sound.gun) || 1, this.pan(c));
   }
 
   fireRocket(c, opts = {}) {
@@ -480,7 +507,7 @@ export class Game {
       mesh: g, x: m.x, y: Math.max(1.2, m.y), z: m.z, dir, speed: opts.speed || (big ? 34 : 52), life: big ? 3.5 : 2.4, owner: c, kind: opts.kind || 'rocket',
       dmg: opts.dmg || c.stats.rocketDmg * c.dmgMul * (opts.dmgMul || 1), radius: opts.radius || c.stats.rocketRadius, homing: opts.homing || null,
     });
-    sfx.rocket(this.vol(c) * (c.isPlayer ? 1 : 0.6) * (big ? 1.4 : 1));
+    sfx.rocket(this.vol(c) * (c.isPlayer ? 1 : 0.6), big, this.pan(c));
   }
 
   firePower(c) {
@@ -588,7 +615,7 @@ export class Game {
       case 'shield': c.specialOn = 'shield'; c.specialT = dur * Math.min(1.4, pw); if (c.bubble) c.bubble.visible = true; break;
       case 'flame': c.specialOn = 'flame'; c.specialT = 3; break;
       case 'shockwave': {
-        this.fx.ring(c.x, c.z, 13, 0xffc070); this.fx.light(c.x, 2, c.z, 160); sfx.explosion(0.8, this.vol(c));
+        this.fx.ring(c.x, c.z, 13, 0xffc070); this.fx.light(c.x, 2, c.z, 160); sfx.explosion(0.8, this.vol(c), this.pan(c));
         for (const o of this.cars) {
           if (o === c || !o.alive) continue;
           const dx = o.x - c.x, dz = o.z - c.z, d = Math.hypot(dx, dz);
@@ -684,6 +711,7 @@ export class Game {
       r.mesh.position.set(r.x, r.y, r.z); r.mesh.rotation.y = r.dir;
       this.fx.trail(r.x - Math.sin(r.dir) * 0.7, r.y, r.z - Math.cos(r.dir) * 0.7);
       if (r.kind === 'nuke' || r.kind === 'shell') this.fx.trail(r.x - Math.sin(r.dir) * 1.2, r.y + 0.2, r.z - Math.cos(r.dir) * 1.2);
+      if (!r.warned) this.warnIncoming(r);
       let boom = r.life <= 0 || Math.abs(r.x) > this.arena.half - 0.8 || Math.abs(r.z) > this.arena.half - 0.8;
       if (!boom) for (const c of this.cars) if (c !== r.owner && c.alive && Math.hypot(c.x - r.x, c.z - r.z) < HR(c) + 0.4) { boom = true; break; }
       if (!boom && this.hitObstacle(r.x, r.y, r.z)) boom = true;
@@ -727,7 +755,7 @@ export class Game {
   explode(x, z, radius, dmg, owner, size = 1, cause = 'rocket') {
     if (size > 0) {
       this.fx.explosion(x, z, size);
-      sfx.explosion(size, this.volAt(x, z));
+      sfx.explosion(size, this.volAt(x, z), this.panAt(x, z));
       const pd = Math.hypot(this.player.x - x, this.player.z - z);
       this.shake = Math.max(this.shake, clamp(1 - pd / 45, 0, 1) * 0.7 * size);
     }
@@ -776,7 +804,7 @@ export class Game {
       if (!d.landed) {
         d.y -= dt * 7; d.mesh.position.y = d.y; d.mesh.rotation.y += dt * 0.6;
         d.chute.scale.setScalar(1 + Math.sin(this.time * 5) * 0.03);
-        if (d.y <= 0.8) { d.landed = true; d.y = 0.8; d.mesh.position.y = 0.8; d.mesh.remove(d.chute); this.fx.dust(d.x, d.z, 3); this.fx.dust(d.x + 1, d.z - 1, 3); sfx.crunch(); }
+        if (d.y <= d.ground) { d.landed = true; d.y = d.mesh.position.y = d.ground; d.mesh.remove(d.chute); this.fx.dust(d.x, d.z, 3); this.fx.dust(d.x + 1, d.z - 1, 3); sfx.crunch(); }
       }
       if (Math.random() < 0.6) this.fx.beacon(d.x, d.z);
       if (d.landed) {
@@ -794,20 +822,29 @@ export class Game {
       return true;
     });
   }
+  simpleCrate() {
+    const g = new THREE.Group(); g.userData.h = 1.4;
+    const crate = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.4, 1.8), new THREE.MeshStandardMaterial({ color: 0x3f5a8a, emissive: 0x15305a, emissiveIntensity: 0.9, metalness: 0.5, roughness: 0.5 }));
+    const band = new THREE.Mesh(new THREE.BoxGeometry(1.84, 0.25, 1.84), new THREE.MeshStandardMaterial({ color: 0xf0b429, emissive: 0x8a5a00, emissiveIntensity: 0.6 }));
+    crate.castShadow = true; g.add(crate, band); return g;
+  }
+  simpleChute() {
+    const g = new THREE.Group();
+    const canopy = new THREE.Mesh(new THREE.SphereGeometry(3.4, 12, 6, 0, TAU, 0, Math.PI / 2.4), new THREE.MeshStandardMaterial({ color: 0xd9cdb4, side: THREE.DoubleSide, roughness: 0.9 }));
+    canopy.position.y = 4.3; canopy.castShadow = true; g.add(canopy);
+    for (let i = 0; i < 4; i++) { const a = (i / 4) * TAU + 0.78; const l = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 5.4, 3), new THREE.MeshBasicMaterial({ color: 0x222222 })); l.position.set(Math.cos(a) * 1.4, 2.4, Math.sin(a) * 1.4); l.rotation.z = Math.cos(a) * 0.35; l.rotation.x = -Math.sin(a) * 0.35; g.add(l); }
+    return g;
+  }
   spawnDrop() {
     const s = this.nudgeClear({ x: R(-0.6, 0.6) * this.arena.half, z: R(-0.6, 0.6) * this.arena.half }, 4);
     const g = new THREE.Group(); g.position.set(s.x, 40, s.z);
-    const crate = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.4, 1.8), new THREE.MeshStandardMaterial({ color: 0x3f5a8a, emissive: 0x15305a, emissiveIntensity: 0.9, metalness: 0.5, roughness: 0.5 }));
-    const band = new THREE.Mesh(new THREE.BoxGeometry(1.84, 0.25, 1.84), new THREE.MeshStandardMaterial({ color: 0xf0b429, emissive: 0x8a5a00, emissiveIntensity: 0.6 }));
-    const chute = new THREE.Group();
-    const canopy = new THREE.Mesh(new THREE.SphereGeometry(3.4, 12, 6, 0, TAU, 0, Math.PI / 2.4), new THREE.MeshStandardMaterial({ color: 0xd9cdb4, side: THREE.DoubleSide, roughness: 0.9 }));
-    canopy.position.y = 5;
-    chute.add(canopy);
-    for (let i = 0; i < 4; i++) { const a = (i / 4) * TAU + 0.78; const l = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 5.4, 3), new THREE.MeshBasicMaterial({ color: 0x222222 })); l.position.set(Math.cos(a) * 1.4, 3.1, Math.sin(a) * 1.4); l.rotation.z = Math.cos(a) * 0.35; l.rotation.x = -Math.sin(a) * 0.35; chute.add(l); }
-    g.add(crate, band, chute); crate.castShadow = true; canopy.castShadow = true;
+    const crate = propModel('dropcrate', 2.5) || this.simpleCrate();
+    const chute = propModel('parachute', 6.5, { stand: true }) || this.simpleChute();
+    chute.position.y = crate.userData.h / 2 + 0.25; // the rigging lines meet on the crate lid
+    g.add(crate, chute);
     this.scene.add(g);
     const type = pick(Object.keys(POWERS));
-    this.drops.push({ x: s.x, z: s.z, y: 40, mesh: g, chute, landed: false, type });
+    this.drops.push({ x: s.x, z: s.z, y: 40, ground: crate.userData.h / 2 + 0.05, mesh: g, chute, landed: false, type });
     this.hud.announce(tr('AIRDROP INCOMING'), tr('Follow the blue smoke'), 'blue');
     sfx.alarm();
   }
@@ -862,7 +899,7 @@ export class Game {
       const k = 1 - s.t / s.total;
       s.ring.material.opacity = 0.4 + 0.5 * Math.abs(Math.sin(this.time * (6 + k * 14)));
       s.fill.scale.setScalar(Math.max(0.01, k));
-      if (!s.whistled && s.t < 0.8) { s.whistled = true; sfx.whistle(this.volAt(s.x, s.z)); }
+      if (!s.whistled && s.t <= Math.min(s.total, 2.5)) { s.whistled = true; sfx.incoming(s.t, this.volAt(s.x, s.z), this.panAt(s.x, s.z)); }
       if (s.t > 0) return true;
       this.scene.remove(s.ring, s.fill);
       this.explode(s.x, s.z, s.r, s.dmg, null, s.size * 1.1, 'event');
@@ -894,7 +931,7 @@ export class Game {
     this.fx.explosion(c.x, c.z, 1.7, { debris: 9 });
     setTimeout(() => this.running && this.fx.explosion(c.x + R(-1, 1), c.z + R(-1, 1), 1.0, { debris: 3 }), 220);
     setTimeout(() => this.running && this.fx.explosion(c.x + R(-1, 1), c.z + R(-1, 1), 0.7, { debris: 2 }), 520);
-    sfx.explosion(1.6, this.volAt(c.x, c.z));
+    sfx.explosion(1.6, this.volAt(c.x, c.z), this.panAt(c.x, c.z));
     wreck(c.mesh);
     const killer = c.lastAttacker && c.lastAttacker !== c ? c.lastAttacker : null;
     if (killer) killer.kills++;
@@ -1077,6 +1114,26 @@ export class Game {
   }
 
   vol(c) { return c.isPlayer ? 1 : this.volAt(c.x, c.z); }
+  pan(c) { return c.isPlayer ? 0 : this.panAt(c.x, c.z); }
+  // stereo position of a world point: -1 left .. 1 right of the camera, softened so nothing is hard-panned
+  panAt(x, z) {
+    const cam = this.camera, e = cam.matrixWorld.elements; // column 0 = camera right vector
+    const dx = x - cam.position.x, dz = z - cam.position.z, d = Math.hypot(dx, dz);
+    return d < 2 ? 0 : clamp((dx * e[0] + dz * e[2]) / d, -1, 1) * 0.7;
+  }
+  // "wheeeew... boom": an enemy rocket on course to hit the player whistles in, timed to land with the impact
+  warnIncoming(r) {
+    const p = this.player; if (!p.alive || r.owner === p) return;
+    const dx = p.x - r.x, dz = p.z - r.z, d = Math.hypot(dx, dz);
+    if (d > 38) return;
+    const fx = Math.sin(r.dir), fz = Math.cos(r.dir), ahead = dx * fx + dz * fz;
+    if (ahead <= 0) { r.warned = true; return; } // already past us
+    if (Math.abs(dx * fz - dz * fx) > HR(p) + 3) return; // would miss by a margin
+    r.warned = true;
+    if (this.time - (this.lastIncoming || -9) < 0.6) return; // one whistle at a time
+    this.lastIncoming = this.time;
+    sfx.incoming(ahead / r.speed, r.kind === 'rocket' || r.kind === 'napalm' ? 0.75 : 1, this.panAt(r.x, r.z));
+  }
   volAt(x, z) { return clamp(1.15 - Math.hypot(x - this.player.x, z - this.player.z) / 80, 0.08, 1); }
 
   // ---------- end ----------
