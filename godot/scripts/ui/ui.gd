@@ -44,9 +44,11 @@ static func init() -> void:
 	var grabber := StyleBoxFlat.new()
 	grabber.bg_color = ACCENT
 	grabber.set_corner_radius_all(10)
-	theme.set_stylebox("slider", "HSlider", _flat(Color(1, 1, 1, 0.12), 6, 0))
-	theme.set_stylebox("grabber_area", "HSlider", _flat(Color(ACCENT, 0.8), 6, 0))
-	theme.set_stylebox("grabber_area_highlight", "HSlider", _flat(ACCENT, 6, 0))
+	for k in [["slider", Color(1, 1, 1, 0.14)], ["grabber_area", Color(ACCENT, 0.85)], ["grabber_area_highlight", ACCENT]]:
+		var sb := _flat(k[1], 6, 0)
+		sb.content_margin_top = 5
+		sb.content_margin_bottom = 5
+		theme.set_stylebox(k[0], "HSlider", sb)
 	var scroll := StyleBoxEmpty.new()
 	theme.set_stylebox("panel", "ScrollContainer", scroll)
 
