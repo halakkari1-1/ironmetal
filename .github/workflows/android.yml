@@ -1,8 +1,7 @@
-name: Android build
+name: Android build (web version, retired)
 
+# The web (three.js + Capacitor) build. Replaced by the native Godot build in godot.yml; kept for manual runs only.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:

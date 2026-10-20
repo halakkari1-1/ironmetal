@@ -1,0 +1,23 @@
+<!doctype html><meta charset="utf-8"><script type="module">
+// Renders one synthesized sound from src/audio.js to a WAV through an OfflineAudioContext.
+const q = new URLSearchParams(location.search), dur = +q.get('dur') || 2;
+class Off extends OfflineAudioContext { constructor() { super(2, Math.ceil(44100 * dur), 44100); window.__ctx = this; } get state() { return 'running'; } resume() { return Promise.resolve(); } }
+window.AudioContext = Off; window.webkitAudioContext = Off;
+const { sfx } = await import('../src/audio.js');
+sfx.unlock();
+const call = JSON.parse(q.get('call'));
+const ctx = window.__ctx;
+if (call[0] === 'engine') { sfx.engineStart(call[1]); sfx.engineSet(call[2], call[3]); }
+else if (call[0] === 'music') { sfx.setMusic(true); sfx.music.start(0.8, 'match'); }
+else sfx[call[0]](...call.slice(1));
+await new Promise((r) => setTimeout(r, call[0] === 'music' ? 400 : 50));
+const buf = await ctx.startRendering();
+const L = buf.getChannelData(0), R = buf.getChannelData(1), n = L.length;
+const out = new DataView(new ArrayBuffer(44 + n * 4));
+const w = (o, s) => [...s].forEach((c, i) => out.setUint8(o + i, c.charCodeAt(0)));
+w(0, 'RIFF'); out.setUint32(4, 36 + n * 4, true); w(8, 'WAVE'); w(12, 'fmt '); out.setUint32(16, 16, true); out.setUint16(20, 1, true); out.setUint16(22, 2, true);
+out.setUint32(24, 44100, true); out.setUint32(28, 44100 * 4, true); out.setUint16(32, 4, true); out.setUint16(34, 16, true); w(36, 'data'); out.setUint32(40, n * 4, true);
+for (let i = 0; i < n; i++) { out.setInt16(44 + i * 4, Math.max(-1, Math.min(1, L[i])) * 32767, true); out.setInt16(46 + i * 4, Math.max(-1, Math.min(1, R[i])) * 32767, true); }
+let s = ''; const u = new Uint8Array(out.buffer); for (let i = 0; i < u.length; i += 8192) s += String.fromCharCode(...u.subarray(i, i + 8192));
+window.__wav = btoa(s); document.title = 'done';
+</script>

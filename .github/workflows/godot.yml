@@ -1,0 +1,125 @@
+name: Godot Android build
+
+# Builds the native (Godot 4) game from godot/ into a signed APK and publishes it as a release.
+on:
+  push:
+    branches: [main]
+    paths: ["godot/**", ".github/workflows/godot.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  GODOT_VERSION: 4.6.2
+  GODOT_RELEASE: 4.6.2-stable
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    env:
+      KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      VERSION: 0.5.${{ github.run_number }}
+      VERSION_CODE: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Cache Godot
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: ~/godot-dl
+          key: godot-${{ env.GODOT_RELEASE }}
+
+      - name: Download Godot and export templates
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/godot-dl && cd ~/godot-dl
+          base=https://github.com/godotengine/godot/releases/download/$GODOT_RELEASE
+          curl -sSL -o editor.zip "$base/Godot_v${GODOT_RELEASE}_linux.x86_64.zip"
+          curl -sSL -o templates.tpz "$base/Godot_v${GODOT_RELEASE}_export_templates.tpz"
+          ls -la
+
+      - name: Install Godot
+        run: |
+          cd ~/godot-dl
+          unzip -oq editor.zip
+          mv "Godot_v${GODOT_RELEASE}_linux.x86_64" ~/godot
+          tpl=~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
+          mkdir -p "$tpl"
+          unzip -oq templates.tpz -d ~/tpl-tmp
+          mv ~/tpl-tmp/templates/* "$tpl/"
+          ls "$tpl" | head -30
+          keytool -genkeypair -v -keystore ~/debug.keystore -storepass android -alias androiddebugkey -keypass android \
+            -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US" >/dev/null 2>&1
+          mkdir -p ~/.config/godot
+          for f in editor_settings-4.6.tres editor_settings-4.tres; do
+            cat > ~/.config/godot/$f <<EOF
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/android_sdk_path = "$ANDROID_HOME"
+          export/android/java_sdk_path = "$JAVA_HOME"
+          export/android/debug_keystore = "$HOME/debug.keystore"
+          export/android/debug_keystore_user = "androiddebugkey"
+          export/android/debug_keystore_pass = "android"
+          EOF
+          done
+          sed -i 's/^          //' ~/.config/godot/*.tres
+          cat ~/.config/godot/editor_settings-4.6.tres
+
+      - name: Set version
+        run: |
+          code=$((1000 + VERSION_CODE))   # above every version code the earlier web build used
+          sed -i "s/^version\/code=.*/version\/code=$code/; s/^version\/name=.*/version\/name=\"$VERSION\"/" godot/export_presets.cfg
+          grep -E "^version/" godot/export_presets.cfg
+
+      - name: Import assets
+        run: |
+          ~/godot --headless --path godot --import 2>&1 | grep -vE "^\s*$" | tail -20 || true
+
+      - name: Export APK
+        run: |
+          mkdir -p godot/build
+          ~/godot --headless --path godot --export-release "Android" build/IronMetal-unsigned.apk 2>&1 | tail -40
+          ls -la godot/build
+
+      - name: Sign APK
+        env:
+          IM_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          IM_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          IM_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          bt=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
+          mkdir -p out
+          "$bt/zipalign" -f -p 4 godot/build/IronMetal-unsigned.apk aligned.apk
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/ironmetal.jks"
+            "$bt/apksigner" sign --ks "$RUNNER_TEMP/ironmetal.jks" --ks-pass env:IM_STORE_PASSWORD \
+              --ks-key-alias "$IM_KEY_ALIAS" --key-pass env:IM_KEY_PASSWORD --out "out/IronMetal-$VERSION.apk" aligned.apk
+          else
+            "$bt/apksigner" sign --ks ~/debug.keystore --ks-pass pass:android --out "out/IronMetal-$VERSION.apk" aligned.apk
+          fi
+          "$bt/apksigner" verify "out/IronMetal-$VERSION.apk"
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: IronMetal-${{ env.VERSION }}
+          path: out/
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          name: IronMetal ${{ env.VERSION }} (native)
+          target_commitish: ${{ github.sha }}
+          files: out/*
+          body: |
+            Native build (Godot 4, Vulkan). Download the .apk on your Android phone and open it to install.
+            Installs over the earlier version (same app, same signing key).

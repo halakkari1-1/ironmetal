@@ -1,0 +1,6 @@
+.godot/
+*.import.tmp
+build/
+export_credentials.cfg
+*.jks
+*.keystore
