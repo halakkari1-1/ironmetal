@@ -27,10 +27,13 @@ var _world: Array[AudioStreamPlayer3D] = []
 var _world_t: Array[float] = []
 var _ui: Array[AudioStreamPlayer] = []
 var _ui_i := 0
-var _engine: AudioStreamPlayer
-var _rev: AudioStreamPlayer
+var _engine_layers: Array[AudioStreamPlayer] = []
 var _engine_class := "jeep"
-var _rev_ready := true
+var _engine_on := false
+var _gear := 1
+var _rpm := 0.0
+var _load_amt := 0.0
+var _shift_t := 0.0
 var _music: AudioStreamPlayer
 var _music_id := ""
 var _guns_playing := 0
@@ -46,11 +49,11 @@ func _ready() -> void:
 			_load(n)
 	for n in ONESHOTS:
 		_load(n)
-	for k in ["sport", "jeep", "truck", "tank"]:
-		var s := _load("engine_" + k)
-		if s is AudioStreamOggVorbis:
-			s.loop = true
-		_load("rev_" + k)
+	for k in ENGINES:
+		for l in ENGINES[k].layers:
+			var s := _load("eng_%s_%s" % [k, l[0]])
+			if s is AudioStreamOggVorbis:
+				s.loop = true
 	for i in WORLD_VOICES:
 		var p := AudioStreamPlayer3D.new()
 		p.bus = "SFX"
@@ -67,12 +70,11 @@ func _ready() -> void:
 		u.bus = "SFX"
 		add_child(u)
 		_ui.append(u)
-	_engine = AudioStreamPlayer.new()
-	_engine.bus = "SFX"
-	add_child(_engine)
-	_rev = AudioStreamPlayer.new()
-	_rev.bus = "SFX"
-	add_child(_rev)
+	for i in 3:
+		var e := AudioStreamPlayer.new()
+		e.bus = "SFX"
+		add_child(e)
+		_engine_layers.append(e)
 	_music = AudioStreamPlayer.new()
 	_music.bus = "Music"
 	add_child(_music)
@@ -217,38 +219,87 @@ func incoming_hit(pos: Vector3, vol := 1.0) -> void:
 
 
 # ---------- engine ----------
+# Each class has constant-pitch loops recorded at a few engine speeds ("layers": name, its pitch in Hz along
+# the tracked harmonic, and the engine pitch where it plays alone). A simulated rev counter and gearbox set
+# the engine pitch; the nearest layers crossfade and are re-pitched to it, so the engine climbs through the
+# gears, drops on each shift, idles steadily when stopped and revs when the throttle is pressed standing still.
+# Offline copy of this model for listening tests: sim.py next to the sound build scripts.
+
+const ENGINES := {
+	"sport": {"layers": [["low", 73.1, 70.0], ["mid", 141.1, 145.0], ["high", 218.9, 230.0]], "idle": 66.0, "top": 265.0,
+		"gears": [0.13, 0.27, 0.44, 0.62, 0.81, 1.0]},
+	"jeep": {"layers": [["low", 152.8, 140.0], ["high", 156.2, 290.0]], "idle": 132.0, "top": 320.0,
+		"gears": [0.16, 0.34, 0.55, 0.77, 1.0]},
+	"truck": {"layers": [["low", 38.0, 38.0], ["mid", 46.6, 52.0], ["high", 89.2, 95.0]], "idle": 37.0, "top": 112.0,
+		"gears": [0.18, 0.38, 0.6, 0.8, 1.0]},
+	"tank": {"layers": [["loop", 1.0, 1.0]], "idle": 0.82, "top": 1.45, "gears": [0.25, 0.5, 0.75, 1.0]},
+}
+
 
 func engine_start(car_id: String) -> void:
 	_engine_class = ENGINE_CLASS.get(car_id, "jeep")
-	var s: AudioStream = streams.get("engine_" + _engine_class)
-	if s == null:
-		return
-	_engine.stream = s
-	_engine.volume_db = linear_to_db(0.5)
-	_engine.pitch_scale = 0.8
-	_engine.play()
-	_rev_ready = true
+	var layers: Array = ENGINES[_engine_class].layers
+	for i in _engine_layers.size():
+		var p := _engine_layers[i]
+		p.stop()
+		if i < layers.size():
+			p.stream = streams.get("eng_%s_%s" % [_engine_class, layers[i][0]])
+			p.volume_db = -60.0
+			p.play(randf() * 0.4)
+	_gear = 1
+	_rpm = 0.0
+	_load_amt = 0.0
+	_shift_t = 0.0
+	_engine_on = true
 
 
-## Pitch and level follow speed and throttle; flooring it from low speed plays the class's rev.
-func engine_set(throttle: float, speed_frac: float) -> void:
-	if not _engine.playing:
+## throttle -1..1 and speed as a fraction of top speed (negative when reversing); called once a frame.
+func engine_set(throttle: float, speed_frac: float, dt: float) -> void:
+	if not _engine_on or dt <= 0.0:
 		return
-	var target := 0.78 + speed_frac * 0.62 + throttle * 0.1
-	_engine.pitch_scale = lerp(_engine.pitch_scale, target, 0.12)
-	_engine.volume_db = linear_to_db(0.38 + throttle * 0.22 + speed_frac * 0.15)
-	if throttle > 0.8 and speed_frac < 0.35 and _rev_ready:
-		_rev_ready = false
-		_rev.stream = streams.get("rev_" + _engine_class)
-		_rev.volume_db = linear_to_db(0.6)
-		_rev.play()
-	elif throttle < 0.2:
-		_rev_ready = true
+	var c: Dictionary = ENGINES[_engine_class]
+	var b: Array = c.gears
+	var sp: float = min(abs(speed_frac), 1.2)
+	var th: float = abs(throttle)
+	if sp > 0.05 and signf(throttle) != signf(speed_frac):
+		th = 0.0                                       # pressing against the motion is braking, not accelerating
+	while _gear < b.size() and sp > b[_gear - 1]:
+		_gear += 1
+		_shift_t = 0.16
+	while _gear > 1 and sp < float(b[_gear - 2]) * 0.85:
+		_gear -= 1
+	var lo: float = b[_gear - 2] if _gear > 1 else 0.0
+	var frac: float = clamp((sp - lo) / (float(b[_gear - 1]) - lo), 0.0, 1.15)
+	var target: float = (0.06 + 0.94 * frac) if _gear == 1 else (0.4 + 0.6 * frac)
+	if sp < 0.1 and th > 0.1:
+		target = max(target, 0.62 * th)
+	if th < 0.1:
+		target *= 0.9
+	_shift_t -= dt
+	var rate := 4.0 if target < _rpm else 1.6
+	_rpm += clamp(target - _rpm, -rate * dt, rate * dt)
+	_load_amt += (th - _load_amt) * min(1.0, dt * 8.0)
+	var f: float = c.idle * pow(c.top / c.idle, _rpm)
+	var vol: float = (0.45 + 0.35 * _load_amt + 0.2 * _rpm) * (0.7 if _shift_t > 0.0 else 1.0) * 0.62
+	var layers: Array = c.layers
+	var lf := log(f)
+	for i in layers.size():
+		var w := 1.0
+		if layers.size() > 1:
+			var at := log(float(layers[i][2]))
+			if lf < at:
+				w = 1.0 if i == 0 else max(0.0, 1.0 - (at - lf) / (at - log(float(layers[i - 1][2]))))
+			else:
+				w = 1.0 if i == layers.size() - 1 else max(0.0, 1.0 - (lf - at) / (log(float(layers[i + 1][2])) - at))
+		var p := _engine_layers[i]
+		p.pitch_scale = clamp(f / float(layers[i][1]), 0.3, 3.0)
+		p.volume_db = linear_to_db(max(sqrt(w) * vol, 0.0005))
 
 
 func engine_stop() -> void:
-	_engine.stop()
-	_rev.stop()
+	_engine_on = false
+	for p in _engine_layers:
+		p.stop()
 
 
 # ---------- music ----------

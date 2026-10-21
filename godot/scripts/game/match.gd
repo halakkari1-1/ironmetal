@@ -406,7 +406,7 @@ func _process(dt_real: float) -> void:
 		if mode == "survival":
 			_update_waves(dt)
 	_update_camera(dt)
-	Sfx.engine_set(abs(player.throttle), clamp(abs(player.speed) / player.stats.max_speed, 0.0, 1.0))
+	Sfx.engine_set(player.throttle, player.speed / player.stats.max_speed, dt)
 	if state == "fight":
 		_check_end()
 	if state == "ending":
