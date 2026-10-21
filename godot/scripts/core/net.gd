@@ -36,6 +36,10 @@ var _loaded := {}
 var _wait_t := 0.0
 var _connect_t := 0.0
 var event_counts := {}                 # for tests: how many of each event this client received
+var _join_ip := ""
+var _diag_ip := ""                     # after a failed join: is the host reachable at all on this network?
+var _diag_t := 0.0
+var _diag_heard := false
 
 
 func _ready() -> void:
@@ -43,9 +47,7 @@ func _ready() -> void:
 	multiplayer.peer_connected.connect(func(_id): pass)
 	multiplayer.peer_disconnected.connect(_on_peer_gone)
 	multiplayer.connected_to_server.connect(_on_connected)
-	multiplayer.connection_failed.connect(func():
-		status.emit(I18n.t("Couldn't reach that room"))
-		leave())
+	multiplayer.connection_failed.connect(_join_failed)
 	multiplayer.server_disconnected.connect(func():
 		leave()
 		session_over.emit(I18n.t("The host closed the room")))
@@ -109,13 +111,13 @@ func browse(on: bool) -> void:
 		_close_udp()
 
 
-func _beacon() -> PackedByteArray:
+func _beacon(reply := false) -> PackedByteArray:
 	var host_name := ""
 	for p in lobby.get("players", []):
 		if p.peer == 1:
 			host_name = p.name
 	return JSON.stringify({"g": "ironmetal", "p": PROTO, "v": version(), "name": host_name, "mode": lobby.get("mode", ""),
-		"map": lobby.get("map", 0), "n": lobby.get("players", []).size(), "max": MAX_PLAYERS, "open": game == null}).to_utf8_buffer()
+		"map": lobby.get("map", 0), "n": lobby.get("players", []).size(), "max": MAX_PLAYERS, "open": game == null, "r": reply}).to_utf8_buffer()
 
 
 func _send_udp(ip: String, data: PackedByteArray) -> void:
@@ -134,11 +136,13 @@ func _discovery(dt: float) -> void:
 		if txt == "IMQ?":
 			if role == "host":
 				_udp.set_dest_address(ip, port)
-				_udp.put_packet(_beacon())
-			continue
-		if role == "host" or not browsing:
+				_udp.put_packet(_beacon(true))
 			continue
 		var info = JSON.parse_string(txt)
+		if ip == _diag_ip and info is Dictionary and info.get("r", false):
+			_diag_heard = true   # a direct answer, not the broadcast every phone hears
+		if role == "host" or not browsing:
+			continue
 		if info is Dictionary and info.get("g") == "ironmetal":
 			info.seen = Time.get_ticks_msec()
 			var fresh := not rooms.has(ip)
@@ -180,6 +184,7 @@ func _me(peer: int) -> Dictionary:
 func host() -> bool:
 	leave()
 	var peer := ENetMultiplayerPeer.new()
+	peer.set_bind_ip("0.0.0.0")   # plain IPv4: some phones mishandle the default dual IPv4/IPv6 socket
 	if peer.create_server(PORT, MAX_PLAYERS - 1) != OK:
 		status.emit(I18n.t("Couldn't open a room on this network"))
 		return false
@@ -194,7 +199,8 @@ func host() -> bool:
 func join(ip: String) -> void:
 	leave()
 	var peer := ENetMultiplayerPeer.new()
-	if peer.create_client(ip.strip_edges(), PORT) != OK:
+	_join_ip = ip.strip_edges()
+	if peer.create_client(_join_ip, PORT) != OK:
 		status.emit(I18n.t("Couldn't reach that room"))
 		return
 	multiplayer.multiplayer_peer = peer
@@ -213,6 +219,19 @@ func leave() -> void:
 	_connect_t = 0.0
 	if not browsing:
 		_close_udp()
+
+
+## The game connection to a room failed: ask the room's discovery port directly to tell the player why.
+func _join_failed() -> void:
+	var ip := _join_ip
+	leave()
+	status.emit(I18n.t("Couldn't reach that room") + " · " + I18n.t("checking the network…"))
+	_open_udp()
+	_diag_ip = ip
+	_diag_heard = false
+	_diag_t = 2.5
+	for i in 3:
+		_send_udp(ip, "IMQ?".to_utf8_buffer())
 
 
 func _on_connected() -> void:
@@ -488,5 +507,12 @@ func _process(dt: float) -> void:
 	if _connect_t > 0:
 		_connect_t -= dt
 		if _connect_t <= 0 and role == "client" and lobby.is_empty():
-			status.emit(I18n.t("Couldn't reach that room"))
-			leave()
+			_join_failed()
+	if _diag_t > 0:
+		_diag_t -= dt
+		if _diag_heard or _diag_t <= 0:
+			_diag_t = 0.0
+			if _diag_heard:
+				status.emit(I18n.t("The room answers, but the game connection was blocked. Make sure both phones run this same version, then try again or use a hotspot."))
+			else:
+				status.emit(I18n.t("This Wi-Fi doesn't let phones talk to each other (the router blocks it). Turn on the hotspot on one phone and connect the other phone to it."))
