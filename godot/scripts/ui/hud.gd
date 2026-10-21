@@ -485,6 +485,19 @@ func banner(text: String, win: bool) -> void:
 	_banner.visible = true
 
 
+## The end of the match: the playing interface goes away and the victory / MVP screen comes up.
+func victory(title: String, win: bool, info: Dictionary) -> void:
+	_root.visible = false
+	_banner.visible = false
+	for b in _bars.values():
+		b.root.visible = false
+	var v := VictoryScreen.new()
+	v.title = title
+	v.win = win
+	v.info = info
+	add_child(v)
+
+
 func flash_special() -> void:
 	_btn_special.pulse = 0.4
 
@@ -530,6 +543,8 @@ func ensure_enemy_bars(m: Match) -> void:
 ## Each enemy's name, health and lives float right above the car. Camera.unproject_position already gives
 ## canvas coordinates (the same space the HUD is laid out in), whatever the screen's pixel density.
 func _update_bars(m: Match) -> void:
+	if not _root.visible:   # the victory screen is up
+		return
 	var cam := m.camera
 	for key in _bars.keys():
 		var b: Dictionary = _bars[key]

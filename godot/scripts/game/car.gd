@@ -59,6 +59,7 @@ var skid_spin := 0.0
 var hide_t := 0.0
 var spin_t := 0.0
 var bounty := false
+var dmg_dealt := 0.0     # damage this car has done to others this match (for the MVP card)
 var ai: Dictionary = {}
 
 # shape

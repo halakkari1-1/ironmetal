@@ -32,6 +32,7 @@ func _ready() -> void:
 		"offers": await _offers_shots()
 		"wraith": await _wraith()
 		"wheels": await _wheels()
+		"victory": await _victory()
 		"net_host": await _net_host()
 		"net_join": await _net_join()
 	get_tree().quit()
@@ -65,6 +66,40 @@ func _simulate(g: Match, seconds: float) -> void:
 		g._process(1.0 / 30)
 		if g.player.respawn_t <= 0 and not g.player.alive and g.player.lives == 0:
 			break
+
+
+## The end-of-match screen: a win with the player as MVP, then a loss with a bot as MVP (in Arabic).
+func _victory() -> void:
+	Save.state.player_name = "Hussain"
+	for lang in ["en", "ar"]:
+		Save.state.lang = lang
+		I18n.set_lang(lang)
+		var g := await _start(0, "wraith" if lang == "en" else "ghost", 1)
+		_simulate(g, 25)
+		for f in 5:
+			await get_tree().process_frame
+		g.player.kills = 4
+		g.player.dmg_dealt = 812
+		if lang == "en":
+			g.result = "win"
+			g.state = "ending"
+			g._victory(I18n.t("VICTORY"), true, g.player)
+		else:
+			var bot: Car = g.cars.filter(func(c): return c != g.player)[0]
+			bot.kills = 3
+			bot.dmg_dealt = 640
+			g.result = "loss"
+			g.state = "ending"
+			g._victory(I18n.t("DEFEAT"), false, bot)
+		for s in [0.25, 0.7, 1.6, 3.0]:
+			await get_tree().create_timer(s - (0.0 if s == 0.25 else 0.0)).timeout
+			await _shot("victory_%s_%.1f" % [lang, s])
+		await get_tree().create_timer(3.5).timeout
+		print("TEST victory %s state=%s screen=%s" % [lang, g.state if is_instance_valid(g) else "freed", main.get("screen")])
+		main._lobby()
+		await get_tree().process_frame
+	Save.state.lang = "en"
+	I18n.set_lang("en")
 
 
 func _matches() -> void:
@@ -242,7 +277,7 @@ func _net_host() -> void:
 	await _wait(func(): return main.game != null and is_instance_valid(main.game) and main.game.state == "fight", 30.0)
 	var g: Match = main.game
 	print("TEST host fight started, cars=", g.cars.size())
-	g.finished.connect(func(r): print("TEST host finished t=%.1f fs=%.1f " % [g.time, g.fight_start], r.result, " ", r.get("ranking", []), " alive=", g.cars.map(func(c): return [c.alive, c.lives, c.respawn_t])))
+	g.finished.connect(func(r): print("TEST host finished t=%.1f fs=%.1f mvp=%s " % [g.time, g.fight_start, g.mvp.label() if g.mvp else "-"], r.result, " ", r.get("ranking", []), " alive=", g.cars.map(func(c): return [c.alive, c.lives, c.respawn_t])))
 	_autodrive(g)
 	await get_tree().create_timer(float(_arg("secs", "40"))).timeout
 	if is_instance_valid(g) and g.running and g.state == "fight":
@@ -284,7 +319,7 @@ func _net_join() -> void:
 		return
 	var errs: Array = []
 	Net.session_over.connect(func(r): print("TEST session over: ", r))
-	g.finished.connect(func(r): print("TEST client finished: ", r.result, " ", r.get("ranking", [])))
+	g.finished.connect(func(r): print("TEST client finished: mvp=", g.mvp.label() if g.mvp else "-", " ", r.result, " ", r.get("ranking", [])))
 	for i in 6:
 		await get_tree().create_timer(5.0).timeout
 		print("TEST client tick valid=", is_instance_valid(g), " running=", g.running if is_instance_valid(g) else "-", " state=", g.state if is_instance_valid(g) else "-", " game=", main.game)

@@ -73,6 +73,9 @@ var _did := 0
 var _snaps: Array = []        # client: [host_time, {nid: PackedFloat32Array}]
 var _clock := -1.0            # client: estimate of the host's match time
 var _hp_seen := -1.0
+var mvp: Car = null           # shown when the match ends
+var _slow := 1.0              # slow motion at the end
+var _orbit := 0.0
 
 
 # ---------- setup ----------
@@ -439,6 +442,9 @@ func _process(dt_real: float) -> void:
 	if not running:
 		return
 	var dt: float = min(dt_real, 0.05)
+	if state == "ending":   # the last moments in slow motion, easing back to normal speed
+		_slow = min(1.0, _slow + dt_real * 0.32)
+		dt *= _slow
 	time += dt
 	Quality.sample(dt_real)
 	if not _later.is_empty():
@@ -516,7 +522,7 @@ func _process(dt_real: float) -> void:
 	if net_role != "":
 		Net.tick(self, dt_real)
 	if state == "ending":
-		end_t -= dt
+		end_t -= dt_real
 		if end_t <= 0:
 			_finish()
 	hud.update_hud(self, dt)
@@ -1630,6 +1636,8 @@ func damage(c: Car, amt: float, by: Car, quiet := false, cause := "gun") -> void
 	if c.special_on == "phase":
 		amt *= 0.4   # Wraith Phase: 60% less
 	c.hp -= amt
+	if by and by != c:
+		by.dmg_dealt += amt
 	c.last_hit = time
 	if not quiet:
 		c.jolt(clamp(amt / 35.0, 0.1, 1.0))
@@ -1986,6 +1994,9 @@ func view_car() -> Car:
 
 
 func _update_camera(dt: float, snap := false) -> void:
+	if state == "ending" and mvp and is_instance_valid(mvp):
+		_orbit_mvp(dt)
+		return
 	var p := view_car()
 	var f := p.forward()
 	var size: float = max(1.0, p.dims.z / 5.2)
@@ -2054,9 +2065,7 @@ func _check_end() -> void:
 	if not p.alive and p.lives == 0:
 		result = "survival" if mode == "survival" else "loss"
 		state = "ending"
-		end_t = 3
-		Sfx.play("lose")
-		hud.banner(I18n.t("WAVE") + " %d" % wave if mode == "survival" else I18n.t("WRECKED"), false)
+		_victory(I18n.t("WAVE") + " %d" % wave if mode == "survival" else I18n.t("DEFEAT"), false, p if mode == "survival" else _best(cars.filter(func(c): return c != p)))
 		return
 	if mode != "deathmatch":
 		return
@@ -2064,9 +2073,7 @@ func _check_end() -> void:
 	if left.size() == 1 and left[0] == p:
 		result = "win"
 		state = "ending"
-		end_t = 3
-		Sfx.play("win")
-		hud.banner(I18n.t("VICTORY"), true)
+		_victory(I18n.t("VICTORY"), true, p)
 		return
 	if time - fight_start >= TIME_LIMIT:  # time up: most kills wins (a tie goes to the player)
 		var top := 0
@@ -2075,9 +2082,7 @@ func _check_end() -> void:
 		var win := p.kills >= top
 		result = "win" if win else "loss"
 		state = "ending"
-		end_t = 3
-		Sfx.play("win" if win else "lose")
-		hud.banner(I18n.t("VICTORY") if win else I18n.t("TIME UP"), win)
+		_victory(I18n.t("VICTORY") if win else I18n.t("TIME UP"), win, p if win else _best(cars))
 
 
 func time_left() -> float:
@@ -2135,6 +2140,17 @@ func _check_end_net() -> void:
 func _end_match(info: Dictionary) -> void:
 	if state == "ending":
 		return
+	if auth():   # the host names the MVP, so every device shows the same one
+		var pool := cars
+		if info.kind == "team" and int(info.team) > 0:
+			pool = cars.filter(func(c): return c.team == int(info.team))
+		elif info.kind == "survival":
+			pool = humans()
+		var m: Car = car_by(int(info.get("winner", 0))) if info.kind == "dm" else _best(pool)
+		if m:
+			info.mvp = m.nid
+			info.mvp_kills = m.kills
+			info.mvp_dmg = int(m.dmg_dealt)
 	_ev("end", [info])
 	var order := cars.duplicate()
 	var w: int = info.get("winner", 0)
@@ -2151,14 +2167,53 @@ func _end_match(info: Dictionary) -> void:
 		"team": win = int(info.team) == player.team
 	result = "survival" if info.kind == "survival" else ("win" if win else "loss")
 	state = "ending"
-	end_t = 4
-	Sfx.play("win" if win else "lose")
+	var m: Car = car_by(int(info.get("mvp", 0)))
+	if m and info.has("mvp_kills"):
+		m.kills = int(info.mvp_kills)
+		m.dmg_dealt = float(info.mvp_dmg)
+	var title := I18n.t("VICTORY") if win else I18n.t("DEFEAT")
 	if info.kind == "survival":
-		hud.banner(I18n.t("WAVE") + " %d" % wave, false)
+		title = I18n.t("WAVE") + " %d" % wave
 	elif info.kind == "team" and int(info.team) == 0:
-		hud.banner(I18n.t("DRAW"), false)
-	else:
-		hud.banner(I18n.t("VICTORY") if win else I18n.t("DEFEAT"), win)
+		title = I18n.t("DRAW")
+	_victory(title, win, m if m else player)
+
+
+## End of the match: a slow circle round the MVP car, low and close, the car framed in the upper half.
+func _orbit_mvp(dt: float) -> void:
+	_orbit += dt * 0.55
+	var c := mvp
+	var size: float = max(1.0, c.dims.z / 5.2)
+	var a := c.heading + 2.4 + _orbit
+	var dist := 8.5 * size
+	var want := Vector3(c.x + sin(a) * dist, 2.6 * sqrt(size), c.z + cos(a) * dist)
+	var look := Vector3(c.x, 0.6 * c.dims.y, c.z)
+	var k: float = 1 - exp(-dt * 5.0)
+	_cam_pos = _cam_pos.lerp(want, k)
+	_cam_look = _cam_look.lerp(look, k)
+	camera.global_position = _cam_pos
+	camera.look_at(_cam_look, Vector3.UP)
+	camera.fov += (50.0 - camera.fov) * min(1.0, dt * 3.0)
+
+
+## The car that did the most: most kills, then most damage, still-running cars first.
+func _best(pool: Array) -> Car:
+	var best: Car = null
+	for c in pool:
+		if best == null or c.kills > best.kills or (c.kills == best.kills and (c.dmg_dealt > best.dmg_dealt or (_in_play(c) and not _in_play(best)))):
+			best = c
+	return best
+
+
+## The end of a match: slow motion, the camera circles the MVP, the title and the MVP card come up.
+func _victory(title: String, win: bool, m: Car) -> void:
+	mvp = m if m else player
+	end_t = 6.0
+	_slow = 0.25
+	_orbit = 0.0
+	Sfx.play("win" if win else "lose")
+	hud.victory(title, win, {"name": mvp.label(), "car": mvp.data.name, "kills": mvp.kills, "dmg": int(mvp.dmg_dealt),
+		"human": mvp.human, "me": mvp == player, "color": mvp.color, "team": mvp.team, "premium": mvp.data.get("premium", false)})
 
 
 ## Host: everyone has loaded the arena; start the countdown on every device.
