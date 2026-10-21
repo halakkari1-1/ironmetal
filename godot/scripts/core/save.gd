@@ -3,6 +3,9 @@ extends Node
 
 const PATH := "user://save.json"
 const UPGRADE_KEYS := ["gun", "rocket", "armor", "speed", "special"]
+## Test builds: every new version installed adds this much scrap once, so each build can be tried fully.
+## Set to 0 for the release build.
+const TEST_GRANT := 50000
 
 var state: Dictionary = {}
 var _buying := false
@@ -48,6 +51,11 @@ func _ready() -> void:
 	_validate()
 	if str(state.player_id).length() < 16:
 		state.player_id = _new_id()
+		write()
+	var ver := str(ProjectSettings.get_setting("application/config/version", ""))
+	if TEST_GRANT > 0 and state.get("granted_version", "") != ver:
+		state.granted_version = ver
+		state.points += TEST_GRANT
 		write()
 	I18n.set_lang(state.lang)
 

@@ -77,6 +77,7 @@ jobs:
         run: |
           code=$((1000 + VERSION_CODE))   # above every version code the earlier web build used
           sed -i "s/^version\/code=.*/version\/code=$code/; s/^version\/name=.*/version\/name=\"$VERSION\"/" godot/export_presets.cfg
+          sed -i "s/^config\/version=.*/config\/version=\"$VERSION\"/" godot/project.godot   # the game reads its own version from here
           grep -E "^version/" godot/export_presets.cfg
 
       - name: Import assets
