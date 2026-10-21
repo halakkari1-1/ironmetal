@@ -11,6 +11,8 @@ var pause_layer: CanvasLayer
 var _last_cfg := {}
 var _garage_pick := ""
 var _setup := {"mode": "deathmatch", "map": 0, "diff": 0}
+var _mp_status := ""
+var _mp_ip := ""
 
 
 func _ready() -> void:
@@ -25,6 +27,21 @@ func _ready() -> void:
 	screen_root.theme = UI.theme
 	ui_layer.add_child(screen_root)
 	get_tree().set_auto_accept_quit(false)
+	Net.lobby_changed.connect(func():
+		if _current == "mp_home" and Net.role == "client" and not Net.lobby.is_empty():
+			_mp_status = ""
+			_mp_room()
+		elif _current == "mp_room":
+			_mp_room())
+	Net.rooms_changed.connect(func():
+		if _current == "mp_home":
+			_mp_home())
+	Net.status.connect(func(t: String):
+		_mp_status = t
+		if _current == "mp_home" or _current == "mp_room":
+			_mp_home())
+	Net.start_match.connect(_start_net_match)
+	Net.session_over.connect(_on_session_over)
 	_lobby()
 	Sfx.music("lobby")
 	for a in OS.get_cmdline_user_args():
@@ -38,11 +55,14 @@ func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_GO_BACK_REQUEST or what == NOTIFICATION_WM_CLOSE_REQUEST:
 		if game and game.running:
 			_pause()
+		elif _current == "mp_room":
+			Net.leave()
+			_mp_home()
 		elif _current != "lobby":
 			_lobby()
 		else:
 			get_tree().quit()
-	elif what == NOTIFICATION_APPLICATION_PAUSED and game and game.running:
+	elif what == NOTIFICATION_APPLICATION_PAUSED and game and game.running and not Net.active():
 		_pause()
 
 
@@ -71,14 +91,14 @@ func _t(s: String, v := {}) -> String:
 
 
 ## Screen title bar: back button, title, scrap counter. Sized for reading at arm's length on a phone.
-func _top_bar(root: Control, title: String, back := true) -> void:
+func _top_bar(root: Control, title: String, back := true, back_cb := Callable()) -> void:
 	var bar := UI.hbox(16)
 	bar.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
 	bar.offset_left = 24
 	bar.offset_right = -24
 	bar.offset_top = 14
 	if back:
-		var b := UI.button("‹  " + _t("Back"), _lobby, false, 28)
+		var b := UI.button("‹  " + _t("Back"), back_cb if back_cb.is_valid() else _lobby, false, 28)
 		b.custom_minimum_size = Vector2(150, 66)
 		bar.add_child(b)
 	bar.add_child(UI.heading(title, 44))
@@ -126,6 +146,9 @@ func _scroll(root: Control, left: float, top: float, right: float, bottom: float
 func _lobby() -> void:
 	if game:
 		_end_game()
+	if Net.active():
+		Net.leave()
+	Net.browse(false)
 	showroom.activate(true)
 	showroom.show_car(Save.state.selected)
 	_focus_right_of(470)
@@ -169,9 +192,14 @@ func _lobby() -> void:
 		menu.offset_left = 24
 		menu.offset_top = -176
 		menu.offset_bottom = -20
+		var top_row := UI.hbox(12)
 		var play := UI.button(_t("PLAY"), _setup_screen, true, 40)
-		play.custom_minimum_size = Vector2(470, 84)
-		menu.add_child(play)
+		play.custom_minimum_size = Vector2(250, 84)
+		top_row.add_child(play)
+		var mp := UI.button(_t("MULTIPLAYER"), func(): _ask_name(_mp_home), true, 28)
+		mp.custom_minimum_size = Vector2(208, 84)
+		top_row.add_child(mp)
+		menu.add_child(top_row)
 		var row := UI.hbox(12)
 		for b in [["Garage", _garage], ["Upgrade", _workshop], ["Settings", _settings]]:
 			var btn := UI.button(_t(b[0]), b[1], false, 26)
@@ -387,6 +415,14 @@ func _settings() -> void:
 		v.add_child(_seg(_t("Steering"), [["classic", _t("Classic")], ["direction", _t("Direction")], ["autogas", _t("Auto gas")]], Save.state.scheme, func(x):
 			Save.state.scheme = x
 			Save.write()))
+		var nm := UI.hbox(12)
+		var nl := UI.label(_t("Player name"), 26)
+		nl.custom_minimum_size.x = 260
+		nm.add_child(nl)
+		var nb := UI.button(Save.player_name() + "   ✎", func(): _name_screen(_settings), false, 24)
+		nb.custom_minimum_size.y = 60
+		nm.add_child(nb)
+		v.add_child(nm)
 		var ctl := UI.hbox(12)
 		var cl := UI.label(_t("Controls"), 26)
 		cl.custom_minimum_size.x = 260
@@ -545,7 +581,7 @@ func _start_match(cfg: Dictionary) -> void:
 	add_child(hud)
 	var ids: Array = [cfg.car.id]
 	for c in Data.CARS:
-		if c.price <= cfg.diff.max_price:
+		if c.price <= cfg.diff.max_price or cfg.has("roster"):
 			ids.append(c.id)
 	game.preload_assets(ids)
 	add_child(game)
@@ -555,9 +591,24 @@ func _start_match(cfg: Dictionary) -> void:
 	for c in screen_root.get_children():
 		c.queue_free()
 	_current = "game"
+	if cfg.has("roster"):
+		Net.match_ready(game)
 
 
-func _end_game() -> void:
+## Multiplayer: the host started a match; build it from the shared roster.
+func _start_net_match(cfg: Dictionary) -> void:
+	if game:
+		_end_game(false)
+	var me := Net.me()
+	_start_match({"map": Data.MAPS[cfg.map], "diff": Data.DIFFICULTY[cfg.diff], "mode": cfg.mode, "roster": cfg.roster,
+		"role": Net.role, "me": Net.my_peer(), "upgrades": cfg.upgrades, "car": Data.car(me.get("car", Save.state.selected))})
+
+
+func _end_game(leave_room := true) -> void:
+	if game and Net.active():
+		Net.match_over()
+		if leave_room and game.running:
+			Net.leave()
 	if game:
 		game.quit()
 		game.queue_free()
@@ -574,8 +625,9 @@ func _end_game() -> void:
 func _pause() -> void:
 	if pause_layer or game == null:
 		return
-	get_tree().paused = true
-	Sfx.engine_stop()
+	if not Net.active():   # a shared match keeps running for everyone else
+		get_tree().paused = true
+		Sfx.engine_stop()
 	pause_layer = CanvasLayer.new()
 	pause_layer.layer = 20
 	pause_layer.process_mode = Node.PROCESS_MODE_ALWAYS
@@ -592,10 +644,10 @@ func _pause() -> void:
 	p.grow_vertical = Control.GROW_DIRECTION_BOTH
 	var v := UI.vbox(14)
 	v.add_child(UI.heading(_t("Paused"), 52))
-	var resume := UI.button(_t("Resume"), _resume, true, 34)
+	var resume := UI.button(_t("Back to the fight") if Net.active() else _t("Resume"), _resume, true, 34)
 	resume.custom_minimum_size = Vector2(380, 80)
 	v.add_child(resume)
-	var quit := UI.button(_t("Quit match"), func():
+	var quit := UI.button(_t("Leave the room") if Net.active() else _t("Quit match"), func():
 		get_tree().paused = false
 		_lobby(), false, 28)
 	quit.custom_minimum_size = Vector2(380, 70)
@@ -605,11 +657,12 @@ func _pause() -> void:
 
 
 func _resume() -> void:
+	var was_paused := get_tree().paused
 	get_tree().paused = false
 	if pause_layer:
 		pause_layer.queue_free()
 		pause_layer = null
-	if game:
+	if game and was_paused:
 		Sfx.engine_start(game.player.data.id)
 
 
@@ -628,7 +681,8 @@ func _on_finished(r: Dictionary) -> void:
 	Save.record({"date": Time.get_datetime_string_from_system(), "map": cfg.map.name, "diff": "Survival" if surv else d.name, "car": cfg.car.name,
 		"result": r.result, "kills": r.kills, "points": total, "wave": r.stats.wave if surv else 0})
 	var done := Save.apply_contracts({"result": r.result, "map": cfg.map.id, "diff": "survival" if surv else d.id, "stats": r.stats})
-	_end_game()
+	var net: bool = r.get("net", false) and Net.active()
+	_end_game(false)
 	showroom.activate(true)
 	Sfx.music("lobby")
 	_show("results", func(root: Control):
@@ -637,6 +691,13 @@ func _on_finished(r: Dictionary) -> void:
 		p.grow_horizontal = Control.GROW_DIRECTION_BOTH
 		p.grow_vertical = Control.GROW_DIRECTION_BOTH
 		p.custom_minimum_size.x = 660
+		if net:
+			p.set_anchors_and_offsets_preset(Control.PRESET_LEFT_WIDE)
+			p.offset_left = 24
+			p.offset_right = 24 + 660
+			p.offset_top = 24
+			p.offset_bottom = -24
+			root.add_child(_standings(r.ranking))
 		var v := UI.vbox(8)
 		var good: bool = r.result == "win" or (surv and r.stats.wave > prev_best)
 		var title := UI.heading(_t("Wave {n}", {"n": r.stats.wave}) if surv else _t("Victory" if r.result == "win" else "Wrecked"), 60)
@@ -667,9 +728,332 @@ func _on_finished(r: Dictionary) -> void:
 		for c in done:
 			v.add_child(UI.label(_t("Contract complete") + ": " + _t(c.text, {"n": c.goal, "map": _t(c.map_name)}) + "  +%d" % c.reward, 22, UI.GOOD))
 		var row := UI.hbox(10)
-		for b in [UI.button(_t("Lobby"), _lobby, false, 28), UI.button(_t("Rematch"), func(): _start_match(cfg), true, 28)]:
+		var again := UI.button(_t("Back to the room"), _mp_room, true, 28) if net else UI.button(_t("Rematch"), func(): _start_match(cfg), true, 28)
+		for b in [UI.button(_t("Lobby"), _lobby, false, 28), again]:
 			b.custom_minimum_size = Vector2(220, 70)
 			row.add_child(b)
 		v.add_child(row)
 		p.add_child(v)
 		root.add_child(p))
+
+
+# ---------- multiplayer ----------
+
+func _ask_name(next: Callable) -> void:
+	if str(Save.state.get("player_name", "")).strip_edges() == "":
+		_name_screen(next)
+	else:
+		next.call()
+
+
+## Your name and colour, shown above your car and in rooms.
+func _name_screen(next: Callable) -> void:
+	_show("name", func(root: Control):
+		_top_bar(root, _t("Your player name"), true, next)
+		var p := UI.panel(0.75)
+		p.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+		p.grow_horizontal = Control.GROW_DIRECTION_BOTH
+		p.grow_vertical = Control.GROW_DIRECTION_BOTH
+		var v := UI.vbox(18)
+		v.custom_minimum_size.x = 640
+		v.add_child(UI.label(_t("Other players see this name above your car."), 24, UI.DIM))
+		var edit := LineEdit.new()
+		edit.text = str(Save.state.get("player_name", ""))
+		edit.placeholder_text = Save.player_name()
+		edit.max_length = 16
+		edit.custom_minimum_size = Vector2(0, 72)
+		edit.add_theme_font_size_override("font_size", 32)
+		v.add_child(edit)
+		v.add_child(UI.label(_t("Colour"), 24))
+		var row := UI.hbox(10)
+		for i in Net.COLORS.size():
+			var b := UI.button("●" if i == int(Save.state.player_color) else "", func():
+				Save.state.player_color = i
+				Save.state.player_name = edit.text.strip_edges()
+				_name_screen(next), false, 30)
+			b.custom_minimum_size = Vector2(60, 60)
+			var sb := UI._flat(Color(Net.COLORS[i]), 30, 3 if i == int(Save.state.player_color) else 0, Color.WHITE)
+			for st in ["normal", "hover", "pressed"]:
+				b.add_theme_stylebox_override(st, sb)
+			row.add_child(b)
+		v.add_child(row)
+		var ok := UI.button(_t("Save"), func():
+			var n := edit.text.strip_edges()
+			if n.length() < 2:
+				edit.placeholder_text = _t("At least 2 letters")
+				return
+			Save.state.player_name = n.substr(0, 16)
+			Save.write()
+			next.call(), true, 30)
+		ok.custom_minimum_size = Vector2(0, 76)
+		v.add_child(ok)
+		p.add_child(v)
+		root.add_child(p))
+
+
+## Find a room on this network, open one, or type a room's address.
+func _mp_home() -> void:
+	if Net.role == "host" or (Net.role == "client" and not Net.lobby.is_empty()):
+		Net.leave()
+	Net.browse(true)
+	showroom.show_car(Save.state.selected)
+	_show("mp_home", func(root: Control):
+		_top_bar(root, _t("Multiplayer"))
+		var left := UI.panel(0.7)
+		left.set_anchors_and_offsets_preset(Control.PRESET_LEFT_WIDE)
+		left.offset_left = 24
+		left.offset_right = 24 + 560
+		left.offset_top = 96
+		left.offset_bottom = -16
+		var v := UI.vbox(16)
+		var me := UI.hbox(12)
+		var dot := UI.label("●", 30, Color(Net.COLORS[int(Save.state.player_color) % Net.COLORS.size()]))
+		me.add_child(dot)
+		var nm := UI.label(Save.player_name(), 30, UI.TEXT, UI.font_head)
+		nm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		me.add_child(nm)
+		var edit_b := UI.button(_t("Edit"), func(): _name_screen(_mp_home), false, 24)
+		edit_b.custom_minimum_size = Vector2(120, 60)
+		me.add_child(edit_b)
+		v.add_child(me)
+		var create := UI.button(_t("CREATE A ROOM"), func():
+			Net.browse(false)
+			if Net.host():
+				_mp_room()
+			else:
+				_mp_home(), true, 34)
+		create.custom_minimum_size = Vector2(0, 90)
+		v.add_child(create)
+		v.add_child(UI.label(_t("Join by address"), 24, UI.DIM))
+		var row := UI.hbox(10)
+		var ip := LineEdit.new()
+		ip.text = _mp_ip
+		ip.placeholder_text = "192.168.1.5"
+		ip.custom_minimum_size = Vector2(0, 66)
+		ip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		ip.add_theme_font_size_override("font_size", 28)
+		ip.virtual_keyboard_type = LineEdit.KEYBOARD_TYPE_NUMBER_DECIMAL
+		ip.text_changed.connect(func(t): _mp_ip = t)
+		row.add_child(ip)
+		var jb := UI.button(_t("Join"), func():
+			if _mp_ip.strip_edges() != "":
+				Net.join(_mp_ip), false, 26)
+		jb.custom_minimum_size = Vector2(130, 66)
+		row.add_child(jb)
+		v.add_child(row)
+		var ips := Net.local_ips()
+		v.add_child(UI.label(_t("This phone") + ": " + (", ".join(ips) if ips.size() else _t("not on a Wi-Fi network")), 21, UI.DIM))
+		if _mp_status != "":
+			var st := UI.label(_mp_status, 23, UI.ACCENT_2)
+			st.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			v.add_child(st)
+		left.add_child(v)
+		root.add_child(left)
+		var right := UI.panel(0.62)
+		right.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		right.offset_left = 24 + 560 + 16
+		right.offset_right = -24
+		right.offset_top = 96
+		right.offset_bottom = -16
+		var col := UI.vbox(12)
+		col.add_child(UI.heading(_t("Rooms nearby"), 32))
+		var sc := ScrollContainer.new()
+		sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		sc.scroll_deadzone = 12
+		sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		var list := UI.vbox(10)
+		list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		if Net.rooms.is_empty():
+			var hint := UI.label(_t("Looking for rooms…") + "\n\n" + _t("Both phones need to be on the same Wi-Fi, or one phone on the other's hotspot. If a room doesn't show up, type the address shown in that room."), 22, UI.DIM)
+			hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			list.add_child(hint)
+		for addr in Net.rooms:
+			var r: Dictionary = Net.rooms[addr]
+			var ok: bool = int(r.get("p", 0)) == Net.PROTO and r.get("open", true) and int(r.get("n", 0)) < int(r.get("max", 9))
+			var mode_name: String = {"deathmatch": "Deathmatch", "team": "Team battle", "survival": "Co-op survival"}.get(r.get("mode", ""), "")
+			var map_name: String = Data.MAPS[clamp(int(r.get("map", 0)), 0, Data.MAPS.size() - 1)].name
+			var text := "%s\n%s · %s · %d/%d" % [str(r.get("name", "?")), _t(mode_name), _t(map_name), int(r.get("n", 0)), int(r.get("max", 9))]
+			if int(r.get("p", 0)) != Net.PROTO:
+				text += "  · " + _t("different version")
+			elif not r.get("open", true):
+				text += "  · " + _t("in a match")
+			var b := UI.button(text, func(): Net.join(addr), ok, 24)
+			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+			b.custom_minimum_size = Vector2(0, 92)
+			b.disabled = not ok
+			list.add_child(b)
+		sc.add_child(list)
+		col.add_child(sc)
+		right.add_child(col)
+		root.add_child(right))
+
+
+const MODES := [["deathmatch", "Deathmatch"], ["team", "Team battle"], ["survival", "Co-op survival"]]
+const TEAM_NAMES := {0: "", 1: "RED", 2: "BLUE"}
+
+
+## The room: who's in, which car each drives, and (for the host) the match settings and the start button.
+func _mp_room() -> void:
+	if Net.lobby.is_empty():
+		_mp_home()
+		return
+	showroom.show_car(Net.me().get("car", Save.state.selected))
+	_show("mp_room", func(root: Control):
+		var L: Dictionary = Net.lobby
+		var host := Net.is_host()
+		var mine := Net.me()
+		_top_bar(root, _t("Room"), true, func():
+			Net.leave()
+			_mp_home())
+		# players
+		var left := UI.panel(0.7)
+		left.set_anchors_and_offsets_preset(Control.PRESET_LEFT_WIDE)
+		left.offset_left = 24
+		left.offset_right = 24 + 520
+		left.offset_top = 96
+		left.offset_bottom = -16
+		var lc := UI.vbox(10)
+		lc.add_child(UI.heading(_t("Players") + "  %d/%d" % [L.players.size(), Net.MAX_PLAYERS], 30))
+		var sc := ScrollContainer.new()
+		sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		sc.scroll_deadzone = 12
+		sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		var pl := UI.vbox(8)
+		pl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		for p in L.players:
+			var row := UI.hbox(10)
+			row.add_child(UI.label("●", 28, Color(p.color)))
+			var nm := UI.vbox(0)
+			nm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			var tag := ("  · " + _t("HOST")) if p.peer == 1 else ""
+			nm.add_child(UI.label(str(p.name) + tag, 26, UI.TEXT, UI.font_head))
+			var sub: String = Data.car(p.car).name
+			if L.mode == "team":
+				sub += "  · " + _t(TEAM_NAMES[int(p.team)])
+			nm.add_child(UI.label(sub, 20, UI.DIM))
+			row.add_child(nm)
+			row.add_child(UI.label("✓" if p.ready else "…", 30, UI.GOOD if p.ready else UI.DIM, UI.font_head))
+			pl.add_child(row)
+		if L.mode != "survival" and int(L.bots) > 0:
+			pl.add_child(UI.label("+ %d " % min(int(L.bots), Net.max_bots()) + _t("bots"), 22, UI.DIM))
+		sc.add_child(pl)
+		lc.add_child(sc)
+		if host:
+			var ips := Net.local_ips()
+			lc.add_child(UI.label(_t("Room address") + ": " + (", ".join(ips) if ips.size() else "?"), 22, UI.ACCENT_2))
+		left.add_child(lc)
+		root.add_child(left)
+		# settings and your car
+		var right := UI.panel(0.62)
+		right.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		right.offset_left = 24 + 520 + 16
+		right.offset_right = -24
+		right.offset_top = 96
+		right.offset_bottom = -16
+		var rc := UI.vbox(12)
+		var rs := ScrollContainer.new()
+		rs.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		rs.scroll_deadzone = 12
+		rs.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		var v := UI.vbox(12)
+		v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var lw := 170.0
+		if host:
+			var modes := _seg("", MODES.map(func(m): return [m[0], _t(m[1])]), L.mode, func(x): Net.set_room("mode", x), 0.0)
+			for b in modes.get_children():
+				if b is Button:
+					b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			v.add_child(modes)
+			v.add_child(_stepper(_t("Map"), _t(Data.MAPS[int(L.map)].name), func(d): Net.set_room("map", posmod(int(L.map) + d, Data.MAPS.size())), lw))
+			if L.mode != "survival":
+				v.add_child(_stepper(_t("Bots"), str(min(int(L.bots), Net.max_bots())), func(d): Net.set_room("bots", clamp(int(L.bots) + d, 0, Net.max_bots())), lw))
+				v.add_child(_seg(_t("Bot level"), [[0, _t("Easy")], [1, _t("Medium")], [2, _t("Hard")]], int(L.bot_diff), func(x): Net.set_room("bot_diff", x), lw))
+			v.add_child(_seg(_t("Upgrades"), [[true, _t("Allowed")], [false, _t("Off · all equal")]], bool(L.upgrades), func(x): Net.set_room("upgrades", x), lw))
+		else:
+			var mode_name: String = ""
+			for m in MODES:
+				if m[0] == L.mode:
+					mode_name = m[1]
+			var info := "%s · %s" % [_t(mode_name), _t(Data.MAPS[int(L.map)].name)]
+			if L.mode != "survival":
+				info += "\n%s: %d · %s" % [_t("Bots"), min(int(L.bots), Net.max_bots()), _t(DIFF_INFO[int(L.bot_diff)].name)]
+			info += "\n" + _t("Upgrades") + ": " + (_t("Allowed") if L.upgrades else _t("Off · all equal"))
+			var il := UI.label(info, 24)
+			il.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			v.add_child(il)
+		var owned: Array = Save.state.owned
+		var car_id: String = mine.get("car", Save.state.selected)
+		v.add_child(_stepper(_t("Your car"), Data.car(car_id).name, func(d):
+			var i := owned.find(car_id)
+			var nid: String = owned[posmod(i + d, owned.size())]
+			Net.set_me({"car": nid, "ups": Save.upgrades(nid).duplicate(), "ready": host}), lw))
+		if L.mode == "team":
+			v.add_child(_seg(_t("Team"), [[1, _t("RED")], [2, _t("BLUE")]], int(mine.get("team", 1)), func(x): Net.set_me({"team": x}), lw))
+		rs.add_child(v)
+		rc.add_child(rs)
+		var act: Button
+		if host:
+			var ready_all := Net.all_ready()
+			act = UI.button(_t("START") if ready_all else _t("Waiting for everyone to be ready"), func(): Net.start(), true, 32 if ready_all else 22)
+			act.disabled = not ready_all
+		else:
+			var r: bool = mine.get("ready", false)
+			act = UI.button(_t("Not ready") if r else _t("READY"), func(): Net.set_me({"ready": not r}), not r, 32)
+		act.custom_minimum_size = Vector2(0, 84)
+		rc.add_child(act)
+		right.add_child(rc)
+		root.add_child(right))
+
+
+## A setting with ‹ and › buttons around its current value.
+func _stepper(title: String, value: String, cb: Callable, label_w := 260.0) -> Control:
+	var h := UI.hbox(12)
+	var l := UI.label(title, 26)
+	l.custom_minimum_size.x = label_w
+	h.add_child(l)
+	var a := UI.button("‹", func(): cb.call(-1), false, 30)
+	a.custom_minimum_size = Vector2(66, 60)
+	h.add_child(a)
+	var val := UI.label(value, 26, UI.TEXT, UI.font_head)
+	val.custom_minimum_size.x = 190
+	val.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	h.add_child(val)
+	var b := UI.button("›", func(): cb.call(1), false, 30)
+	b.custom_minimum_size = Vector2(66, 60)
+	h.add_child(b)
+	return h
+
+
+## Final standings of a multiplayer match.
+func _standings(ranking: Array) -> Control:
+	var p := UI.panel(0.7)
+	p.set_anchors_and_offsets_preset(Control.PRESET_RIGHT_WIDE)
+	p.offset_left = -520
+	p.offset_right = -24
+	p.offset_top = 24
+	p.offset_bottom = -24
+	var v := UI.vbox(8)
+	v.add_child(UI.heading(_t("Standings"), 34))
+	for i in ranking.size():
+		var r: Dictionary = ranking[i]
+		var h := UI.hbox(10)
+		h.add_child(UI.label("%d" % (i + 1), 26, UI.ACCENT_2, UI.font_head))
+		var n := UI.label(str(r.name) + ("" if r.human else "  (" + _t("bot") + ")"), 24, UI.ACCENT_2 if r.me else UI.TEXT, UI.font_head)
+		n.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		h.add_child(n)
+		if int(r.team) > 0:
+			h.add_child(UI.label(_t(TEAM_NAMES[int(r.team)]), 20, UI.BAD if int(r.team) == 1 else Color("5cc8ff")))
+		h.add_child(UI.label(_t("{n} KILLS", {"n": r.kills}), 22, UI.TEXT, UI.font_head))
+		v.add_child(h)
+	p.add_child(v)
+	return p
+
+
+func _on_session_over(reason: String) -> void:
+	_mp_status = reason
+	if game:
+		_end_game(false)
+		showroom.activate(true)
+		Sfx.music("lobby")
+	if _current != "lobby":
+		_mp_home()

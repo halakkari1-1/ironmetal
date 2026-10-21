@@ -27,6 +27,9 @@ func _fresh() -> Dictionary:
 		"camera": "near",
 		"volume": {"master": 0.8, "music": 0.6, "sfx": 0.9},
 		"lang": "en",
+		"player_id": "",      # random id made on first launch, used to recognise this player in multiplayer
+		"player_name": "",
+		"player_color": 0,
 	}
 
 
@@ -43,7 +46,25 @@ func _ready() -> void:
 			state.volume = vol
 	_normalize()
 	_validate()
+	if str(state.player_id).length() < 16:
+		state.player_id = _new_id()
+		write()
 	I18n.set_lang(state.lang)
+
+
+static func _new_id() -> String:
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	var hexs := ""
+	for i in 16:
+		hexs += "%02x" % rng.randi_range(0, 255)
+	return hexs
+
+
+## Shown above your car and in rooms; falls back to "Player" plus the start of the id until one is chosen.
+func player_name() -> String:
+	var n := str(state.get("player_name", "")).strip_edges()
+	return n if n != "" else "Player-" + str(state.player_id).substr(0, 4).to_upper()
 
 
 ## JSON stores every number as a float; counters, prices and levels go back to whole numbers.
@@ -60,6 +81,7 @@ func _normalize() -> void:
 		state.stats[k] = int(state.stats[k])
 	state.best.wave = int(state.best.wave)
 	state.fps = int(state.fps)
+	state.player_color = int(state.get("player_color", 0))
 
 
 func _validate() -> void:

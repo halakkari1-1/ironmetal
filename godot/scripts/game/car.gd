@@ -5,7 +5,13 @@ extends Node3D
 
 var data: Dictionary
 var stats: Dictionary
-var is_player := false
+var is_player := false   # the car driven on this device (camera, HUD, engine sound)
+var human := false       # driven by a person, here or on another device (no AI, no difficulty scaling)
+var nid := 0             # network id: the same car has the same nid on every device
+var peer := 0            # multiplayer peer driving it (0: a bot)
+var pname := ""          # player name; bots use the car's name
+var team := 0            # 0: every car for itself
+var color := Color.WHITE
 var model: Node3D
 
 # state
@@ -186,6 +192,10 @@ func update_fx(map_dusty: bool) -> void:
 	smoke_fx.emitting = dmg < 0.4 or (not alive and death_t < 8)
 	fire_fx.emitting = dmg < 0.2 or (not alive and death_t < 5)
 	dust_fx.emitting = alive and abs(speed) > (8.0 if map_dusty else 12.0)
+
+
+func label() -> String:
+	return pname if pname != "" else data.name
 
 
 func world_point(local: Vector3) -> Vector3:

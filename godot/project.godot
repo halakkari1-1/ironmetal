@@ -7,7 +7,7 @@ config_version=5
 
 config/name="IronMetal: Wasteland Wars"
 config/description="Mobile 3D vehicular combat"
-config/version="0.5.0"
+config/version="0.6.0"
 run/main_scene="res://scenes/main.tscn"
 config/features=PackedStringArray("4.6", "Mobile")
 boot_splash/bg_color=Color(0.055, 0.051, 0.043, 1)
@@ -21,6 +21,7 @@ I18n="*res://scripts/core/i18n.gd"
 Save="*res://scripts/core/save.gd"
 Sfx="*res://scripts/core/sfx.gd"
 Quality="*res://scripts/core/quality.gd"
+Net="*res://scripts/core/net.gd"
 
 [display]
 

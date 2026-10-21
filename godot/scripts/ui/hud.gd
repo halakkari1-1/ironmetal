@@ -355,7 +355,7 @@ func _apply_input() -> void:
 
 func on_start(m: Match) -> void:
 	match_ = m
-	_name.text = m.player.data.name
+	_name.text = m.player.label() if m.net_role != "" else m.player.data.name
 	_cam_label_set(m.cam_mode)
 	_build_map_layer()
 	ensure_enemy_bars(m)
@@ -384,7 +384,20 @@ func update_hud(m: Match, dt: float) -> void:
 	for c in m.cars:
 		if c != p and c.kills > p.kills:
 			rank += 1
-	_rank.text = I18n.t("YOU") + " %d   #%d/%d" % [p.kills, rank, alive] if m.mode == "deathmatch" else I18n.t("WAVE") + " %d   ·   %d" % [m.wave, alive - 1]
+	if m.state == "waiting":
+		_rank.text = I18n.t("Waiting for players…")
+	elif m.mode == "team":
+		var tk := [0, 0, 0]
+		for c in m.cars:
+			tk[clamp(c.team, 0, 2)] += c.kills
+		_rank.text = I18n.t("RED") + " %d  :  %d " % [tk[1], tk[2]] + I18n.t("BLUE")
+	elif m.mode == "deathmatch":
+		_rank.text = I18n.t("YOU") + " %d   #%d/%d" % [p.kills, rank, alive]
+	else:
+		_rank.text = I18n.t("WAVE") + " %d   ·   %d" % [m.wave, m.cars.filter(func(c): return not c.human and m._in_play(c)).size()]
+	var watching := m.view_car()
+	if watching != p and m.state == "fight":
+		_rank.text += "   ·   " + I18n.t("Watching {a}", {"a": watching.label()})
 	_power_label.text = (I18n.t(Data.POWERS[p.power.type].name).to_upper() + " ×%d" % p.power.ammo) if not p.power.is_empty() else ""
 	# buttons
 	_btn_rocket.badge = str(p.rockets) if p.power.is_empty() else Data.POWERS[p.power.type].short
@@ -437,11 +450,11 @@ func toast(text: String) -> void:
 
 
 func feed(killer: Car, victim: Car) -> void:
-	var t := I18n.t("{a} wrecked {b}", {"a": killer.data.name if killer else I18n.t("The arena"), "b": victim.data.name})
+	var t := I18n.t("{a} wrecked {b}", {"a": killer.label() if killer else I18n.t("The arena"), "b": victim.label()})
 	if killer and killer.is_player:
-		t = I18n.t("You wrecked {b}", {"b": victim.data.name})
+		t = I18n.t("You wrecked {b}", {"b": victim.label()})
 	elif victim.is_player:
-		t = I18n.t("{a} wrecked you", {"a": killer.data.name if killer else I18n.t("The arena")})
+		t = I18n.t("{a} wrecked you", {"a": killer.label() if killer else I18n.t("The arena")})
 	feed_text(t, killer != null and killer.is_player)
 
 
@@ -484,7 +497,8 @@ func ensure_enemy_bars(m: Match) -> void:
 			continue
 		var root := Control.new()
 		root.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		var name := UI.label(c.data.name, 16, UI.TEXT, UI.font_head)
+		var mate: bool = c.team != 0 and c.team == m.player.team
+		var name := UI.label(c.label(), 17 if c.human else 16, c.color if c.human else UI.TEXT, UI.font_head)
 		name.add_theme_constant_override("outline_size", 5)
 		name.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
 		name.position = Vector2(-80, -26)
@@ -495,7 +509,7 @@ func ensure_enemy_bars(m: Match) -> void:
 		back.position = Vector2(-45, 0)
 		back.size = Vector2(90, 9)
 		var fill := Panel.new()
-		fill.add_theme_stylebox_override("panel", UI._flat(UI.BAD, 4, 0))
+		fill.add_theme_stylebox_override("panel", UI._flat(UI.GOOD if mate else UI.BAD, 4, 0))
 		fill.size = Vector2(90, 9)
 		back.add_child(fill)
 		var lives := Label.new()   # lives left, as hearts under the health bar
@@ -518,13 +532,14 @@ func ensure_enemy_bars(m: Match) -> void:
 func _update_bars(m: Match) -> void:
 	var cam := m.camera
 	for key in _bars.keys():
+		var b: Dictionary = _bars[key]
+		if not is_instance_valid(key) or not m.cars.has(key):   # a wreck cleared away between survival waves
+			b.root.queue_free()
+			_bars.erase(key)
+			continue
 		var c: Car = key
-		var b: Dictionary = _bars[c]
-		if not is_instance_valid(c) or not c.alive:
+		if not c.alive:
 			b.root.visible = false
-			if not is_instance_valid(c):
-				b.root.queue_free()
-				_bars.erase(c)
 			continue
 		var wp := c.global_position + Vector3.UP * (c.dims.y + 0.8)
 		if cam.is_position_behind(wp) or cam.global_position.distance_to(wp) > 110:
@@ -533,7 +548,7 @@ func _update_bars(m: Match) -> void:
 		b.root.visible = true
 		b.root.position = cam.unproject_position(wp)
 		b.fill.size.x = 90 * clamp(c.hp / c.max_hp, 0.0, 1.0)
-		var hearts := "♥ ".repeat(c.lives).strip_edges() if m.mode == "deathmatch" else ""
+		var hearts := "♥ ".repeat(c.lives).strip_edges() if m.is_dm() or c.human else ""
 		if b.lives.text != hearts:
 			b.lives.text = hearts
 
@@ -582,4 +597,5 @@ func _draw_minimap() -> void:
 			var r := Vector2(f.y, -f.x)
 			c.draw_colored_polygon(PackedVector2Array([pos + f * 7, pos - f * 4 + r * 4.5, pos - f * 4 - r * 4.5]), Color("ffd25a"))
 		else:
-			c.draw_circle(pos, 3.5, Color("ffd25a") if car.bounty else UI.BAD)
+			var mate: bool = car.team != 0 and car.team == m.player.team
+			c.draw_circle(pos, 3.5, Color("ffd25a") if car.bounty else (UI.GOOD if mate else (car.color if car.human else UI.BAD)))

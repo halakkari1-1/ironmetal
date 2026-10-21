@@ -44,8 +44,8 @@ func build(m: Dictionary) -> void:
 	_district()
 	_layout()
 	_flush_props()
-	for i in 8:
-		var a := float(i) / 8.0 * TAU + PI / 2
+	for i in 10:   # room for a full multiplayer match
+		var a := float(i) / 10.0 * TAU + PI / 2
 		var sr := half * 0.72
 		spawns.append({"x": cos(a) * sr, "z": sin(a) * sr, "heading": atan2(-cos(a), -sin(a))})
 	for i in 6:

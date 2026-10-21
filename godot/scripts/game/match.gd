@@ -1,7 +1,11 @@
 class_name Match
 extends Node3D
 ## A single match: cars, driving, weapons, specials, AI, pickups, airdrops, map events, and win/lose.
-## Modes: "deathmatch" (last car running, or most kills when time runs out) and "survival" (endless waves).
+## Modes: "deathmatch" (last car running, or most kills when time runs out), "team" (two teams, no friendly fire)
+## and "survival" (endless waves).
+## Multiplayer (net_role "host" / "client"): the host runs everything that decides the game (damage, deaths,
+## pickups, AI, events) and announces each decision as an event; clients replay those events through the same
+## functions to show them, drive their own car locally, and place every other car from the host's snapshots.
 
 signal finished(result: Dictionary)
 
@@ -59,6 +63,16 @@ var _zone_pool := {"toxic": [], "fire": []}
 var _strike_pool: Array = []
 var _sand: GPUParticles3D
 var _stack_fx: Array = []
+var net_role := ""            # "": single player, "host", "client"
+var by_nid := {}              # nid -> Car
+var ranking: Array = []       # final standings, filled when the match ends
+var fight_start := 3.5
+var _nid_next := 1
+var _rid := 0
+var _did := 0
+var _snaps: Array = []        # client: [host_time, {nid: PackedFloat32Array}]
+var _clock := -1.0            # client: estimate of the host's match time
+var _hp_seen := -1.0
 
 
 # ---------- setup ----------
@@ -119,9 +133,14 @@ func start(opts: Dictionary) -> void:
 		_sand = fx.sand_emitter()
 
 	spawns = arena.spawns.duplicate()
-	spawns.shuffle()
-	player = _add_car(opts.car, opts.upgrades, spawns[0], true)
-	if mode == "deathmatch":
+	for s in spawns:
+		_nudge_clear(s, 4)
+	if opts.has("roster"):
+		_start_roster(opts)
+	else:
+		spawns.shuffle()
+		player = _add_car(opts.car, opts.upgrades, spawns[0], true)
+	if mode == "deathmatch" and net_role == "":
 		var pool := Data.CARS.filter(func(c): return c.price <= diff.max_price and c.id != opts.car.id)
 		pool.shuffle()
 		for i in diff.enemies:
@@ -130,17 +149,67 @@ func start(opts: Dictionary) -> void:
 	drop_t = randf_range(18, 26)
 	event_t = randf_range(22, 30)
 	_snap_camera()
-	Sfx.engine_start(opts.car.id)
+	Sfx.engine_start(player.data.id)
 	Sfx.music("match")
 	running = true
+	if net_role != "":
+		state = "waiting"         # until the host has heard from every device
 	hud.on_start(self)
+
+
+## Multiplayer: every device builds the same cars in the same order from the host's roster.
+func _start_roster(opts: Dictionary) -> void:
+	net_role = opts.role
+	for e in opts.roster:
+		var d := Data.car(e.car)
+		var bot: bool = e.bot
+		var ups: Dictionary = _lvl(diff.level) if bot else (e.ups if opts.get("upgrades", true) else _lvl(0))
+		var c := _add_car(d, ups, spawns[int(e.spawn) % spawns.size()], not bot and int(e.peer) == opts.me, 1.0, not bot, int(e.nid))
+		c.peer = int(e.peer)
+		c.pname = "" if bot else str(e.name)
+		c.team = int(e.team)
+		c.color = Color(e.color) if e.has("color") else Color.WHITE
+		if c.is_player:
+			player = c
+	if player == null:         # should not happen; watch the first car rather than crash
+		player = cars[0]
+
+
+func auth() -> bool:
+	return net_role != "client"
+
+
+func is_dm() -> bool:
+	return mode == "deathmatch" or mode == "team"
+
+
+func humans() -> Array:
+	return cars.filter(func(c): return c.human)
+
+
+## Host only: tells every client about something the host just decided.
+func _ev(name: String, args: Array = []) -> void:
+	if net_role == "host":
+		Net.send_event(name, args)
+
+
+func _nid_of(c: Car) -> int:
+	return c.nid if c else 0
+
+
+func car_by(nid: int) -> Car:
+	return by_nid.get(nid)
+
+
+func foes(a: Car, b: Car) -> bool:
+	return a != b and (a.team == 0 or a.team != b.team)
 
 
 func _lvl(l: int) -> Dictionary:
 	return {"gun": l, "rocket": l, "armor": l, "speed": l, "special": l}
 
 
-func _add_car(d: Dictionary, upgrades: Dictionary, spawn: Dictionary, is_player: bool, hp_mul := 1.0) -> Car:
+func _add_car(d: Dictionary, upgrades: Dictionary, spawn: Dictionary, is_player: bool, hp_mul := 1.0, human := is_player, nid := 0) -> Car:
 	if not _scenes.has(d.id):
 		_scenes[d.id] = load("res://assets/cars/%s.glb" % d.id)
 	var c := Car.new()
@@ -148,17 +217,21 @@ func _add_car(d: Dictionary, upgrades: Dictionary, spawn: Dictionary, is_player:
 	c.setup(d, _scenes[d.id])
 	c.attach_fx(fx)
 	c.is_player = is_player
+	c.human = human
+	c.nid = nid if nid > 0 else _nid_next
+	_nid_next = max(_nid_next, c.nid + 1)
+	by_nid[c.nid] = c
 	c.stats = Data.car_stats(d, upgrades)
-	if not is_player:
+	if not human:
 		c.stats.hp = round(c.stats.hp * diff.hp * hp_mul)
 	c.hp = c.stats.hp
 	c.max_hp = c.stats.hp
 	c.x = spawn.x
 	c.z = spawn.z
 	c.heading = spawn.heading
-	c.lives = 1 if (mode == "survival" and not is_player) else LIVES
-	c.dmg_mul = 1.0 if is_player else diff.dmg
-	if not is_player:
+	c.lives = 1 if (mode == "survival" and not human) else LIVES
+	c.dmg_mul = 1.0 if human else diff.dmg
+	if not human:
 		c.ai = {"target": null, "retarget": 0.0, "stuck": 0.0, "reverse_t": 0.0, "rocket_t": randf_range(2, 4),
 			"strafe": 1.0 if randf() < 0.5 else -1.0, "special_t": randf_range(3, 6)}
 	c.position = Vector3(c.x, 0, c.z)
@@ -321,12 +394,34 @@ func set_input(t: float, s: float, f: bool) -> void:
 
 func player_rocket() -> void:
 	if state == "fight" and player.alive:
-		fire_rocket(player)
+		if net_role == "client":
+			if player.rockets <= 0 and player.power.is_empty():
+				Sfx.play("denied")
+			else:
+				Net.send_button("rocket")
+		else:
+			fire_rocket(player)
 
 
 func player_special() -> void:
 	if state == "fight" and player.alive:
-		use_special(player)
+		if net_role == "client":
+			if player.special_cd > 0 or player.special_on != "":
+				Sfx.play("denied")
+			else:
+				Net.send_button("special")
+		else:
+			use_special(player)
+
+
+## Host: a button pressed on another device.
+func remote_button(c: Car, what: String) -> void:
+	if state != "fight" or not c.alive:
+		return
+	if what == "rocket":
+		fire_rocket(c)
+	elif what == "special":
+		use_special(c)
 
 
 func cycle_camera() -> String:
@@ -351,7 +446,9 @@ func _process(dt_real: float) -> void:
 		_later = _later.filter(func(e): return e[0] > time)
 		for e in due:
 			e[1].call()
-	if state == "countdown":
+	if state == "waiting":
+		pass
+	elif state == "countdown":
 		var before := ceili(countdown)
 		countdown -= dt
 		var now := ceili(countdown)
@@ -360,14 +457,15 @@ func _process(dt_real: float) -> void:
 			Sfx.play("count_go" if now == 0 else "count")
 		if countdown <= 0:
 			state = "fight"
-			if mode == "survival":
+			fight_start = time
+			if mode == "survival" and auth():
 				_next_wave()
 	var active := state == "fight" or state == "ending"
 	for c in cars:
 		if not c.alive:
 			_update_wreck(c, dt)
 			c.update_fx(map.id == "dustbowl")
-			if c.respawn_t > 0 and state == "fight":
+			if c.respawn_t > 0 and state == "fight" and auth():
 				c.respawn_t -= dt
 				if c.respawn_t <= 0:
 					_respawn(c)
@@ -375,18 +473,23 @@ func _process(dt_real: float) -> void:
 		if c.invuln > 0:
 			c.invuln -= dt
 			c.visible = c.invuln <= 0 or int(c.invuln * 10) % 2 == 0
-		if active and not c.is_player:
-			_think(c, dt)
-		if not active:
-			c.throttle = 0
-			c.steer = 0
-			c.firing = false
-		_drive(c, dt)
+		if net_role == "client" and not c.is_player:
+			_pose_remote(c, dt)
+		else:
+			if active and not c.human:
+				_think(c, dt)
+			if not active:
+				c.throttle = 0
+				c.steer = 0
+				c.firing = false
+			_drive(c, dt)
 		_weapons(c, dt)
 		c.update_fx(map.id == "dustbowl")
 		if c.crown:
 			c.crown.rotation.y += dt * 2
 	_collide_cars()
+	if net_role == "client":
+		_reconcile(dt)
 	wrecks = wrecks.filter(func(w):
 		w.t += dt
 		if w.t > 7:
@@ -403,12 +506,14 @@ func _process(dt_real: float) -> void:
 	if state == "fight":
 		_update_drops(dt)
 		_update_events(dt)
-		if mode == "survival":
+		if mode == "survival" and auth():
 			_update_waves(dt)
 	_update_camera(dt)
-	Sfx.engine_set(player.throttle, player.speed / player.stats.max_speed, dt)
-	if state == "fight":
+	Sfx.engine_set(player.throttle if player.alive else 0.0, player.speed / player.stats.max_speed, dt)
+	if state == "fight" and auth():
 		_check_end()
+	if net_role != "":
+		Net.tick(self, dt_real)
 	if state == "ending":
 		end_t -= dt
 		if end_t <= 0:
@@ -418,51 +523,80 @@ func _process(dt_real: float) -> void:
 
 # ---------- survival waves ----------
 
+## Host / single player: picks the next wave's cars, then shows it (clients get the same list).
 func _next_wave() -> void:
-	wave += 1
-	stats.wave = wave
-	var n: int = min(1 + int(wave * 0.7), 7)
+	var w := wave + 1
+	var n: int = min(1 + int(w * 0.7) + max(0, humans().size() - 1), 9)
 	var tiers := [1500, 2500, 3500, 4500, 99999]
-	var cap: int = tiers[min(tiers.size() - 1, (wave - 1) / 2)]
+	var cap: int = tiers[min(tiers.size() - 1, (w - 1) / 2)]
 	var pool := Data.CARS.filter(func(c): return c.price <= cap)
-	var lvl: int = min(5, (wave - 1) / 2)
-	diff.dmg = min(1.05, 0.38 + wave * 0.055)
+	var lvl: int = min(5, (w - 1) / 2)
+	var hs := humans().filter(func(c): return c.alive)
+	var ref: Car = hs[0] if hs.size() else player
 	var far := spawns.duplicate()
-	far.sort_custom(func(a, b): return Vector2(a.x - player.x, a.z - player.z).length() > Vector2(b.x - player.x, b.z - player.z).length())
-	cars = cars.filter(func(c):
-		if not c.alive and not c.is_player:
-			c.queue_free()
-			return false
-		return true)
+	far.sort_custom(func(a, b): return Vector2(a.x - ref.x, a.z - ref.z).length() > Vector2(b.x - ref.x, b.z - ref.z).length())
+	var list: Array = []
 	for i in n:
 		var s: Dictionary = far[i % far.size()]
-		var c := _add_car(pool.pick_random(), _lvl(lvl), {"x": s.x + randf_range(-3, 3), "z": s.z + randf_range(-3, 3), "heading": s.heading}, false, 0.68 + wave * 0.05)
-		c.dmg_mul = diff.dmg
-	if wave % 3 == 0:
-		var alive := cars.filter(func(c): return c.alive and not c.is_player)
+		list.append([_nid_next + i, pool.pick_random().id, s.x + randf_range(-3, 3), s.z + randf_range(-3, 3), s.heading, lvl])
+	_wave_start(w, list)
+	_ev("wave", [w, list])
+	if w % 3 == 0:
+		var alive := cars.filter(func(c): return c.alive and not c.human)
 		if alive.size():
 			set_bounty(alive.pick_random(), false)
+
+
+func _wave_start(w: int, list: Array) -> void:
+	wave = w
+	stats.wave = wave
+	diff.dmg = min(1.05, 0.38 + wave * 0.055)
+	var gone := cars.filter(func(c): return not c.alive and not c.human)
+	cars = cars.filter(func(c): return not gone.has(c))
+	for c in gone:   # wrecks from the last wave: out of the fight now, freed once nothing in flight can point at them
+		by_nid.erase(c.nid)
+		c.visible = false
+		later(12.0, c.queue_free)
+	for c in cars:
+		if c.last_attacker in gone:
+			c.last_attacker = null
+		if not c.ai.is_empty() and c.ai.target in gone:
+			c.ai.target = null
+	for e in list:
+		var c := _add_car(Data.car(e[1]), _lvl(int(e[5])), {"x": e[2], "z": e[3], "heading": e[4]}, false, 0.68 + wave * 0.05, false, int(e[0]))
+		c.dmg_mul = diff.dmg
+		if net_role != "":
+			c.team = 2
 	hud.ensure_enemy_bars(self)
-	hud.announce(I18n.t("WAVE {n}", {"n": wave}), I18n.t("{n} hostiles inbound", {"n": n}), "red")
+	hud.announce(I18n.t("WAVE {n}", {"n": wave}), I18n.t("{n} hostiles inbound", {"n": list.size()}), "red")
 	Sfx.play("alarm")
 
 
 func _update_waves(dt: float) -> void:
-	var left := cars.filter(func(c): return not c.is_player and _in_play(c)).size()
-	if left > 0 or not player.alive:
+	var left := cars.filter(func(c): return not c.human and _in_play(c)).size()
+	if left > 0 or humans().filter(func(c): return c.alive).is_empty():
 		return
 	if break_t <= 0:
 		break_t = 5
-		player.hp = min(player.max_hp, player.hp + player.max_hp * 0.35)
-		player.rockets = min(12, player.rockets + 4)
-		fx.heal(Vector3(player.x, 0, player.z))
-		Sfx.play("pickup")
-		var pts := 40 + wave * 15
-		stats.bonus.append({"label": "Wave {n} cleared", "n": wave, "pts": pts})
-		hud.announce(I18n.t("WAVE {n} CLEARED", {"n": wave}), I18n.t("+{n} · armor patched", {"n": pts}), "green")
+		_wave_clear(wave)
+		_ev("wave_clear", [wave])
 	break_t -= dt
 	if break_t <= 0:
 		_next_wave()
+
+
+## Every person still in the fight is patched up; each device pays its own player the wave bonus.
+func _wave_clear(w: int) -> void:
+	for c in humans():
+		if c.alive:
+			if auth():
+				c.hp = min(c.max_hp, c.hp + c.max_hp * 0.35)
+				c.rockets = min(12, c.rockets + 4)
+			fx.heal(Vector3(c.x, 0, c.z))
+	Sfx.play("pickup")
+	var pts := 40 + w * 15
+	stats.bonus.append({"label": "Wave {n} cleared", "n": w, "pts": pts})
+	hud.announce(I18n.t("WAVE {n} CLEARED", {"n": w}), I18n.t("+{n} · armor patched", {"n": pts}), "green")
 
 
 func _in_play(c: Car) -> bool:
@@ -494,7 +628,7 @@ func _drive(c: Car, dt: float) -> void:
 	if not ram and not dash and c.speed > s.max_speed * (1.75 if nitro else 1.0) * slow:
 		c.speed -= (c.speed - s.max_speed * slow) * 2 * dt
 	# steering eases in and out instead of snapping, which keeps the car stable on a touch stick
-	c.steer_s += (c.steer - c.steer_s) * min(1.0, dt * (20.0 if c.is_player else 12.0))
+	c.steer_s += (c.steer - c.steer_s) * min(1.0, dt * (20.0 if c.human else 12.0))
 	var turn_scale: float = clamp(c.speed / 4.0, -1.0, 1.0) * (1.0 - 0.3 * clamp(abs(c.speed) / max_s, 0.0, 1.0))
 	c.heading = wrapf(c.heading + c.steer_s * s.turn * 1.15 * turn_scale * dt + (c.skid_spin * min(1.0, c.skid_t) * dt if c.skid_t > 0 else 0.0), -PI, PI)
 	var f := c.forward()
@@ -628,11 +762,14 @@ func _bump(c: Car) -> void:
 
 
 func _collide_cars() -> void:
+	var client := not auth()
 	for i in cars.size():
 		for j in range(i + 1, cars.size()):
 			var a := cars[i]
 			var b := cars[j]
 			if not a.alive and not b.alive:
+				continue
+			if client and a != player and b != player:
 				continue
 			if a.y > 2 or b.y > 2:
 				continue
@@ -647,6 +784,9 @@ func _collide_cars() -> void:
 			var push := mn - d
 			var ma: float = a.stats.mass if a.alive else 50.0
 			var mb: float = b.stats.mass if b.alive else 50.0
+			if client:   # the other car is placed by the host: only our own car gives way
+				ma = 0.0 if b == player else 1.0
+				mb = 1.0 - ma
 			var tot := ma + mb
 			a.x -= nx * push * (mb / tot)
 			a.z -= nz * push * (mb / tot)
@@ -658,15 +798,16 @@ func _collide_cars() -> void:
 				var q: Car = pair[1]
 				if not p.alive or not q.alive:
 					continue
-				if p.special_on == "ram" and not p.rammed.has(q):
+				if p.special_on == "ram" and not p.rammed.has(q) and not client and foes(p, q):
 					p.rammed[q] = true
+					_ev("fx", ["ram", (a.x + b.x) / 2, (a.z + b.z) / 2])
 					damage(q, 48 * p.stats.special_power * p.dmg_mul, p, false, "ram")
 					q.kx += nx * pair[2] * 30
 					q.kz += nz * pair[2] * 30
 					fx.explosion(Vector3((a.x + b.x) / 2, 0, (a.z + b.z) / 2), 0.45)
 					Sfx.explosion(q.position, 0.5)
 					shake = max(shake, 0.5)
-			if rel > 22:
+			if rel > 22 and not client:
 				if a.alive:
 					damage(a, rel * 0.08, b, false, "crash")
 				if b.alive:
@@ -717,11 +858,18 @@ func _weapons(c: Car, dt: float) -> void:
 		c.gun_cd = 0.09
 
 
+## Who a car shoots at: aim assist for people, the AI's chosen target for bots.
+func target_of(c: Car, rng: float, cone: float) -> Car:
+	if c.human or c.ai.is_empty():
+		return aim_at(c, rng, cone)
+	return c.ai.target
+
+
 func aim_at(c: Car, rng: float, cone: float) -> Car:
 	var best: Car = null
 	var best_score := INF
 	for o in cars:
-		if o == c or not o.alive or o.hide_t > 0:
+		if not foes(c, o) or not o.alive or o.hide_t > 0:
 			continue
 		var dx := o.x - c.x
 		var dz := o.z - c.z
@@ -743,7 +891,7 @@ func _fire_gun(c: Car) -> void:
 	c.muzzle_i += 1
 	var m := c.world_point(local)
 	var dir := c.heading
-	var t: Car = aim_at(c, 55, 0.32) if c.is_player else c.ai.target
+	var t: Car = target_of(c, 55, 0.32)
 	if t and t.alive:
 		var dist := Vector2(t.x - c.x, t.z - c.z).length()
 		var lead := dist / BULLET_SPEED
@@ -752,7 +900,7 @@ func _fire_gun(c: Car) -> void:
 		var want := atan2(tx - m.x, tz - m.z)
 		if abs(wrapf(want - c.heading, -PI, PI)) < 0.45:
 			dir = want
-	var spread: float = 0.03 if c.is_player else 0.03 + (1 - diff.accuracy) * 0.16
+	var spread: float = 0.03 if c.human else 0.03 + (1 - diff.accuracy) * 0.16
 	dir += randf_range(-spread, spread)
 	if bullets.size() < MAX_BULLETS:
 		bullets.append({"x": m.x, "y": m.y, "z": m.z, "dx": sin(dir), "dz": cos(dir), "life": 0.5, "owner": c, "dmg": c.stats.gun_dmg * c.dmg_mul})
@@ -763,6 +911,8 @@ func _fire_gun(c: Car) -> void:
 
 
 func fire_rocket(c: Car, opts := {}) -> void:
+	if not auth():
+		return  # clients see the rocket when the host announces it
 	if not c.power.is_empty() and not opts.get("free", false):
 		_fire_power(c)
 		return
@@ -776,14 +926,28 @@ func fire_rocket(c: Car, opts := {}) -> void:
 	var m := c.world_point(c.rocket_muzzle)
 	var dir: float = c.heading + opts.get("offset", 0.0)
 	if not opts.has("offset"):
-		var t: Car = aim_at(c, 70, 0.4) if c.is_player else c.ai.target
+		var t: Car = target_of(c, 70, 0.4)
 		if t and t.alive:
 			var want := atan2(t.x - m.x, t.z - m.z)
 			if abs(wrapf(want - c.heading, -PI, PI)) < 0.5:
 				dir = want
-		if not c.is_player:
+		if not c.human:
 			dir += randf_range(-1, 1) * (1 - diff.accuracy) * 0.2
 	var kind: String = opts.get("kind", "rocket")
+	var big := kind == "nuke" or kind == "shell"
+	var speed: float = opts.get("speed", 34.0 if big else 52.0)
+	var dmg: float = opts.get("dmg", c.stats.rocket_dmg * c.dmg_mul * opts.get("dmg_mul", 1.0))
+	var radius: float = opts.get("radius", c.stats.rocket_radius)
+	var homing: Car = opts.get("homing", null)
+	var y: float = max(1.2, m.y)
+	if _launch(c, m.x, y, m.z, dir, kind, speed, radius, dmg, homing, _rid).is_empty():
+		return
+	_ev("rocket", [c.nid, m.x, y, m.z, dir, kind, speed, radius, dmg, _nid_of(homing), _rid])
+	_rid += 1
+
+
+## Puts a rocket in flight (the host's own, or one the host announced).
+func _launch(c: Car, x: float, y: float, z: float, dir: float, kind: String, speed: float, radius: float, dmg: float, homing: Car, rid: int) -> Dictionary:
 	var big := kind == "nuke" or kind == "shell"
 	var r: Dictionary = {}
 	for item in _rocket_pool:
@@ -791,7 +955,7 @@ func fire_rocket(c: Car, opts := {}) -> void:
 			r = item
 			break
 	if r.is_empty():
-		return
+		return r
 	r.busy = true
 	var sc := 2.5 if big else 1.0
 	r.node.scale = Vector3.ONE * sc
@@ -799,11 +963,11 @@ func fire_rocket(c: Car, opts := {}) -> void:
 	r.tm.albedo_color = Color("ff2a1a") if kind == "shell" else (Color("ffd23a") if big else Color("ff3d1f"))
 	r.node.visible = true
 	r.trail.emitting = true
-	r.merge({"x": m.x, "y": max(1.2, m.y), "z": m.z, "dir": dir, "speed": opts.get("speed", 34.0 if big else 52.0), "life": 3.5 if big else 2.4,
-		"owner": c, "kind": kind, "dmg": opts.get("dmg", c.stats.rocket_dmg * c.dmg_mul * opts.get("dmg_mul", 1.0)),
-		"radius": opts.get("radius", c.stats.rocket_radius), "homing": opts.get("homing", null), "warned": false, "hit_sound": false}, true)
+	r.merge({"x": x, "y": y, "z": z, "dir": dir, "speed": speed, "life": 3.5 if big else 2.4,
+		"owner": c, "kind": kind, "dmg": dmg, "radius": radius, "homing": homing, "warned": false, "hit_sound": false, "rid": rid}, true)
 	rockets.append(r)
-	Sfx.rocket(m, big, 1.0 if c.is_player else 0.8)
+	Sfx.rocket(Vector3(x, y, z), big, 1.0 if c.is_player else 0.8)
+	return r
 
 
 func _fire_power(c: Car) -> void:
@@ -816,7 +980,7 @@ func _fire_power(c: Car) -> void:
 	elif p.type == "napalm":
 		fire_rocket(c, {"free": true, "kind": "napalm", "dmg_mul": 0.8})
 	else:
-		fire_rocket(c, {"free": true, "kind": "nuke", "dmg": 170.0 * (1.0 if c.is_player else c.dmg_mul), "radius": 18.0})
+		fire_rocket(c, {"free": true, "kind": "nuke", "dmg": 170.0 * (1.0 if c.human else c.dmg_mul), "radius": 18.0})
 	p.ammo -= 1
 	if p.ammo <= 0:
 		c.power = {}
@@ -826,7 +990,7 @@ func _fire_power(c: Car) -> void:
 
 func _railgun(c: Car) -> void:
 	var m := c.world_point(c.rocket_muzzle)
-	var t: Car = aim_at(c, 95, 0.35) if c.is_player else c.ai.target
+	var t: Car = target_of(c, 95, 0.35)
 	var dir := c.heading
 	if t and t.alive:
 		var want := atan2(t.x - m.x, t.z - m.z)
@@ -850,7 +1014,7 @@ func _railgun(c: Car) -> void:
 				damage_obstacle(o, 99, c)
 			break
 		for q in cars:
-			if q != c and q.alive and Vector2(q.x - px, q.z - pz).length() < q.hit_r:
+			if foes(c, q) and q.alive and Vector2(q.x - px, q.z - pz).length() < q.hit_r:
 				hit = q
 				break
 		if hit:
@@ -858,13 +1022,18 @@ func _railgun(c: Car) -> void:
 			break
 		s += 0.8
 	var e := Vector3(m.x + dx * end, 1.5, m.z + dz * end)
+	_rail_fx(c, m, e)
+	_ev("rail", [c.nid, m.x, m.y, m.z, e.x, e.z])
+	if hit:
+		damage(hit, 68.0 * (1.0 if c.human else c.dmg_mul), c, false, "railgun")
+		hit.kx += dx * 18
+		hit.kz += dz * 18
+
+
+func _rail_fx(c: Car, m: Vector3, e: Vector3) -> void:
 	fx.line(m, e, 0.35, Color(0.4, 0.75, 1.6), 0.22, 1.0)
 	fx.light(e + Vector3.UP * 0.5, 4.0, Color(0.4, 0.7, 1))
 	fx.spark(e, true)
-	if hit:
-		damage(hit, 68.0 * (1.0 if c.is_player else c.dmg_mul), c, false, "railgun")
-		hit.kx += dx * 18
-		hit.kz += dz * 18
 	Sfx.play_at("railgun", m)
 	if c.is_player:
 		shake = max(shake, 0.3)
@@ -872,17 +1041,19 @@ func _railgun(c: Car) -> void:
 
 func _near(c: Car, r: float, cone := PI) -> Array:
 	return cars.filter(func(o):
-		if o == c or not o.alive:
+		if not foes(c, o) or not o.alive:
 			return false
 		var d := Vector2(o.x - c.x, o.z - c.z).length()
 		return d < r + o.hit_r and abs(wrapf(atan2(o.x - c.x, o.z - c.z) - c.heading, -PI, PI)) <= cone)
 
 
-func use_special(c: Car) -> bool:
-	if c.special_cd > 0 or c.special_on != "" or c.skid_t > 0:
+## `replay`: a client showing an ability the host already allowed.
+func use_special(c: Car, replay := false) -> bool:
+	if not replay and (c.special_cd > 0 or c.special_on != "" or c.skid_t > 0):
 		if c.is_player:
 			Sfx.play("denied")
 		return false
+	_ev("special", [c.nid])
 	var spec: Dictionary = c.data.special
 	var pw: float = c.stats.special_power
 	c.special_cd = c.stats.special_cooldown
@@ -899,7 +1070,7 @@ func use_special(c: Car) -> bool:
 			fx.smoke_burst(c.position - f * 3)
 			_ensure_trail(c, "smoke")
 			for o in cars:
-				if not o.ai.is_empty() and o.ai.target == c:
+				if not o.ai.is_empty() and o.ai.target == c and foes(o, c):
 					o.ai.target = null
 					o.ai.retarget = c.hide_t
 		"dash":  # Venom: double speed, half damage taken
@@ -955,13 +1126,13 @@ func use_special(c: Car) -> bool:
 				shake = max(shake, 0.5)
 		"shell":  # Blood Titan: slow heavy shell, its path drawn in red so it can be dodged
 			var dir := c.heading
-			var t: Car = aim_at(c, 80, 0.3) if c.is_player else c.ai.target
+			var t: Car = target_of(c, 80, 0.3)
 			if t and t.alive:
 				var want := atan2(t.x - c.x, t.z - c.z)
 				if abs(wrapf(want - c.heading, -PI, PI)) < 0.35:
 					dir = want
 			fire_rocket(c, {"free": true, "kind": "shell", "offset": wrapf(dir - c.heading, -PI, PI), "speed": 30.0,
-				"dmg": 85 * pw * (1.0 if c.is_player else c.dmg_mul), "radius": rad})
+				"dmg": 85 * pw * (1.0 if c.human else c.dmg_mul), "radius": rad})
 			var a := Vector3(c.x, 0.08, c.z)
 			fx.line(a, a + Vector3(sin(dir), 0, cos(dir)) * 70, 0.7, Color(1, 0.16, 0.1), 1.6, 0.55)
 			fx.light(c.position + f * 3 + Vector3.UP * 2.5, 6.0)
@@ -1053,7 +1224,7 @@ func _update_rockets(dt: float) -> void:
 	for r in rockets:
 		r.life -= dt
 		var hm = r.homing
-		if hm and hm.alive and hm.hide_t <= 0 and r.life < 2.2:
+		if hm and is_instance_valid(hm) and hm.alive and hm.hide_t <= 0 and r.life < 2.2:
 			var want := atan2(hm.x - r.x, hm.z - r.z)
 			r.dir += clamp(wrapf(want - r.dir, -PI, PI), -3 * dt, 3 * dt)
 		var step: float = r.speed * dt
@@ -1068,24 +1239,38 @@ func _update_rockets(dt: float) -> void:
 		var boom: bool = r.life <= 0 or abs(r.x) > arena.half - 0.8 or abs(r.z) > arena.half - 0.8
 		if not boom:
 			for c in cars:
-				if c != r.owner and c.alive and Vector2(c.x - r.x, c.z - r.z).length() < c.hit_r + 0.4:
+				if foes(r.owner, c) and c.alive and Vector2(c.x - r.x, c.z - r.z).length() < c.hit_r + 0.4:
 					boom = true
 					break
 		if not boom and not hit_obstacle(r.x, r.y, r.z).is_empty():
 			boom = true
+		if not auth():
+			boom = r.life < -1.0   # the host says where it lands; this only cleans up a lost message
+			if boom:
+				_free_rocket(r)
+				continue
 		if boom:
-			r.node.visible = false
-			r.trail.emitting = false
-			r.busy = false
-			if r.kind == "nuke":
-				_nuke_blast(r.x, r.z, r.radius, r.dmg, r.owner)
-			else:
-				explode(r.x, r.z, r.radius, r.dmg, r.owner, 1.5 if r.kind == "shell" else 0.8, "special" if (r.homing or r.kind == "shell") else "rocket", r.get("hit_sound", false))
-				if r.kind == "napalm":
-					_add_zone(r.x, r.z, 7, 6, 20 * r.owner.dmg_mul, r.owner, "fire")
+			_ev("rk_end", [r.rid, r.x, r.z])
+			_rocket_boom(r)
 		else:
 			keep.append(r)
 	rockets = keep
+
+
+func _free_rocket(r: Dictionary) -> void:
+	r.node.visible = false
+	r.trail.emitting = false
+	r.busy = false
+
+
+func _rocket_boom(r: Dictionary) -> void:
+	_free_rocket(r)
+	if r.kind == "nuke":
+		_nuke_blast(r.x, r.z, r.radius, r.dmg, r.owner)
+	else:
+		explode(r.x, r.z, r.radius, r.dmg, r.owner, 1.5 if r.kind == "shell" else 0.8, "special" if (r.homing or r.kind == "shell") else "rocket", r.get("hit_sound", false))
+		if r.kind == "napalm":
+			_add_zone(r.x, r.z, 7, 6, 20 * r.owner.dmg_mul, r.owner, "fire")
 
 
 ## "Wheeeew... boom": an enemy rocket on course to hit the player whistles in, timed to land with the impact.
@@ -1134,8 +1319,10 @@ func explode(x: float, z: float, radius: float, dmg: float, owner: Car, size := 
 			Sfx.explosion(Vector3(x, 1, z), size)
 		var pd := Vector2(player.x - x, player.z - z).length()
 		shake = max(shake, clamp(1 - pd / 45, 0.0, 1.0) * 0.7 * size)
+	if not auth():
+		return
 	for c in cars:
-		if not c.alive:
+		if not c.alive or (owner and c != owner and not foes(owner, c)):
 			continue
 		var d := Vector2(c.x - x, c.z - z).length()
 		if d > radius + c.hit_r:
@@ -1151,13 +1338,14 @@ func explode(x: float, z: float, radius: float, dmg: float, owner: Car, size := 
 			later(0.09 + randf() * 0.12, func(): damage_obstacle(o, 99, owner))
 
 
-func damage_obstacle(o: Dictionary, dmg: float, by: Car) -> void:
-	if o.get("dead", false) or not running:
+func damage_obstacle(o: Dictionary, dmg: float, by: Car, forced := false) -> void:
+	if o.get("dead", false) or not running or (not auth() and not forced):
 		return
 	o.hp -= dmg
-	if o.hp > 0:
+	if o.hp > 0 and not forced:
 		return
 	o.dead = true
+	_ev("barrel", [arena.obstacles.find(o), _nid_of(by)])
 	arena.hide_barrel(o)
 	if by and by.is_player:
 		stats.barrels += 1
@@ -1201,35 +1389,47 @@ func _update_zones(dt: float) -> void:
 # ---------- pickups and airdrops ----------
 
 func _update_pickups(dt: float) -> void:
-	for p in pickups:
+	for i in pickups.size():
+		var p: Dictionary = pickups[i]
 		if p.respawn > 0:
 			p.respawn -= dt
 			p.node.visible = p.respawn <= 0
 			continue
 		p.node.rotation.y += dt * 1.6
 		p.node.position.y = 1.4 + sin(time * 3 + p.x) * 0.25
+		if not auth():
+			continue
 		for c in cars:
 			if not c.alive or Vector2(c.x - p.x, c.z - p.z).length() > 3:
 				continue
-			if p.type == "health":
-				if c.hp >= c.max_hp:
-					continue
-				c.hp = min(c.max_hp, c.hp + c.max_hp * 0.4)
-				fx.heal(c.position)
-			else:
-				if c.rockets >= 12:
-					continue
-				c.rockets = min(12, c.rockets + 4)
-			if c.is_player:
-				Sfx.play("pickup")
-				hud.toast(I18n.t("+ ARMOR REPAIRED" if p.type == "health" else "+4 ROCKETS"))
-			p.respawn = 16.0
-			p.node.visible = false
+			if (p.type == "health" and c.hp >= c.max_hp) or (p.type != "health" and c.rockets >= 12):
+				continue
+			_take_pickup(p, c)
+			_ev("pickup", [i, c.nid])
 			break
 
 
-func _spawn_drop() -> void:
-	var s := _nudge_clear({"x": randf_range(-0.6, 0.6) * arena.half, "z": randf_range(-0.6, 0.6) * arena.half}, 4)
+func _take_pickup(p: Dictionary, c: Car) -> void:
+	if p.type == "health":
+		c.hp = min(c.max_hp, c.hp + c.max_hp * 0.4)
+		fx.heal(c.position)
+	else:
+		c.rockets = min(12, c.rockets + 4)
+	if c.is_player:
+		Sfx.play("pickup")
+		hud.toast(I18n.t("+ ARMOR REPAIRED" if p.type == "health" else "+4 ROCKETS"))
+	p.respawn = 16.0
+	p.node.visible = false
+
+
+func _spawn_drop(at := {}, type := "", did := -1) -> void:
+	var s: Dictionary = at if not at.is_empty() else _nudge_clear({"x": randf_range(-0.6, 0.6) * arena.half, "z": randf_range(-0.6, 0.6) * arena.half}, 4)
+	if type == "":
+		type = Data.POWERS.keys().pick_random()
+	if did < 0:
+		did = _did
+		_did += 1
+	_ev("drop", [did, s.x, s.z, type])
 	var g := Node3D.new()
 	g.position = Vector3(s.x, 40, s.z)
 	var crate := prop_model("dropcrate", 2.5)
@@ -1242,17 +1442,17 @@ func _spawn_drop() -> void:
 	var beacon := fx.beacon_emitter()
 	beacon.global_position = Vector3(s.x, 1.2, s.z)
 	beacon.emitting = true
-	var type: String = Data.POWERS.keys().pick_random()
-	drops.append({"x": s.x, "z": s.z, "y": 40.0, "ground": ch / 2 + 0.05, "node": g, "chute": chute, "landed": false, "type": type, "beacon": beacon})
+	drops.append({"id": did, "x": s.x, "z": s.z, "y": 40.0, "ground": ch / 2 + 0.05, "node": g, "chute": chute, "landed": false, "type": type, "beacon": beacon})
 	hud.announce(I18n.t("AIRDROP INCOMING"), I18n.t("Follow the blue smoke"), "blue")
 	Sfx.play("alarm", 0.8)
 
 
 func _update_drops(dt: float) -> void:
-	drop_t -= dt
-	if drop_t <= 0 and drops.size() < 2:
-		drop_t = randf_range(30, 42)
-		_spawn_drop()
+	if auth():
+		drop_t -= dt
+		if drop_t <= 0 and drops.size() < 2:
+			drop_t = randf_range(30, 42)
+			_spawn_drop()
 	var keep: Array = []
 	for d in drops:
 		var taken := false
@@ -1270,23 +1470,31 @@ func _update_drops(dt: float) -> void:
 				Sfx.play_at("crunch", d.node.position)
 		else:
 			d.node.rotation.y += dt
-			for c in cars:
-				if not c.alive or Vector2(c.x - d.x, c.z - d.z).length() > 3.2:
-					continue
-				c.power = {"type": d.type, "ammo": Data.POWERS[d.type].ammo}
-				if c.is_player:
-					stats.airdrops += 1
-					Sfx.play("powerup")
-					hud.announce(I18n.t(Data.POWERS[d.type].name).to_upper(), I18n.t("{p} · rocket button", {"p": I18n.t(Data.POWERS[d.type].desc)}), "blue")
-				elif Vector2(c.x - player.x, c.z - player.z).length() < 70:
-					hud.feed_text(I18n.t("{car} grabbed the {p}", {"car": c.data.name, "p": I18n.t(Data.POWERS[d.type].name)}))
-				d.node.queue_free()
-				d.beacon.emitting = false
-				taken = true
-				break
-		if not taken:
+			if auth():
+				for c in cars:
+					if not c.alive or Vector2(c.x - d.x, c.z - d.z).length() > 3.2:
+						continue
+					_ev("drop_take", [d.id, c.nid])
+					_take_drop(d, c)
+					taken = true
+					break
+		if not taken and not d.get("gone", false):
 			keep.append(d)
 	drops = keep
+
+
+func _take_drop(d: Dictionary, c: Car) -> void:
+	c.power = {"type": d.type, "ammo": Data.POWERS[d.type].ammo}
+	if c.is_player:
+		stats.airdrops += 1
+		Sfx.play("powerup")
+		hud.announce(I18n.t(Data.POWERS[d.type].name).to_upper(), I18n.t("{p} · rocket button", {"p": I18n.t(Data.POWERS[d.type].desc)}), "blue")
+	elif Vector2(c.x - player.x, c.z - player.z).length() < 70:
+		hud.feed_text(I18n.t("{car} grabbed the {p}", {"car": c.label(), "p": I18n.t(Data.POWERS[d.type].name)}))
+	if is_instance_valid(d.node):
+		d.node.queue_free()
+	d.beacon.emitting = false
+	d.gone = true
 
 
 # ---------- map events ----------
@@ -1301,28 +1509,48 @@ func _update_events(dt: float) -> void:
 		arena.env.fog_enabled = storm > 0
 		arena.env.fog_light_color = Color(0.78, 0.63, 0.45)
 		arena.env.fog_density = 0.035 * k
+	if not auth():
+		return
 	event_t -= dt
 	if event_t > 0:
 		return
 	event_t = randf_range(28, 38)
 	match map.event:
 		"artillery":
-			hud.announce(I18n.t("ARTILLERY STRIKE"), I18n.t("Get out of the red circles"), "red")
-			Sfx.play("alarm")
 			var alive := cars.filter(func(c): return c.alive)
+			var list: Array = []
 			for i in 7:
 				var c: Car = alive.pick_random() if i < 4 else null
 				var sx: float = c.x + randf_range(-6, 6) if c else randf_range(-0.8, 0.8) * arena.half
 				var sz: float = c.z + randf_range(-6, 6) if c else randf_range(-0.8, 0.8) * arena.half
-				_add_strike(sx, sz, 6.5, 2.2 + i * 0.25, 48)
+				list.append([sx, sz, 2.2 + i * 0.25])
+			_map_event("artillery", list)
 		"rupture":
 			var tanks := arena.obstacles.filter(func(o): return o.get("tank", false) and not o.get("ruptured", false))
 			if tanks.is_empty():
 				return
 			var t: Dictionary = tanks[0]
+			var hs := humans()
+			var ref: Car = hs.pick_random() if hs.size() else player
 			for o in tanks:
-				if Vector2(o.x - player.x, o.z - player.z).length() < Vector2(t.x - player.x, t.z - player.z).length():
+				if Vector2(o.x - ref.x, o.z - ref.z).length() < Vector2(t.x - ref.x, t.z - ref.z).length():
 					t = o
+			_map_event("rupture", arena.obstacles.find(t))
+		_:
+			_map_event("storm", 0)
+
+
+## A map event the host picked, shown the same way on every device.
+func _map_event(kind: String, data) -> void:
+	_ev("map_event", [kind, data])
+	match kind:
+		"artillery":
+			hud.announce(I18n.t("ARTILLERY STRIKE"), I18n.t("Get out of the red circles"), "red")
+			Sfx.play("alarm")
+			for s in data:
+				_add_strike(s[0], s[1], 6.5, s[2], 48)
+		"rupture":
+			var t: Dictionary = arena.obstacles[int(data)]
 			t.ruptured = true
 			hud.announce(I18n.t("TANK RUPTURE"), I18n.t("A fuel tank is about to blow"), "red")
 			Sfx.play("alarm")
@@ -1381,8 +1609,10 @@ func _update_strikes(dt: float) -> void:
 # ---------- damage and death ----------
 
 func damage(c: Car, amt: float, by: Car, quiet := false, cause := "gun") -> void:
-	if not c.alive or amt <= 0 or state == "countdown" or c.invuln > 0:
+	if not auth() or not c.alive or amt <= 0 or state == "countdown" or c.invuln > 0:
 		return
+	if by and by != c and not foes(by, c):
+		return  # no friendly fire
 	if c.special_on == "shield":
 		amt *= 0.3  # Bulwark: 70% less damage
 	if c.special_on == "dash":
@@ -1403,6 +1633,7 @@ func damage(c: Car, amt: float, by: Car, quiet := false, cause := "gun") -> void
 
 
 func _kill(c: Car) -> void:
+	_ev("kill", [c.nid, _nid_of(c.last_attacker), c.last_cause])
 	c.alive = false
 	c.hp = 0
 	c.death_t = 0
@@ -1430,6 +1661,8 @@ func _kill(c: Car) -> void:
 	if killer:
 		killer.kills += 1
 	hud.feed(killer, c)
+	if c == player and c.lives == 0 and net_role != "" and is_dm():
+		hud.announce(I18n.t("WRECKED"), I18n.t("Out of lives · watching the fight"), "red")
 	if c.is_player:
 		shake = 1.0
 	elif Vector2(c.x - player.x, c.z - player.z).length() < 40:
@@ -1450,7 +1683,7 @@ func _kill(c: Car) -> void:
 			hud.announce(I18n.t(st[0]), I18n.t("+{n} streak bonus", {"n": st[1]}), "gold")
 			Sfx.play("streak")
 		elif not c.bounty:
-			hud.announce(I18n.t("WRECKED"), c.data.name, "kill")
+			hud.announce(I18n.t("WRECKED"), c.label(), "kill")
 	if c.bounty:
 		if killer and killer.is_player:
 			var pts := int(round(100 * diff.get("reward", 1.0)))
@@ -1458,7 +1691,7 @@ func _kill(c: Car) -> void:
 			stats.bonus.append({"label": "Crown claimed", "pts": pts})
 			hud.announce(I18n.t("CROWN CLAIMED"), "+%d" % pts, "gold")
 			Sfx.play("streak")
-		if mode == "survival" or c.lives == 0:
+		if (mode == "survival" or c.lives == 0) and auth():
 			set_bounty(null, false)
 	if c.is_player and c.lives > 0:
 		hud.announce(I18n.t("WRECKED"), I18n.t("Last life · back in 3s" if c.lives == 1 else "{n} lives left · back in 3s", {"n": c.lives}), "red")
@@ -1503,7 +1736,22 @@ func _update_wreck(c: Car, dt: float) -> void:
 
 ## Brings a wrecked car back at the spawn point farthest from its enemies, briefly invulnerable.
 ## The old wreck stays behind, smoulders and sinks away.
-func _respawn(c: Car) -> void:
+func _respawn(c: Car, at := {}) -> void:
+	var best: Dictionary = at
+	if best.is_empty():
+		var foes_ := cars.filter(func(o): return foes(o, c) and o.alive)
+		best = spawns[0]
+		var best_d := -1.0
+		for sp in spawns:
+			var d := 0.0
+			if foes_.size():
+				d = INF
+				for o in foes_:
+					d = min(d, Vector2(o.x - sp.x, o.z - sp.z).length())
+			if d > best_d:
+				best_d = d
+				best = sp
+	_ev("respawn", [c.nid, best.x, best.z, best.heading])
 	var husk := Node3D.new()
 	add_child(husk)
 	husk.global_transform = c.global_transform
@@ -1515,18 +1763,6 @@ func _respawn(c: Car) -> void:
 	smoke.position.y = 1.4
 	smoke.emitting = true
 	wrecks.append({"node": husk, "t": 0.0})
-	var foes := cars.filter(func(o): return o != c and o.alive)
-	var best: Dictionary = spawns[0]
-	var best_d := -1.0
-	for sp in spawns:
-		var d := 0.0
-		if foes.size():
-			d = INF
-			for o in foes:
-				d = min(d, Vector2(o.x - sp.x, o.z - sp.z).length())
-		if d > best_d:
-			best_d = d
-			best = sp
 	c.x = best.x
 	c.z = best.z
 	c.heading = best.heading
@@ -1560,7 +1796,7 @@ func _respawn(c: Car) -> void:
 
 ## The crown always sits on the car with the most kills (ties keep the current holder).
 func _update_leader() -> void:
-	if mode != "deathmatch":
+	if mode != "deathmatch" or not auth():
 		return
 	var pool := cars.filter(func(o): return _in_play(o) and o.kills > 0)
 	if pool.is_empty():
@@ -1582,6 +1818,7 @@ func _update_leader() -> void:
 
 
 func set_bounty(c: Car, announce := true) -> void:
+	_ev("bounty", [_nid_of(c), announce])
 	for o in cars:
 		if o.crown:
 			o.crown.queue_free()
@@ -1597,7 +1834,7 @@ func set_bounty(c: Car, announce := true) -> void:
 		if c.is_player:
 			hud.announce(I18n.t("YOU TAKE THE CROWN"), I18n.t("Every car is hunting you now"), "gold")
 		else:
-			hud.announce(I18n.t("NEW LEADER"), I18n.t("{car} has the most kills", {"car": c.data.name}), "gold")
+			hud.announce(I18n.t("NEW LEADER"), I18n.t("{car} has the most kills", {"car": c.label()}), "gold")
 
 
 # ---------- AI ----------
@@ -1612,15 +1849,20 @@ func _think(c: Car, dt: float) -> void:
 		var best: Car = null
 		var bs := INF
 		for o in cars:
-			if o == c or not o.alive or o.hide_t > 0:
+			if not foes(c, o) or not o.alive or o.hide_t > 0:
 				continue
-			if mode == "survival" and not o.is_player and randf() < 0.85:
+			if mode == "survival" and not o.human and randf() < 0.85:
 				continue
-			var sc: float = Vector2(o.x - c.x, o.z - c.z).length() * (diff.focus if o.is_player else 1.0) * (0.7 if o.hp / o.max_hp < 0.3 else 1.0) * (0.75 if o.bounty else 1.0)
+			var sc: float = Vector2(o.x - c.x, o.z - c.z).length() * (diff.focus if o.human else 1.0) * (0.7 if o.hp / o.max_hp < 0.3 else 1.0) * (0.75 if o.bounty else 1.0)
 			if sc < bs:
 				bs = sc
 				best = o
-		ai.target = best if best else (player if player.alive and player.hide_t <= 0 else null)
+		if best == null:
+			for h in humans():
+				if h.alive and h.hide_t <= 0 and foes(c, h):
+					best = h
+					break
+		ai.target = best
 	var t: Car = ai.target
 	if t == null:
 		c.throttle = 0.3
@@ -1712,8 +1954,24 @@ func base_fov() -> float:
 	return 78.0 if a < 1 else 62.0 + max(0.0, 1.75 - a) * 20.0
 
 
+## The car the camera follows: your own, or (once you are out of a multiplayer match) a car still fighting.
+func view_car() -> Car:
+	if net_role == "" or _in_play(player):
+		return player
+	for c in cars:
+		if c.alive and c.team == player.team and player.team != 0:
+			return c
+	for c in cars:
+		if c.alive and c.human:
+			return c
+	for c in cars:
+		if c.alive:
+			return c
+	return player
+
+
 func _update_camera(dt: float, snap := false) -> void:
-	var p := player
+	var p := view_car()
 	var f := p.forward()
 	var size: float = max(1.0, p.dims.z / 5.2)
 	var mode_ := cam_mode
@@ -1774,6 +2032,9 @@ func _update_camera(dt: float, snap := false) -> void:
 # ---------- end ----------
 
 func _check_end() -> void:
+	if net_role != "":
+		_check_end_net()
+		return
 	var p := player
 	if not p.alive and p.lives == 0:
 		result = "survival" if mode == "survival" else "loss"
@@ -1792,7 +2053,7 @@ func _check_end() -> void:
 		Sfx.play("win")
 		hud.banner(I18n.t("VICTORY"), true)
 		return
-	if time - 3.5 >= TIME_LIMIT:  # time up: most kills wins (a tie goes to the player)
+	if time - fight_start >= TIME_LIMIT:  # time up: most kills wins (a tie goes to the player)
 		var top := 0
 		for c in cars:
 			top = max(top, c.kills)
@@ -1805,7 +2066,11 @@ func _check_end() -> void:
 
 
 func time_left() -> float:
-	return max(0.0, TIME_LIMIT - max(0.0, time - 3.5)) if mode == "deathmatch" else -1.0
+	if not is_dm():
+		return -1.0
+	if state == "waiting" or state == "countdown":
+		return TIME_LIMIT
+	return max(0.0, TIME_LIMIT - (time - fight_start))
 
 
 func _finish() -> void:
@@ -1814,7 +2079,302 @@ func _finish() -> void:
 	over = true
 	running = false
 	Sfx.engine_stop()
-	finished.emit({"result": result, "mode": mode, "kills": player.kills, "time": time, "stats": stats})
+	finished.emit({"result": result, "mode": mode, "kills": player.kills, "time": time, "stats": stats, "ranking": ranking, "net": net_role != ""})
+
+
+# ---------- multiplayer ----------
+
+## Host: decides when a multiplayer match is over and who won.
+func _check_end_net() -> void:
+	var hs := humans()
+	if mode == "survival":
+		if hs.all(func(h): return not _in_play(h)):
+			_end_match({"kind": "survival"})
+		return
+	var left := cars.filter(func(c): return _in_play(c))
+	var time_up := time - fight_start >= TIME_LIMIT
+	if mode == "team":
+		var kills := {}
+		var teams_in := {}
+		for c in cars:
+			kills[c.team] = kills.get(c.team, 0) + c.kills
+			if _in_play(c):
+				teams_in[c.team] = true
+		if teams_in.size() <= 1:
+			_end_match({"kind": "team", "team": teams_in.keys()[0] if teams_in.size() else 0})
+		elif time_up:
+			var a: int = kills.get(1, 0)
+			var b: int = kills.get(2, 0)
+			_end_match({"kind": "team", "team": 1 if a > b else (2 if b > a else 0)})
+		return
+	if left.size() <= 1 or time_up or hs.filter(func(h): return _in_play(h)).is_empty():
+		var best: Car = null
+		for c in cars:   # the last car running; on time up the most kills, still-running cars first on a tie
+			if best == null or (c.kills > best.kills and (time_up or _in_play(c))) or (c.kills == best.kills and _in_play(c) and not _in_play(best)):
+				if time_up or _in_play(c) or best == null:
+					best = c
+		_end_match({"kind": "dm", "winner": _nid_of(best)})
+
+
+## Every device: final standings, then this device's own result for its player.
+func _end_match(info: Dictionary) -> void:
+	if state == "ending":
+		return
+	_ev("end", [info])
+	var order := cars.duplicate()
+	var w: int = info.get("winner", 0)
+	order.sort_custom(func(a, b):
+		if (a.nid == w) != (b.nid == w):
+			return a.nid == w
+		return a.kills > b.kills)
+	ranking = []
+	for c in order:
+		ranking.append({"name": c.label(), "kills": c.kills, "team": c.team, "human": c.human, "me": c == player, "car": c.data.name})
+	var win := false
+	match info.kind:
+		"dm": win = w == player.nid
+		"team": win = int(info.team) == player.team
+	result = "survival" if info.kind == "survival" else ("win" if win else "loss")
+	state = "ending"
+	end_t = 4
+	Sfx.play("win" if win else "lose")
+	if info.kind == "survival":
+		hud.banner(I18n.t("WAVE") + " %d" % wave, false)
+	elif info.kind == "team" and int(info.team) == 0:
+		hud.banner(I18n.t("DRAW"), false)
+	else:
+		hud.banner(I18n.t("VICTORY") if win else I18n.t("DEFEAT"), win)
+
+
+## Host: everyone has loaded the arena; start the countdown on every device.
+func go() -> void:
+	if state != "waiting":
+		return
+	_ev("go")
+	state = "countdown"
+	countdown = 3.5
+
+
+const SNAP_FIELDS := 22
+
+
+## Host: the state of every car, packed for the network.
+func make_snap() -> PackedFloat32Array:
+	var a := PackedFloat32Array()
+	for c in cars:
+		var pw := -1.0
+		if not c.power.is_empty():
+			pw = Data.POWERS.keys().find(c.power.type) * 100 + c.power.ammo
+		a.append_array([c.nid, c.x, c.z, c.heading, c.speed, c.steer_s, c.throttle, 1.0 if c.firing else 0.0, c.hp, c.max_hp,
+			c.lives, c.kills, c.rockets, c.special_cd, c.invuln, c.hide_t, c.slow_t, c.jam_t, c.skid_t, c.kx, c.kz, pw])
+	return a
+
+
+## Client: a snapshot from the host. Positions are kept for smooth playback; everything else applies now.
+func on_snap(t: float, st: String, a: PackedFloat32Array) -> void:
+	var d := {}
+	for i in range(0, a.size() - SNAP_FIELDS + 1, SNAP_FIELDS):
+		d[int(a[i])] = a.slice(i, i + SNAP_FIELDS)
+	if not _snaps.is_empty() and t <= _snaps[-1][0]:
+		return
+	_snaps.append([t, d])
+	if _snaps.size() > 40:
+		_snaps.pop_front()
+	if _clock < 0 or abs(t - _clock) > 0.5:
+		_clock = t
+	else:
+		_clock += (t - _clock) * 0.08
+	if st == "fight" and (state == "waiting" or state == "countdown"):
+		state = "fight"
+		fight_start = time
+	for nid in d:
+		var c: Car = by_nid.get(nid)
+		if c == null:
+			continue
+		var v: PackedFloat32Array = d[nid]
+		if c.alive:
+			c.hp = v[8]
+		c.max_hp = v[9]
+		c.lives = int(v[10])
+		c.kills = int(v[11])
+		c.rockets = int(v[12])
+		c.special_cd = v[13]
+		c.invuln = v[14]
+		c.hide_t = v[15]
+		c.slow_t = v[16]
+		c.jam_t = v[17]
+		c.skid_t = v[18]
+		if v[21] < 0:
+			c.power = {}
+		else:
+			c.power = {"type": Data.POWERS.keys()[int(v[21]) / 100], "ammo": int(v[21]) % 100}
+		if c == player:
+			c.kx = v[19]
+			c.kz = v[20]
+	if player.alive:
+		if _hp_seen >= 0 and player.hp < _hp_seen - 0.5:
+			hud.hurt(_hp_seen - player.hp)
+			Sfx.play("hurt", 0.6)
+		_hp_seen = player.hp
+	else:
+		_hp_seen = -1.0
+
+
+const INTERP := 0.1   # other cars are shown this far in the past, between two snapshots, so they move smoothly
+
+
+func _pose_remote(c: Car, dt: float) -> void:
+	if _snaps.is_empty():
+		return
+	var rt := _clock - INTERP
+	var a: PackedFloat32Array
+	var b: PackedFloat32Array
+	var k := 1.0
+	var i := _snaps.size() - 1
+	while i > 0 and _snaps[i - 1][0] > rt:
+		i -= 1
+	if i == 0 or not _snaps[i - 1][1].has(c.nid) or not _snaps[i][1].has(c.nid):
+		b = _snaps[i][1].get(c.nid, PackedFloat32Array())
+		a = b
+	else:
+		a = _snaps[i - 1][1][c.nid]
+		b = _snaps[i][1][c.nid]
+		var ta: float = _snaps[i - 1][0]
+		var tb: float = _snaps[i][0]
+		k = clamp((rt - ta) / max(0.001, tb - ta), 0.0, 1.0)
+	if b.is_empty():
+		return
+	if Vector2(a[1] - b[1], a[2] - b[2]).length() > 12:   # respawned: jump, don't slide across the arena
+		a = b
+	c.x = lerp(a[1], b[1], k)
+	c.z = lerp(a[2], b[2], k)
+	c.heading = lerp_angle(a[3], b[3], k)
+	if rt > _snaps[-1][0]:   # snapshots late: carry on briefly along the last known motion
+		var ahead: float = min(0.15, rt - _snaps[-1][0])
+		c.x += sin(c.heading) * b[4] * ahead
+		c.z += cos(c.heading) * b[4] * ahead
+	c.speed = b[4]
+	c.steer_s = b[5]
+	c.throttle = b[6]
+	c.firing = b[7] > 0.5
+	c.position = Vector3(c.x, 0, c.z)
+	c.rotation = Vector3(lerp(c.rotation.x, -clamp(c.throttle * 0.04 - (0.02 if c.speed < 0 else 0.0), -0.05, 0.05), 0.1), c.heading,
+		lerp(c.rotation.z, c.steer_s * clamp(c.speed / 30.0, -1.0, 1.0) * 0.06, 0.1))
+
+
+## Client: our own car moves at once from the stick; the host's view of it gently pulls it back in line.
+func _reconcile(dt: float) -> void:
+	_clock += dt
+	if not player.alive or _snaps.is_empty():
+		return
+	var last: Array = _snaps[-1]
+	var v: PackedFloat32Array = last[1].get(player.nid, PackedFloat32Array())
+	if v.is_empty():
+		return
+	var lag: float = clamp(_clock - last[0] + Net.rtt * 0.5, 0.0, 0.35)
+	var hx: float = v[1] + sin(v[3]) * v[4] * lag
+	var hz: float = v[2] + cos(v[3]) * v[4] * lag
+	var e := Vector2(hx - player.x, hz - player.z)
+	if e.length() > 7.0:
+		player.x = hx
+		player.z = hz
+		player.heading = v[3]
+	else:
+		var kk: float = min(1.0, dt * 3.0)
+		player.x += e.x * kk
+		player.z += e.y * kk
+		var dh := wrapf(v[3] - player.heading, -PI, PI)
+		if abs(dh) > 0.35:
+			player.heading = wrapf(player.heading + dh * kk, -PI, PI)
+	player.position = Vector3(player.x, 0, player.z)
+
+
+## Client: something the host decided, shown here through the same code the host ran.
+func net_event(name: String, a: Array) -> void:
+	match name:
+		"go":
+			state = "countdown"
+			countdown = 3.5
+		"rocket":
+			var c := car_by(a[0])
+			if c:
+				_launch(c, a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8], car_by(a[9]), a[10])
+		"rk_end":
+			for r in rockets:
+				if r.rid == a[0]:
+					rockets.erase(r)
+					r.x = a[1]
+					r.z = a[2]
+					_rocket_boom(r)
+					break
+		"rail":
+			var c := car_by(a[0])
+			if c:
+				_rail_fx(c, Vector3(a[1], a[2], a[3]), Vector3(a[4], 1.5, a[5]))
+		"special":
+			var c := car_by(a[0])
+			if c:
+				use_special(c, true)
+		"kill":
+			var c := car_by(a[0])
+			if c and c.alive:
+				c.last_attacker = car_by(a[1])
+				c.last_cause = a[2]
+				_kill(c)
+		"respawn":
+			var c := car_by(a[0])
+			if c:
+				_respawn(c, {"x": a[1], "z": a[2], "heading": a[3]})
+		"bounty":
+			set_bounty(car_by(a[0]), a[1])
+		"pickup":
+			var c := car_by(a[1])
+			if c and int(a[0]) < pickups.size():
+				_take_pickup(pickups[int(a[0])], c)
+		"drop":
+			_spawn_drop({"x": a[1], "z": a[2]}, a[3], a[0])
+		"drop_take":
+			var c := car_by(a[1])
+			for d in drops:
+				if d.id == a[0] and c:
+					_take_drop(d, c)
+		"map_event":
+			_map_event(a[0], a[1])
+		"barrel":
+			if int(a[0]) >= 0 and int(a[0]) < arena.obstacles.size():
+				damage_obstacle(arena.obstacles[int(a[0])], 999, car_by(a[1]), true)
+		"wave":
+			_wave_start(a[0], a[1])
+		"wave_clear":
+			_wave_clear(a[0])
+		"fx":
+			fx.explosion(Vector3(a[1], 0, a[2]), 0.45)
+			Sfx.explosion(Vector3(a[1], 1, a[2]), 0.5)
+		"end":
+			_end_match(a[0])
+		"left":
+			var c := car_by(a[0])
+			if c:
+				c.human = false
+				hud.feed_text(I18n.t("{a} left the match", {"a": c.label()}))
+
+
+## Host: a person left the match; a bot takes over their car so the fight goes on.
+func peer_left(peer_id: int) -> void:
+	for c in cars:
+		if c.peer == peer_id and c.human:
+			c.human = false
+			c.peer = 0
+			c.ai = {"target": null, "retarget": 0.0, "stuck": 0.0, "reverse_t": 0.0, "rocket_t": 3.0, "strafe": 1.0, "special_t": 4.0}
+			_ev("left", [c.nid])
+			hud.feed_text(I18n.t("{a} left the match", {"a": c.label()}))
+
+
+func car_for_peer(peer_id: int) -> Car:
+	for c in cars:
+		if c.peer == peer_id and c.human:
+			return c
+	return null
 
 
 func quit() -> void:
