@@ -484,6 +484,7 @@ func _process(dt_real: float) -> void:
 				c.firing = false
 			_drive(c, dt)
 		_weapons(c, dt)
+		c.animate(dt, c.speed, c.steer_s)
 		c.update_fx(map.id == "dustbowl")
 		if c.crown:
 			c.crown.rotation.y += dt * 2
@@ -639,10 +640,7 @@ func _drive(c: Car, dt: float) -> void:
 	c.kz *= kd
 	_collide_world(c)
 	c.position = Vector3(c.x, 0, c.z)
-	c.rotation = Vector3(lerp(c.rotation.x, -clamp(c.throttle * 0.04 - (0.02 if c.speed < 0 else 0.0), -0.05, 0.05), 0.1), c.heading,
-		lerp(c.rotation.z, c.steer_s * clamp(c.speed / 30.0, -1.0, 1.0) * 0.06, 0.1))
-	if nitro or ram:
-		pass
+	c.rotation = Vector3(0, c.heading, 0)   # the body's own lean and pitch come from its suspension (Car.animate)
 
 
 ## The body is three circles along its length; on contact only the motion into the obstacle is lost,
@@ -1633,6 +1631,8 @@ func damage(c: Car, amt: float, by: Car, quiet := false, cause := "gun") -> void
 		amt *= 0.4   # Wraith Phase: 60% less
 	c.hp -= amt
 	c.last_hit = time
+	if not quiet:
+		c.jolt(clamp(amt / 35.0, 0.1, 1.0))
 	if by and by != c:
 		c.last_attacker = by
 		c.last_cause = cause
@@ -2208,6 +2208,8 @@ func on_snap(t: float, st: String, a: PackedFloat32Array) -> void:
 			continue
 		var v: PackedFloat32Array = d[nid]
 		if c.alive:
+			if v[8] < c.hp - 1.0:
+				c.jolt(clamp((c.hp - v[8]) / 35.0, 0.1, 1.0))
 			c.hp = v[8]
 		c.max_hp = v[9]
 		c.lives = int(v[10])
@@ -2273,8 +2275,7 @@ func _pose_remote(c: Car, dt: float) -> void:
 	c.throttle = b[6]
 	c.firing = b[7] > 0.5
 	c.position = Vector3(c.x, 0, c.z)
-	c.rotation = Vector3(lerp(c.rotation.x, -clamp(c.throttle * 0.04 - (0.02 if c.speed < 0 else 0.0), -0.05, 0.05), 0.1), c.heading,
-		lerp(c.rotation.z, c.steer_s * clamp(c.speed / 30.0, -1.0, 1.0) * 0.06, 0.1))
+	c.rotation = Vector3(0, c.heading, 0)
 
 
 ## Client: our own car moves at once from the stick; the host's view of it gently pulls it back in line.

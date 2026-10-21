@@ -114,6 +114,20 @@ const CARS := [
 	},
 ]
 
+## Wheels cut out of each car model so they can turn: [x, y, radius, inner z, outer z] in the model's own
+## space (length along x, front at -x; both sides mirrored). Measured from the meshes (tools: wheel fit).
+## Tracked machines (Yellow Reaper, Blood Titan) have none: their bodies still ride on the suspension.
+const WHEELS := {
+	"ghost": [[-0.4874, -0.2531, 0.1456, 0.2448, 0.3886], [0.5475, -0.2462, 0.1528, 0.2625, 0.4026]],
+	"venom": [[-0.5329, -0.1801, 0.1599, 0.2512, 0.4428], [0.5205, -0.178, 0.1585, 0.2384, 0.4097]],
+	"toxic": [[-0.5381, -0.2152, 0.1491, 0.2993, 0.4633], [0.4932, -0.2187, 0.1539, 0.3092, 0.4765]],
+	"megalodon": [[-0.5002, -0.2493, 0.1404, 0.2329, 0.3532], [0.5465, -0.2494, 0.1377, 0.2271, 0.356]],
+	"siren": [[-0.5478, -0.2893, 0.1505, 0.267, 0.3951], [0.503, -0.2895, 0.152, 0.2592, 0.3903]],
+	"rex": [[-0.48, -0.2426, 0.158, 0.184, 0.3394], [0.2643, -0.2481, 0.156, 0.184, 0.3423]],
+	"colossus": [[-0.5294, -0.3747, 0.1417, 0.2486, 0.3609], [-0.2014, -0.3745, 0.139, 0.2485, 0.3599], [0.306, -0.3747, 0.1431, 0.2489, 0.3617], [0.6323, -0.3734, 0.1399, 0.2503, 0.3608]],
+	"wraith": [[-0.5238, -0.1589, 0.1535, 0.2927, 0.4222], [0.5297, -0.1573, 0.1564, 0.2868, 0.4227]],
+}
+
 ## Offers shown in the shop window. For now they are previews only: locked, "soon", no price.
 const OFFERS := [
 	{"id": "wraith_pack", "name": "AZURE WRAITH PACK", "card": "res://assets/ui/offers/wraith_card.jpg", "car": "wraith", "scrap": 10000,

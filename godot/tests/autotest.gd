@@ -31,6 +31,7 @@ func _ready() -> void:
 		"results": await _results()
 		"offers": await _offers_shots()
 		"wraith": await _wraith()
+		"wheels": await _wheels()
 		"net_host": await _net_host()
 		"net_join": await _net_join()
 	get_tree().quit()
@@ -459,3 +460,54 @@ func _wraith() -> void:
 	for f in 10:
 		await get_tree().process_frame
 	await _shot("w_fight")
+
+
+## Every car with its wheels cut out: close side and three-quarter views while rolling and steering.
+func _wheels() -> void:
+	var g := await _start(2, "ghost", 0)
+	g.running = false
+	g.arena.visible = false
+	for n in g.get_children():
+		if n is GPUParticles3D or n is MeshInstance3D or n is MultiMeshInstance3D:
+			n.visible = false
+	for c in g.cars:
+		c.visible = false
+	var ids := ["ghost", "venom", "toxic", "megalodon", "siren", "rex", "colossus", "wraith", "titan"]
+	var sun := DirectionalLight3D.new()
+	sun.rotation = Vector3(-0.8, 0.5, 0)
+	g.add_child(sun)
+	var env := WorldEnvironment.new()
+	var e := Environment.new()
+	e.background_mode = Environment.BG_COLOR
+	e.background_color = Color(0.32, 0.34, 0.38)
+	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	e.ambient_light_color = Color(0.7, 0.7, 0.72)
+	env.environment = e
+	g.add_child(env)
+	for id in ids:
+		var c := Car.new()
+		c.data = Data.car(id)
+		g.add_child(c)
+		c.setup(c.data, load("res://assets/cars/%s.glb" % id))
+		c.rotation.y = PI / 2
+		for v in 2:
+			var d: float = c.dims.z * 1.25
+			if v == 0:
+				g.camera.global_position = Vector3(0, c.dims.y * 0.5, d)
+			else:
+				g.camera.global_position = Vector3(d * 0.7, c.dims.y * 0.9, d * 0.8)
+			g.camera.look_at(Vector3(0, c.dims.y * 0.4, 0))
+			for f in 4:
+				c.animate(1.0 / 30.0, 9.0, 0.9 if v == 1 else 0.0)
+				await get_tree().process_frame
+			await _shot("wh_%s_%d" % [id, v])
+		c.queue_free()
+		await get_tree().process_frame
+	var t0 := Time.get_ticks_usec()
+	Car._split.clear()
+	for id in ids:
+		var c := Car.new()
+		c.data = Data.car(id)
+		c.setup(c.data, load("res://assets/cars/%s.glb" % id))
+		c.free()
+	print("TEST cutting all cars took %d ms" % ((Time.get_ticks_usec() - t0) / 1000))

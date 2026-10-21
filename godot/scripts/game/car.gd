@@ -127,6 +127,7 @@ func _fit_model(scene: PackedScene) -> void:
 	var c := box.get_center()
 	model.position = Vector3(-c.z * s, -box.position.y * s, c.x * s)
 	dims = Vector3(box.size.z * s, box.size.y * s, box.size.x * s)
+	_rig(s)
 	if data.has("pbr"):
 		var mat := pbr_material(data)
 		for mi in model.find_children("*", "MeshInstance3D", true, false):
@@ -135,6 +136,210 @@ func _fit_model(scene: PackedScene) -> void:
 	_materials.clear()
 	for mi in model.find_children("*", "MeshInstance3D", true, false):
 		_materials.append(mi)
+
+
+# ---------- wheels and suspension ----------
+# The models are single meshes, so the wheels are cut out of them once per car (every triangle inside a
+# wheel's cylinder) and hung on their own pivots: they spin with the speed, the front pair steers, and the
+# body rides on a spring of its own: it squats when accelerating, dives when braking, leans in turns, and
+# shakes over rough ground and hits.
+
+static var _split := {}        # car id -> {"body": [ArrayMesh per mesh node], "wheels": [{mesh, center, front}]}
+
+var _body: Array = []          # [MeshInstance3D, its resting transform]
+var _wheels: Array = []        # [{node, front}]
+var _spin := 0.0
+var _model_scale := 1.0
+var _pivot := Vector3.ZERO     # suspension pivot, model space
+var _sp := Vector3.ZERO        # pitch, roll, heave (heave in metres)
+var _sv := Vector3.ZERO
+var _last_speed := 0.0
+var _bump := 0.0
+
+
+func _rig(s: float) -> void:
+	_body.clear()
+	_wheels.clear()
+	_model_scale = s
+	_sp = Vector3.ZERO
+	_sv = Vector3.ZERO
+	var spec: Array = Data.WHEELS.get(data.id, [])
+	var meshes: Array = model.find_children("*", "MeshInstance3D", true, false)
+	if spec.size() and not _split.has(data.id):
+		_split[data.id] = _cut(meshes, spec, model)
+	var cut: Dictionary = _split.get(data.id, {})
+	for i in meshes.size():
+		var mi: MeshInstance3D = meshes[i]
+		if cut.has("body"):
+			mi.mesh = cut.body[i]
+		_body.append([mi, mi.transform])
+	for w in cut.get("wheels", []):
+		var node := MeshInstance3D.new()
+		node.mesh = w.mesh
+		node.position = w.center
+		model.add_child(node)
+		_wheels.append({"node": node, "front": w.front})
+	var ys: Array = spec.map(func(w): return w[1])
+	_pivot = Vector3(0, ys.min() if ys.size() else 0.0, 0)
+
+
+static func _root_xf(n: Node, root: Node) -> Transform3D:
+	var t := Transform3D()
+	var cur := n
+	while cur != root and cur is Node3D:
+		t = (cur as Node3D).transform * t
+		cur = cur.get_parent()
+	return t
+
+
+## Splits each mesh into the body and one mesh per wheel (both sides), wheel vertices centred on their hub.
+static func _cut(meshes: Array, spec: Array, model: Node) -> Dictionary:
+	var hubs: Array = []
+	for w in spec:
+		for side in [1.0, -1.0]:
+			hubs.append({"x": w[0], "y": w[1], "r": w[2] * 1.04, "zin": w[3] * 0.96, "zout": w[4] * 1.15 + 0.02, "side": side,
+				"center": Vector3(w[0], w[1], side * (w[3] + w[4]) / 2.0), "front": w[0] < 0.0, "tris": {}})
+	var bodies: Array = []
+	for mi_ in meshes:
+		var mi: MeshInstance3D = mi_
+		var xf := _root_xf(mi, model)
+		var body := ArrayMesh.new()
+		for si in mi.mesh.get_surface_count():
+			var arr: Array = mi.mesh.surface_get_arrays(si)
+			var mat: Material = mi.get_active_material(si)
+			var v: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+			var idx: PackedInt32Array = arr[Mesh.ARRAY_INDEX] if arr[Mesh.ARRAY_INDEX] else PackedInt32Array(range(v.size()))
+			var pv := PackedVector3Array()
+			pv.resize(v.size())
+			for k in v.size():
+				pv[k] = xf * v[k]
+			var keep := PackedInt32Array()
+			var per_hub: Array = []
+			for h in hubs:
+				per_hub.append(PackedInt32Array())
+			for t in range(0, idx.size(), 3):
+				var c := (pv[idx[t]] + pv[idx[t + 1]] + pv[idx[t + 2]]) / 3.0
+				var hit := -1
+				for hi in hubs.size():
+					var h: Dictionary = hubs[hi]
+					var az: float = c.z * h.side
+					if az >= h.zin and az <= h.zout and Vector2(c.x - h.x, c.y - h.y).length() < h.r:
+						hit = hi
+						break
+				if hit < 0:
+					keep.append_array([idx[t], idx[t + 1], idx[t + 2]])
+				else:
+					per_hub[hit].append_array([idx[t], idx[t + 1], idx[t + 2]])
+			var barr := arr.duplicate()
+			barr[Mesh.ARRAY_INDEX] = keep
+			body.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, barr)
+			body.surface_set_material(body.get_surface_count() - 1, mat)
+			for hi in hubs.size():
+				if per_hub[hi].size() == 0:
+					continue
+				hubs[hi].tris[[mi, si]] = [arr, per_hub[hi], xf, mat]
+		bodies.append(body)
+	var wheels: Array = []
+	for h in hubs:
+		if h.tris.is_empty():
+			continue
+		var wm := ArrayMesh.new()
+		for key in h.tris:
+			var pack: Array = h.tris[key]
+			wm.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _wheel_arrays(pack[0], pack[1], pack[2], h.center))
+			wm.surface_set_material(wm.get_surface_count() - 1, pack[3])
+		wheels.append({"mesh": wm, "center": h.center, "front": h.front})
+	return {"body": bodies, "wheels": wheels}
+
+
+## A compact copy of just these triangles, moved into model space around the hub.
+static func _wheel_arrays(arr: Array, tri: PackedInt32Array, xf: Transform3D, center: Vector3) -> Array:
+	var remap := {}
+	var order := PackedInt32Array()
+	var idx := PackedInt32Array()
+	for k in tri:
+		if not remap.has(k):
+			remap[k] = order.size()
+			order.append(k)
+		idx.append(remap[k])
+	var out := []
+	out.resize(Mesh.ARRAY_MAX)
+	var v: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+	var nv := PackedVector3Array()
+	for k in order:
+		nv.append(xf * v[k] - center)
+	out[Mesh.ARRAY_VERTEX] = nv
+	var nb := xf.basis.orthonormalized()
+	if arr[Mesh.ARRAY_NORMAL]:
+		var n: PackedVector3Array = arr[Mesh.ARRAY_NORMAL]
+		var nn := PackedVector3Array()
+		for k in order:
+			nn.append((nb * n[k]).normalized())
+		out[Mesh.ARRAY_NORMAL] = nn
+	if arr[Mesh.ARRAY_TANGENT]:
+		var tg: PackedFloat32Array = arr[Mesh.ARRAY_TANGENT]
+		var nt := PackedFloat32Array()
+		for k in order:
+			var t3 := (nb * Vector3(tg[k * 4], tg[k * 4 + 1], tg[k * 4 + 2])).normalized()
+			nt.append_array([t3.x, t3.y, t3.z, tg[k * 4 + 3]])
+		out[Mesh.ARRAY_TANGENT] = nt
+	for slot in [Mesh.ARRAY_TEX_UV, Mesh.ARRAY_TEX_UV2, Mesh.ARRAY_COLOR]:
+		if arr[slot]:
+			var src = arr[slot]
+			var dst = src.duplicate()
+			dst.resize(order.size())
+			for i in order.size():
+				dst[i] = src[order[i]]
+			out[slot] = dst
+	out[Mesh.ARRAY_INDEX] = idx
+	return out
+
+
+## Called every frame by the match (and the showroom): speed in m/s, steering -1..1.
+func animate(dt: float, spd: float, steer_amt: float, airborne := false) -> void:
+	if dt <= 0.0:
+		return
+	var accel: float = clamp((spd - _last_speed) / dt, -60.0, 60.0)
+	_last_speed = spd
+	if alive and not airborne:
+		var r_m: float = 0.15 * _model_scale
+		if not _wheels.is_empty():
+			r_m = float(Data.WHEELS[data.id][0][2]) * _model_scale
+		_spin = wrapf(_spin + spd * dt / max(r_m, 0.05), -PI * 64, PI * 64)
+		var steer_a: float = steer_amt * 0.42
+		for w in _wheels:
+			var n: MeshInstance3D = w.node
+			n.rotation = Vector3(0, steer_a if w.front else 0.0, _spin)
+	# body on its spring: pitch (squat / dive), roll (lean in turns), heave (bumps)
+	var fast: float = clamp(abs(spd) / 30.0, 0.0, 1.0)
+	var want := Vector3(clamp(-accel * 0.0022, -0.05, 0.05), clamp(-steer_amt * fast * 0.045, -0.05, 0.05), 0.0)
+	if not alive:
+		want = Vector3.ZERO
+	_bump -= dt
+	if alive and _bump <= 0 and abs(spd) > 3:   # rough ground: little kicks, more often the faster you go
+		_bump = randf_range(0.08, 0.35) / (0.4 + fast)
+		_sv.z += randf_range(-0.25, 0.25) * fast
+		_sv.y += randf_range(-0.04, 0.04) * fast
+	var k := 90.0
+	var c := 11.0
+	_sv += ((want - _sp) * k - _sv * c) * dt
+	_sp += _sv * dt
+	_sp.x = clamp(_sp.x, -0.09, 0.09)
+	_sp.y = clamp(_sp.y, -0.09, 0.09)
+	_sp.z = clamp(_sp.z, -0.12, 0.12)
+	# in model space: length along x (front at -x), lateral z; pitch turns about z, roll about x
+	var t := Transform3D(Basis(Vector3(0, 0, 1), _sp.x) * Basis(Vector3(1, 0, 0), _sp.y), Vector3.ZERO)
+	var pv := Transform3D(Basis(), _pivot)
+	var susp := Transform3D(Basis(), Vector3(0, _sp.z / _model_scale, 0)) * pv * t * pv.affine_inverse()
+	for b in _body:
+		(b[0] as MeshInstance3D).transform = susp * (b[1] as Transform3D)
+
+
+## A hit or a hard landing jolts the body.
+func jolt(strength: float) -> void:
+	_sv.z -= strength * 0.8
+	_sv.x += randf_range(-1, 1) * strength * 0.15
+	_sv.y += randf_range(-1, 1) * strength * 0.15
 
 
 ## Hands the current (wrecked) model over to be left behind and builds a fresh one in its place.
