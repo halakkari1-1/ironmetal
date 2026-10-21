@@ -149,7 +149,7 @@ func spend(n: int) -> bool:
 
 ## A second tap during a purchase never charges twice.
 func buy(c: Dictionary) -> bool:
-	if owns(c.id) or _buying:
+	if owns(c.id) or _buying or c.get("premium", false):   # premium cars come from offers, not scrap
 		return false
 	_buying = true
 	var ok := spend(c.price)

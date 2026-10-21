@@ -373,7 +373,7 @@ func start() -> void:
 		roster.append({"nid": roster.size() + 1, "peer": p.peer, "bot": false, "name": p.name, "color": "#" + p.color, "team": team,
 			"car": p.car, "ups": p.ups, "spawn": order[roster.size() % order.size()]})
 	if mode != "survival":
-		var pool := Data.CARS.filter(func(c): return c.price <= diff.max_price)
+		var pool := Data.CARS.filter(func(c): return c.price <= diff.max_price and not c.get("premium", false))
 		pool.shuffle()
 		for i in min(int(lobby.bots), max_bots()):
 			var team := 0

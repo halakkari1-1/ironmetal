@@ -101,6 +101,23 @@ const CARS := [
 		"special": {"id": "shield", "name": "Bulwark", "desc": "Raises a shield that cuts incoming damage by 70% for 5 s.", "cooldown": 16.0, "duration": 5.0},
 		"sound": {"gun": 0.75, "ability": "shield"},
 	},
+	{
+		"id": "wraith", "name": "AZURE WRAITH", "price": 6000, "cls": "sports", "premium": true,
+		"desc": "A blue phantom of the night. A hypercar armoured for war: roof gatling, twin hood guns, and a phase drive that lets it vanish mid-fight.",
+		"desc_ar": "شبح أزرق من الليل. سيارة خارقة مدرّعة للحرب: رشاش دوّار على السقف، رشاشين على الغطاء، ومحرّك طيفي بيخلّيها تختفي بنص المعركة.",
+		"strong": "Speed, firepower, and an ability that combines escape and defence", "weak": "Light frame for its power",
+		"stats": {"speed": 10, "armor": 7, "gun": 8, "rocket": 7, "handling": 9},
+		"model": {"length": 6.0, "muzzles": [[0.36, 0.62, 0.5], [-0.36, 0.62, 0.5], [0.07, 1.0, 0.12], [-0.07, 1.0, 0.12]], "rocket": [0, 1.0, -0.1]},
+		"pbr": {"albedo": "res://assets/cars/wraith_albedo.jpg", "normal": "res://assets/cars/wraith_normal.jpg", "orm": "res://assets/cars/wraith_orm.png"},
+		"special": {"id": "phase", "name": "Wraith Phase", "desc": "Turns into a blue phantom for 2 s: double speed, enemies lose track of you, and their hits do 60% less.", "cooldown": 8.0, "duration": 2.0},
+		"sound": {"gun": 1.15, "ability": "dash"},
+	},
+]
+
+## Offers shown in the shop window. For now they are previews only: locked, "soon", no price.
+const OFFERS := [
+	{"id": "wraith_pack", "name": "AZURE WRAITH PACK", "card": "res://assets/ui/offers/wraith_card.jpg", "car": "wraith", "scrap": 10000,
+		"backdrop": "harbor", "backdrop_name": "Neon Harbor"},
 ]
 
 const UPGRADES := [

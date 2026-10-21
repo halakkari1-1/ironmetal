@@ -85,6 +85,8 @@ var _rebuild: Callable
 
 
 func _show(name: String, build: Callable) -> void:
+	if name != "offer":
+		showroom.set_backdrop("yard")
 	_current = name
 	_rebuild = build
 	for c in screen_root.get_children():
@@ -181,6 +183,9 @@ func _lobby() -> void:
 		pill.size_flags_horizontal = Control.SIZE_SHRINK_END
 		top.add_child(pill)
 		top.add_child(_contracts_panel())
+		var offers := _premium_button(_t("OFFERS") + "  ✦", _offers, 30)
+		offers.custom_minimum_size = Vector2(0, 74)
+		top.add_child(offers)
 		root.add_child(top)
 		var c: Dictionary = Save.selected_car()
 		var info := UI.panel(0.6)
@@ -188,7 +193,10 @@ func _lobby() -> void:
 		info.custom_minimum_size = Vector2(400, 0)
 		var v := UI.vbox(6)
 		v.add_child(UI.heading(c.name, 38))
-		v.add_child(UI.label(_t(c.special.name).to_upper() + " · " + _t(c.cls).to_upper(), 22, UI.ACCENT_2, UI.font_head))
+		var sub := UI.hbox(10)
+		sub.add_child(_tier_tag(c.get("premium", false)))
+		sub.add_child(UI.label(_t(c.special.name).to_upper() + " · " + _t(c.cls).to_upper(), 22, UI.ACCENT_2, UI.font_head))
+		v.add_child(sub)
 		for row in [["Speed", c.stats.speed], ["Armor", c.stats.armor], ["Guns", c.stats.gun], ["Rockets", c.stats.rocket], ["Handling", c.stats.handling]]:
 			var h := UI.hbox(12)
 			var l := UI.label(_t(row[0]), 22)
@@ -262,15 +270,20 @@ func _garage_view() -> void:
 		var list := UI.vbox(10)
 		for c in Data.CARS:
 			var owned := Save.owns(c.id)
+			var prem: bool = c.get("premium", false)
 			var b := UI.button(c.name, func():
 				_garage_pick = c.id
-				_garage_view(), c.id == _garage_pick, 24)
+				_garage_view(), false, 24)
 			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 			b.custom_minimum_size = Vector2(290, 66)
-			if not owned:
+			_tier_style(b, prem, c.id == _garage_pick)
+			if prem and not owned:
+				b.text = c.name + "\n🔒 " + _t("PREMIUM · SOON")
+				b.add_theme_font_size_override("font_size", 21)
+			elif not owned:
 				b.text = c.name + "\n⚙ %d" % c.price
 				b.add_theme_font_size_override("font_size", 21)
-				b.modulate = Color(1, 1, 1, 0.8)
+				b.modulate = Color(1, 1, 1, 0.85)
 			list.add_child(b)
 		sc.add_child(list)
 		var c: Dictionary = Data.car(_garage_pick)
@@ -289,7 +302,10 @@ func _garage_view() -> void:
 		var v := UI.vbox(10)
 		v.custom_minimum_size.x = 390
 		v.add_child(UI.heading(c.name, 36))
-		v.add_child(UI.label(_t(c.cls).to_upper() + " · " + _t(c.special.name).to_upper(), 22, UI.ACCENT_2, UI.font_head))
+		var sub := UI.hbox(10)
+		sub.add_child(_tier_tag(c.get("premium", false)))
+		sub.add_child(UI.label(_t(c.cls).to_upper() + " · " + _t(c.special.name).to_upper(), 22, UI.ACCENT_2, UI.font_head))
+		v.add_child(sub)
 		for row in [["Speed", c.stats.speed], ["Armor", c.stats.armor], ["Guns", c.stats.gun], ["Rockets", c.stats.rocket], ["Handling", c.stats.handling]]:
 			var h := UI.hbox(12)
 			var l := UI.label(_t(row[0]), 21)
@@ -307,7 +323,9 @@ func _garage_view() -> void:
 		v.add_child(UI.label("− " + _t(c.weak), 21, UI.DIM))
 		info.add_child(v)
 		var act: Button
-		if Save.owns(c.id):
+		if c.get("premium", false) and not Save.owns(c.id):
+			act = _premium_button("🔒  " + _t("In the offers · SOON") + "   ›", func(): _offer_view(Data.OFFERS[0]), 26)
+		elif Save.owns(c.id):
 			act = UI.button(_t("Selected") if Save.state.selected == c.id else _t("Select"), func():
 				Save.select(c.id)
 				_garage_view(), true, 30)
@@ -1420,3 +1438,218 @@ func _ui_at(pos: Vector2) -> bool:
 					return true
 				stack.append(c)
 	return false
+
+
+# ---------- standard / premium and the offers ----------
+
+## Standard cars wear brushed silver, premium cars a deep purple.
+static func _tier_gradient(premium: bool, bright := 1.0) -> GradientTexture2D:
+	var g := Gradient.new()
+	if premium:
+		g.colors = PackedColorArray([Color(0.30, 0.08, 0.52) * bright, Color(0.62, 0.30, 0.95) * bright, Color(0.22, 0.05, 0.38) * bright])
+	else:
+		g.colors = PackedColorArray([Color(0.30, 0.32, 0.35) * bright, Color(0.62, 0.66, 0.70) * bright, Color(0.24, 0.26, 0.29) * bright])
+	g.offsets = PackedFloat32Array([0.0, 0.45, 1.0])
+	var t := GradientTexture2D.new()
+	t.gradient = g
+	t.fill_from = Vector2(0, 0)
+	t.fill_to = Vector2(1, 1)
+	t.width = 256
+	t.height = 64
+	return t
+
+
+func _tier_box(premium: bool, state: String, selected: bool) -> StyleBoxTexture:
+	var sb := StyleBoxTexture.new()
+	sb.texture = _tier_gradient(premium, 1.15 if state == "hover" else (0.8 if state == "pressed" else 1.0))
+	sb.texture_margin_left = 2
+	sb.texture_margin_right = 2
+	sb.content_margin_left = 18
+	sb.content_margin_right = 18
+	sb.content_margin_top = 8
+	sb.content_margin_bottom = 8
+	sb.modulate_color = Color(1, 1, 1, 0.92)
+	return sb
+
+
+## A button dressed in its tier's gradient; the selected one gets an orange edge.
+func _tier_style(b: Button, premium: bool, selected: bool) -> void:
+	for st in ["normal", "hover", "pressed", "disabled", "focus"]:
+		if st == "focus":
+			b.add_theme_stylebox_override(st, StyleBoxEmpty.new())
+			continue
+		b.add_theme_stylebox_override(st, _tier_box(premium, st, selected))
+	b.add_theme_color_override("font_color", Color.WHITE)
+	b.add_theme_constant_override("outline_size", 5)
+	b.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.55))
+	if selected:
+		var edge := Panel.new()
+		edge.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		edge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var e := StyleBoxFlat.new()
+		e.bg_color = Color(0, 0, 0, 0)
+		e.set_border_width_all(3)
+		e.border_color = UI.ACCENT
+		e.set_corner_radius_all(4)
+		edge.add_theme_stylebox_override("panel", e)
+		b.add_child(edge)
+
+
+## "STANDARD" / "PREMIUM" pill.
+func _tier_tag(premium: bool) -> Control:
+	var p := PanelContainer.new()
+	var sb := StyleBoxTexture.new()
+	sb.texture = _tier_gradient(premium)
+	sb.content_margin_left = 14
+	sb.content_margin_right = 14
+	sb.content_margin_top = 2
+	sb.content_margin_bottom = 2
+	p.add_theme_stylebox_override("panel", sb)
+	p.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var l := UI.label((("✦ " + _t("PREMIUM")) if premium else _t("STANDARD")), 20, Color.WHITE, UI.font_head)
+	l.add_theme_constant_override("outline_size", 4)
+	l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.5))
+	p.add_child(l)
+	return p
+
+
+func _premium_button(text: String, cb: Callable, size := 28) -> Button:
+	var b := UI.button(text, cb, false, size)
+	_tier_style(b, true, false)
+	return b
+
+
+## The offers window: each offer as its art card, locked for now.
+func _offers() -> void:
+	showroom.show_car(Save.state.selected)
+	_focus_right_of(1280)
+	_show("offers", func(root: Control):
+		_top_bar(root, _t("Offers"))
+		var sc := ScrollContainer.new()
+		sc.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		sc.offset_left = 24
+		sc.offset_right = -24
+		sc.offset_top = 100
+		sc.offset_bottom = -16
+		sc.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		sc.scroll_deadzone = 12
+		root.add_child(sc)
+		var row := UI.hbox(20)
+		for o in Data.OFFERS:
+			row.add_child(_offer_card(o))
+		var more := UI.panel(0.55)
+		more.custom_minimum_size = Vector2(300, 0)
+		var ml := UI.label(_t("More offers coming soon"), 26, UI.DIM, UI.font_head)
+		ml.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		ml.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		ml.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		ml.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		more.add_child(ml)
+		row.add_child(more)
+		sc.add_child(row))
+
+
+func _offer_card(o: Dictionary) -> Control:
+	var card := PanelContainer.new()
+	var sb := StyleBoxTexture.new()
+	sb.texture = _tier_gradient(true, 0.8)
+	for side in ["left", "right", "top", "bottom"]:
+		sb.set("content_margin_" + side, 6)
+	card.add_theme_stylebox_override("panel", sb)
+	var v := UI.vbox(10)
+	var art := TextureRect.new()
+	art.texture = load(o.card)
+	art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	art.custom_minimum_size = Vector2(800, 450)
+	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var badge := _lock_badge()
+	badge.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	badge.offset_left = -200
+	badge.offset_right = -14
+	badge.offset_top = 14
+	art.add_child(badge)
+	var tag := _tier_tag(true)
+	tag.position = Vector2(14, 14)
+	art.add_child(tag)
+	v.add_child(art)
+	var bottom := UI.hbox(14)
+	var info := UI.vbox(2)
+	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	info.add_child(UI.heading(o.name, 32))
+	var car: Dictionary = Data.car(o.car)
+	info.add_child(UI.label("%s  ·  +%s %s  ·  %s" % [car.name, _thousands(o.scrap), _t("Scrap"), _t(o.backdrop_name)], 21, Color(1, 1, 1, 0.85)))
+	bottom.add_child(info)
+	var view := UI.button(_t("VIEW") + "  ›", func(): _offer_view(o), true, 28)
+	view.custom_minimum_size = Vector2(180, 66)
+	view.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	bottom.add_child(view)
+	v.add_child(bottom)
+	card.add_child(v)
+	return card
+
+
+func _lock_badge() -> Control:
+	var p := PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.05, 0.03, 0.08, 0.78)
+	sb.set_corner_radius_all(18)
+	sb.set_border_width_all(2)
+	sb.border_color = Color(0.75, 0.5, 1.0, 0.9)
+	sb.content_margin_left = 16
+	sb.content_margin_right = 16
+	sb.content_margin_top = 6
+	sb.content_margin_bottom = 6
+	p.add_theme_stylebox_override("panel", sb)
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var l := UI.label("🔒  " + _t("SOON"), 26, Color.WHITE, UI.font_head)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	p.add_child(l)
+	return p
+
+
+static func _thousands(n: int) -> String:
+	var s := str(n)
+	var out := ""
+	while s.length() > 3:
+		out = "," + s.substr(s.length() - 3) + out
+		s = s.substr(0, s.length() - 3)
+	return s + out
+
+
+## Inside an offer: its car on the ring of its own living backdrop; what the pack holds; locked for now.
+func _offer_view(o: Dictionary) -> void:
+	showroom.set_backdrop(o.backdrop)
+	showroom.show_car(o.car)
+	_focus_right_of(24 + 440)
+	_show("offer", func(root: Control):
+		_top_bar(root, _t(o.name), true, _offers)
+		var p := UI.panel(0.62)
+		p.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
+		p.offset_left = 24
+		p.offset_right = 24 + 440
+		p.offset_top = -330
+		p.offset_bottom = -16
+		p.grow_vertical = Control.GROW_DIRECTION_BEGIN
+		var v := UI.vbox(8)
+		var car: Dictionary = Data.car(o.car)
+		var head := UI.hbox(10)
+		head.add_child(_tier_tag(true))
+		head.add_child(UI.heading(car.name, 32))
+		v.add_child(head)
+		var items := [["🚗", car.name + "  ·  " + _t(car.special.name)], ["⚙", "+%s %s" % [_thousands(o.scrap), _t("Scrap")]], ["🌃", _t("Lobby backdrop") + ": " + _t(o.backdrop_name)]]
+		for it in items:
+			var h := UI.hbox(10)
+			h.add_child(UI.label(it[0], 24))
+			var l := UI.label(it[1], 22, UI.TEXT, UI.font_head)
+			l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			h.add_child(l)
+			v.add_child(h)
+		var lock := _premium_button("🔒  " + _t("SOON"), func(): pass, 30)
+		lock.disabled = true
+		lock.custom_minimum_size = Vector2(0, 72)
+		v.add_child(lock)
+		p.add_child(v)
+		root.add_child(p))

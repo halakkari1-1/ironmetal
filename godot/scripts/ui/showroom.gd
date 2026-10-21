@@ -1,17 +1,30 @@
 class_name Showroom
 extends Node3D
-## The lobby: a painted night yard behind, with the selected car standing live in 3D on the glowing ring.
+## The lobby: a painted backdrop, with the car standing live in 3D on the glowing ring painted in it.
 ## The camera is solved from the painted ring (its centre and how flat its ellipse is), with a lens shift so
 ## the car lands exactly on the ring at any screen shape. The car's shadow falls on an invisible catcher plane.
+## Backdrops: the night yard (the lobby), and the harbour of the Azure Wraith offer, which comes alive: drifting
+## clouds, twinkling city lights, rippling water, a pulsing ring, and fireworks over the skyline.
 
-const IMG := "res://assets/ui/lobby.jpg"
-const IMG_W := 2576.0
-const IMG_H := 1448.0
-const RING := Vector2(0.6724, 0.674)   # ring centre in the image (0..1)
-const RING_A := 0.2686                 # half-width of the ring ellipse, fraction of image width
-const RING_B := 0.0622                 # half-height, fraction of image height
-const FOCAL := 0.898                   # focal length in image widths
 const RADIUS := 5.0                    # the ring's radius in metres
+## img: the painting; ring: its centre (fraction of the image); a / b: the ring ellipse's half-width and
+## half-height (fractions of image width / height); focal: lens focal length in image widths; fit: car length
+## as a fraction of the ring's diameter.
+const BACKDROPS := {
+	"yard": {"img": "res://assets/ui/lobby.jpg", "w": 2576.0, "h": 1448.0, "ring": Vector2(0.6724, 0.674), "a": 0.2686, "b": 0.0622, "focal": 0.898, "fit": 0.875},
+	"harbor": {"img": "res://assets/ui/offers/harbor.jpg", "w": 1672.0, "h": 941.0, "ring": Vector2(0.6926, 0.661), "a": 0.2703, "b": 0.0659, "focal": 0.898, "fit": 0.86, "alive": true},
+}
+
+var IMG_W := 2576.0
+var IMG_H := 1448.0
+var RING := Vector2(0.6724, 0.674)
+var RING_A := 0.2686
+var RING_B := 0.0622
+var FOCAL := 0.898
+var _backdrop := ""
+var _fit := 0.875
+var _alive_mat: ShaderMaterial
+var _fireworks: Fireworks
 
 var _bg: TextureRect
 var _layer: CanvasLayer
@@ -36,7 +49,6 @@ func _ready() -> void:
 	_layer.layer = -10
 	add_child(_layer)
 	_bg = TextureRect.new()
-	_bg.texture = load(IMG)
 	_bg.stretch_mode = TextureRect.STRETCH_SCALE
 	_bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_layer.add_child(_bg)
@@ -88,6 +100,41 @@ func _ready() -> void:
 	catcher.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(catcher)
 	get_viewport().size_changed.connect(_layout)
+	set_backdrop("yard")
+
+
+## Switches the painting behind the car (and the ring the camera is solved from).
+func set_backdrop(id: String) -> void:
+	if id == _backdrop:
+		return
+	_backdrop = id
+	var b: Dictionary = BACKDROPS[id]
+	_bg.texture = load(b.img)
+	IMG_W = b.w
+	IMG_H = b.h
+	RING = b.ring
+	RING_A = b.a
+	RING_B = b.b
+	FOCAL = b.focal
+	_fit = b.fit
+	var alive: bool = b.get("alive", false)
+	if alive:
+		if _alive_mat == null:
+			_alive_mat = ShaderMaterial.new()
+			_alive_mat.shader = load("res://scripts/ui/harbor.gdshader")
+		_bg.material = _alive_mat
+		if _fireworks == null:
+			_fireworks = Fireworks.new()
+			_bg.add_child(_fireworks)
+		_fireworks.active = true
+	else:
+		_bg.material = null
+		if _fireworks:
+			_fireworks.active = false
+	if _car:   # refit the car for this ring
+		var id_ := _car_id
+		_car_id = ""
+		show_car(id_)
 	_layout()
 
 
@@ -150,7 +197,9 @@ func show_car(id: String) -> void:
 	var c := Car.new()
 	c.data = Data.car(id)
 	c._fit_model(_scenes[id])
-	var fit: float = min(1.0, RADIUS * 1.75 / c.dims.z)
+	var fit: float = RADIUS * 2.0 * _fit / c.dims.z
+	if not BACKDROPS[_backdrop].get("alive", false):
+		fit = min(1.0, fit)   # the lobby never blows a car up; the offer shows it filling the ring as in its art
 	c.scale = Vector3.ONE * fit
 	_car = c
 	add_child(c)

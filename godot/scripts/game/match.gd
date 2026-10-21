@@ -141,7 +141,7 @@ func start(opts: Dictionary) -> void:
 		spawns.shuffle()
 		player = _add_car(opts.car, opts.upgrades, spawns[0], true)
 	if mode == "deathmatch" and net_role == "":
-		var pool := Data.CARS.filter(func(c): return c.price <= diff.max_price and c.id != opts.car.id)
+		var pool := Data.CARS.filter(func(c): return c.price <= diff.max_price and c.id != opts.car.id and not c.get("premium", false))
 		pool.shuffle()
 		for i in diff.enemies:
 			_add_car(pool[i % pool.size()], _lvl(diff.level), spawns[i + 1], false)
@@ -529,7 +529,7 @@ func _next_wave() -> void:
 	var n: int = min(1 + int(w * 0.7) + max(0, humans().size() - 1), 9)
 	var tiers := [1500, 2500, 3500, 4500, 99999]
 	var cap: int = tiers[min(tiers.size() - 1, (w - 1) / 2)]
-	var pool := Data.CARS.filter(func(c): return c.price <= cap)
+	var pool := Data.CARS.filter(func(c): return c.price <= cap and not c.get("premium", false))
 	var lvl: int = min(5, (w - 1) / 2)
 	var hs := humans().filter(func(c): return c.alive)
 	var ref: Car = hs[0] if hs.size() else player
@@ -609,7 +609,7 @@ func _drive(c: Car, dt: float) -> void:
 	var s := c.stats
 	var nitro := c.special_on == "nitro"
 	var ram := c.special_on == "ram"
-	var dash := c.special_on == "dash"
+	var dash := c.special_on == "dash" or c.special_on == "phase"
 	var slow := 0.5 if c.slow_t > 0 else 1.0
 	var max_s: float = s.max_speed * (1.75 if nitro else 1.0) * (2.1 if ram else 1.0) * (2.0 if dash else 1.0) * slow
 	var acc: float = s.accel * (2.0 if nitro else 1.0) * (4.0 if dash else 1.0) * slow
@@ -1145,6 +1145,18 @@ func use_special(c: Car, replay := false) -> bool:
 			c.special_t = spec.get("duration", 1.3)
 			c.rammed.clear()
 			c.speed = max(c.speed, c.stats.max_speed)
+		"phase":  # Azure Wraith: a blue phantom, fast, unseen, hard to hurt
+			c.special_on = "phase"
+			c.special_t = dur * min(1.4, pw)
+			c.hide_t = c.special_t
+			c.speed = max(c.speed, c.stats.max_speed * 1.6)
+			_ensure_trail(c, "phase")
+			fx.ring(c.position, 7.0, Color(0.3, 0.6, 1.0))
+			fx.light(c.position + Vector3.UP * 2, 5.0, Color(0.35, 0.6, 1.0))
+			for o in cars:
+				if not o.ai.is_empty() and o.ai.target == c and foes(o, c):
+					o.ai.target = null
+					o.ai.retarget = c.hide_t
 		"shield":
 			c.special_on = "shield"
 			c.special_t = dur * min(1.4, pw)
@@ -1157,8 +1169,8 @@ func use_special(c: Car, replay := false) -> bool:
 
 func _ensure_trail(c: Car, kind: String) -> void:
 	if c.trail_fx == null:
-		c.trail_fx = fx.smoke_trail_emitter() if kind == "smoke" else fx.color_trail_emitter(Color(1, 0.25, 0.7))
-		if kind == "dash":
+		c.trail_fx = fx.smoke_trail_emitter() if kind == "smoke" else fx.color_trail_emitter(Color(0.25, 0.55, 1.0) if kind == "phase" else Color(1, 0.25, 0.7))
+		if kind == "dash" or kind == "phase":
 			c.trail_fx.get_parent().remove_child(c.trail_fx)
 			c.add_child(c.trail_fx)
 			c.trail_fx.position = Vector3(0, 0.8, -c.dims.z * 0.45)
@@ -1617,6 +1629,8 @@ func damage(c: Car, amt: float, by: Car, quiet := false, cause := "gun") -> void
 		amt *= 0.3  # Bulwark: 70% less damage
 	if c.special_on == "dash":
 		amt *= 0.5
+	if c.special_on == "phase":
+		amt *= 0.4   # Wraith Phase: 60% less
 	c.hp -= amt
 	c.last_hit = time
 	if by and by != c:
@@ -1936,7 +1950,8 @@ func _think(c: Car, dt: float) -> void:
 		var go: bool = (sp == "smoke" and c.hp < c.max_hp * 0.5 and recent) or (sp == "dash" and (dist > 32 or (c.hp < c.max_hp * 0.4 and recent))) \
 			or (sp == "toxic" and dist < 18 and aim < 0.5) or (sp == "riptide" and dist < 13 and aim < 0.6) or (sp == "pulse" and dist < 14) \
 			or (sp == "whip" and dist < 9) or (sp == "shell" and dist < 55 and aim < 0.12) or (sp == "ram" and dist < 22 and aim < 0.25) \
-			or (sp == "shield" and c.hp < c.max_hp * 0.55 and time - c.last_hit < 1)
+			or (sp == "shield" and c.hp < c.max_hp * 0.55 and time - c.last_hit < 1) \
+			or (sp == "phase" and (dist > 30 or (c.hp < c.max_hp * 0.5 and recent)))
 		if go and randf() < diff.get("aggression", 1.0):
 			use_special(c)
 		ai.special_t = randf_range(0.8, 2)

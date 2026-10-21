@@ -127,6 +127,11 @@ func _fit_model(scene: PackedScene) -> void:
 	var c := box.get_center()
 	model.position = Vector3(-c.z * s, -box.position.y * s, c.x * s)
 	dims = Vector3(box.size.z * s, box.size.y * s, box.size.x * s)
+	if data.has("pbr"):
+		var mat := pbr_material(data)
+		for mi in model.find_children("*", "MeshInstance3D", true, false):
+			for i in (mi as MeshInstance3D).get_surface_override_material_count():
+				(mi as MeshInstance3D).set_surface_override_material(i, mat)
 	_materials.clear()
 	for mi in model.find_children("*", "MeshInstance3D", true, false):
 		_materials.append(mi)
@@ -194,6 +199,31 @@ func update_fx(map_dusty: bool) -> void:
 	dust_fx.emitting = alive and abs(speed) > (8.0 if map_dusty else 12.0)
 
 
+static var _pbr := {}
+
+
+## Cars delivered as a bare mesh plus full-size texture maps (albedo, normal, roughness/metal) get one shared
+## material built from them.
+static func pbr_material(d: Dictionary) -> StandardMaterial3D:
+	if _pbr.has(d.id):
+		return _pbr[d.id]
+	var m := StandardMaterial3D.new()
+	m.albedo_texture = load(d.pbr.albedo)
+	m.normal_enabled = true
+	m.normal_texture = load(d.pbr.normal)
+	m.normal_scale = 1.0
+	var orm: Texture2D = load(d.pbr.orm)
+	m.roughness_texture = orm
+	m.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_GREEN
+	m.roughness = 1.0
+	m.metallic_texture = orm
+	m.metallic_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_BLUE
+	m.metallic = 1.0
+	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	_pbr[d.id] = m
+	return m
+
+
 func label() -> String:
 	return pname if pname != "" else data.name
 
@@ -223,7 +253,7 @@ func restore() -> void:
 	for mi in _materials:
 		var m: MeshInstance3D = mi
 		for i in m.get_surface_override_material_count():
-			m.set_surface_override_material(i, null)
+			m.set_surface_override_material(i, pbr_material(data) if data.has("pbr") else null)
 
 
 func _aabb(n: Node3D) -> AABB:

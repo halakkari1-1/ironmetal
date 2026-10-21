@@ -29,6 +29,8 @@ func _ready() -> void:
 		"profile": await _profile_shots()
 		"lobby3d": await _lobby3d()
 		"results": await _results()
+		"offers": await _offers_shots()
+		"wraith": await _wraith()
 		"net_host": await _net_host()
 		"net_join": await _net_join()
 	get_tree().quit()
@@ -416,3 +418,44 @@ func _results() -> void:
 	for f in 6:
 		await get_tree().process_frame
 	await _shot("r_lobby")
+
+
+func _offers_shots() -> void:
+	await get_tree().create_timer(0.5).timeout
+	await _shot("o1_lobby")
+	main._garage_pick = "wraith"
+	main._garage_view()
+	for f in 8:
+		await get_tree().process_frame
+	await _shot("o2_garage")
+	main._offers()
+	for f in 4:
+		await get_tree().process_frame
+	await _shot("o3_offers")
+	main._offer_view(Data.OFFERS[0])
+	var sr: Showroom = main.showroom
+	for i in 4:
+		for f in 3:
+			sr._fireworks._process(0.4)
+			await get_tree().process_frame
+		await _shot("o4_view_%d" % i)
+	main._lobby()
+	for f in 4:
+		await get_tree().process_frame
+	await _shot("o5_back")
+
+
+func _wraith() -> void:
+	var g := await _start(2, "wraith", 1)
+	g.player.ai = {"target": null, "retarget": 0.0, "stuck": 0.0, "reverse_t": 0.0, "rocket_t": 2.0, "strafe": 1.0, "special_t": 1.0}
+	var phases := 0
+	for i in 40:
+		_simulate(g, 1.0)
+		if g.player.special_on == "phase":
+			phases += 1
+		if g.player.special_cd <= 0 and g.player.alive and g.state == "fight":
+			g.use_special(g.player)
+	print("TEST wraith kills=%d phases_seen=%d hp=%d state=%s" % [g.player.kills, phases, g.player.hp, g.state])
+	for f in 10:
+		await get_tree().process_frame
+	await _shot("w_fight")

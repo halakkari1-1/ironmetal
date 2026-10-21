@@ -17,7 +17,7 @@ const ONESHOTS := ["click", "confirm", "denied", "purchase", "ready", "ability_e
 	"ab_smoke", "ab_dash", "ab_toxic", "ab_riptide", "ab_zap", "ab_charge", "ab_roar", "ab_cannon", "ab_shield"]
 ## Engine recording per kind of vehicle: sports cars, jeeps, the monster truck, and the tracked/armoured machines.
 const ENGINE_CLASS := {"venom": "sport", "toxic": "sport", "ghost": "jeep", "megalodon": "jeep", "siren": "jeep",
-	"rex": "truck", "reaper": "tank", "titan": "tank", "colossus": "tank"}
+	"rex": "truck", "reaper": "tank", "titan": "tank", "colossus": "tank", "wraith": "sport"}
 const WORLD_VOICES := 28
 const UI_VOICES := 8
 const GUN_VOICES := 10
