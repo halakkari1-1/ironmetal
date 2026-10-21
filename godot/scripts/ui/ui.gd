@@ -116,6 +116,8 @@ static func heading(text: String, size := 34) -> Label:
 	return l
 
 
+## A button that lets drags through to the scroll area behind it: a finger that slides more than a few
+## pixels scrolls the list instead of pressing the button it started on.
 static func button(text: String, cb: Callable, accent := false, size := 24) -> Button:
 	var b := Button.new()
 	b.text = text
@@ -123,11 +125,61 @@ static func button(text: String, cb: Callable, accent := false, size := 24) -> B
 	if accent:
 		for state in ["normal", "hover", "pressed", "disabled", "focus"]:
 			b.add_theme_stylebox_override(state, button_box(state, true))
+	b.mouse_filter = Control.MOUSE_FILTER_PASS
+	b.button_down.connect(func(): b.set_meta("down_at", b.get_global_mouse_position()))
 	b.pressed.connect(func():
+		var start: Vector2 = b.get_meta("down_at", b.get_global_mouse_position())
+		if start.distance_to(b.get_global_mouse_position()) > 14.0:
+			return
 		Sfx.play("click", 0.8)
 		cb.call())
 	b.focus_mode = Control.FOCUS_NONE
 	return b
+
+
+## A wide slider with a visible track, fill and a big round grab handle.
+static func slider(value: float, lo: float, hi: float, on_change: Callable, on_release: Callable) -> HSlider:
+	var s := HSlider.new()
+	s.min_value = lo
+	s.max_value = hi
+	s.step = (hi - lo) / 40.0
+	s.value = value
+	s.custom_minimum_size = Vector2(360, 48)
+	s.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var track := _flat(Color(1, 1, 1, 0.16), 8, 1)
+	track.content_margin_top = 7
+	track.content_margin_bottom = 7
+	var fill := _flat(ACCENT, 8, 0)
+	fill.content_margin_top = 7
+	fill.content_margin_bottom = 7
+	s.add_theme_stylebox_override("slider", track)
+	s.add_theme_stylebox_override("grabber_area", fill)
+	s.add_theme_stylebox_override("grabber_area_highlight", fill)
+	var knob := _knob_texture(30)
+	s.add_theme_icon_override("grabber", knob)
+	s.add_theme_icon_override("grabber_highlight", knob)
+	s.value_changed.connect(func(v): on_change.call(v))
+	s.drag_ended.connect(func(_c): on_release.call())
+	s.focus_mode = Control.FOCUS_NONE
+	return s
+
+
+static var _knob: ImageTexture
+
+
+static func _knob_texture(d: int) -> Texture2D:
+	if _knob:
+		return _knob
+	var img := Image.create(d, d, false, Image.FORMAT_RGBA8)
+	var c := (d - 1) / 2.0
+	for y in d:
+		for x in d:
+			var r := Vector2(x - c, y - c).length()
+			var a: float = clamp(c - r + 0.5, 0.0, 1.0)
+			var col := Color(1, 1, 1, a) if r < c - 3 else Color(ACCENT.r, ACCENT.g, ACCENT.b, a)
+			img.set_pixel(x, y, col)
+	_knob = ImageTexture.create_from_image(img)
+	return _knob
 
 
 static func panel(alpha := 0.62) -> PanelContainer:

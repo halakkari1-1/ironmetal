@@ -195,35 +195,37 @@ func _build_center() -> void:
 
 
 func _build_controls() -> void:
-	var s: float = Save.state.get("controls", 1.0)
-	_stick_base = _circle(130 * s, Color(1, 1, 1, 0.1))
-	_stick_knob = _circle(56 * s, Color(1, 1, 1, 0.35))
+	var s: float = float(Save.state.get("stick_scale", 1.0))
+	_stick_base = _circle(140 * s, Color(1, 1, 1, 0.1))
+	_stick_knob = _circle(60 * s, Color(1, 1, 1, 0.35))
 	_stick_base.visible = false
 	_stick_base.add_child(_stick_knob)
 	_root.add_child(_stick_base)
-	_btn_fire = TouchButton.make(I18n.t("FIRE"), 116 * s, UI.ACCENT)
-	_btn_rocket = TouchButton.make(I18n.t("RKT"), 80 * s, Color("e8e0d0"))
-	_btn_special = TouchButton.make("", 80 * s, UI.GOOD)
-	_btn_cam = TouchButton.make("", 56, Color("e8e0d0"))
-	_btn_pause = TouchButton.make("II", 56, Color("e8e0d0"))
+	_btn_fire = TouchButton.make(I18n.t("FIRE"), ControlsEditor.BASE.fire, UI.ACCENT)
+	_btn_rocket = TouchButton.make(I18n.t("RKT"), ControlsEditor.BASE.rocket, Color("e8e0d0"))
+	_btn_special = TouchButton.make("", ControlsEditor.BASE.special, UI.GOOD)
+	_btn_cam = TouchButton.make("", 62, Color("e8e0d0"))
+	_btn_pause = TouchButton.make("II", 62, Color("e8e0d0"))
 	for b in [_btn_fire, _btn_rocket, _btn_special, _btn_cam, _btn_pause]:
 		_root.add_child(b)
 	_root.resized.connect(_place_controls)
 	_place_controls()
 
 
+## Puts the touch buttons where the player arranged them in Settings (fractions of the screen and a size each).
 func _place_controls() -> void:
 	var w := _root.size.x
 	var h := _root.size.y
-	var L: Dictionary = Save.state.get("layout") if Save.state.get("layout") is Dictionary else {}
-	var at := func(b: TouchButton, key: String, def: Vector2) -> void:
-		var p: Array = L.get(key, [def.x / w, def.y / h])
+	var L := ControlsEditor.current()
+	for pair in [[_btn_fire, "fire"], [_btn_rocket, "rocket"], [_btn_special, "special"]]:
+		var b: TouchButton = pair[0]
+		var p: Array = L[pair[1]]
+		var d: float = ControlsEditor.BASE[pair[1]] * float(p[2])
+		b.size = Vector2(d, d)
+		b.custom_minimum_size = b.size
 		b.position = Vector2(p[0] * w, p[1] * h) - b.size / 2
-	at.call(_btn_fire, "fire", Vector2(w - 120, h - 128))
-	at.call(_btn_rocket, "rocket", Vector2(w - 250, h - 92))
-	at.call(_btn_special, "special", Vector2(w - 92, h - 268))
-	_btn_pause.position = Vector2(w - 70, 14)
-	_btn_cam.position = Vector2(w - 70, 82)
+	_btn_pause.position = Vector2(w - 76, 14)
+	_btn_cam.position = Vector2(w - 76, 88)
 
 
 func _circle(d: float, c: Color) -> Control:
@@ -292,7 +294,7 @@ func _on_touch(idx: int, pos: Vector2, pressed: bool) -> void:
 
 
 func _drag_stick(pos: Vector2) -> void:
-	var mx: float = 55.0 * Save.state.get("controls", 1.0)
+	var mx: float = 58.0 * float(Save.state.get("stick_scale", 1.0))
 	var d := pos - _stick_origin
 	if d.length() > mx:
 		d = d.normalized() * mx
@@ -482,26 +484,37 @@ func ensure_enemy_bars(m: Match) -> void:
 			continue
 		var root := Control.new()
 		root.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		var name := UI.label(c.data.name, 13, UI.TEXT, UI.font_head)
-		name.add_theme_constant_override("outline_size", 4)
-		name.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
-		name.position = Vector2(-60, -22)
-		name.size = Vector2(120, 16)
+		var name := UI.label(c.data.name, 16, UI.TEXT, UI.font_head)
+		name.add_theme_constant_override("outline_size", 5)
+		name.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+		name.position = Vector2(-80, -26)
+		name.size = Vector2(160, 20)
 		name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		var back := Panel.new()
-		back.add_theme_stylebox_override("panel", UI._flat(Color(0, 0, 0, 0.55), 3, 0))
-		back.position = Vector2(-40, 0)
-		back.size = Vector2(80, 7)
+		back.add_theme_stylebox_override("panel", UI._flat(Color(0, 0, 0, 0.6), 4, 0))
+		back.position = Vector2(-45, 0)
+		back.size = Vector2(90, 9)
 		var fill := Panel.new()
-		fill.add_theme_stylebox_override("panel", UI._flat(UI.BAD, 3, 0))
-		fill.size = Vector2(80, 7)
+		fill.add_theme_stylebox_override("panel", UI._flat(UI.BAD, 4, 0))
+		fill.size = Vector2(90, 9)
 		back.add_child(fill)
+		var lives := Label.new()   # lives left, as hearts under the health bar
+		lives.add_theme_font_size_override("font_size", 14)
+		lives.add_theme_color_override("font_color", UI.BAD)
+		lives.add_theme_constant_override("outline_size", 4)
+		lives.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+		lives.position = Vector2(-45, 10)
+		lives.size = Vector2(90, 16)
+		lives.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		root.add_child(name)
 		root.add_child(back)
+		root.add_child(lives)
 		_root.add_child(root)
-		_bars[c] = {"root": root, "fill": fill}
+		_bars[c] = {"root": root, "fill": fill, "lives": lives}
 
 
+## Each enemy's name, health and lives float right above the car. Camera.unproject_position already gives
+## canvas coordinates (the same space the HUD is laid out in), whatever the screen's pixel density.
 func _update_bars(m: Match) -> void:
 	var cam := m.camera
 	for key in _bars.keys():
@@ -513,14 +526,16 @@ func _update_bars(m: Match) -> void:
 				b.root.queue_free()
 				_bars.erase(c)
 			continue
-		var wp := c.global_position + Vector3.UP * (c.dims.y + 0.9)
+		var wp := c.global_position + Vector3.UP * (c.dims.y + 0.8)
 		if cam.is_position_behind(wp) or cam.global_position.distance_to(wp) > 110:
 			b.root.visible = false
 			continue
-		var sp := cam.unproject_position(wp)
 		b.root.visible = true
-		b.root.position = get_viewport().get_final_transform().affine_inverse() * sp
-		b.fill.size.x = 80 * clamp(c.hp / c.max_hp, 0.0, 1.0)
+		b.root.position = cam.unproject_position(wp)
+		b.fill.size.x = 90 * clamp(c.hp / c.max_hp, 0.0, 1.0)
+		var hearts := "♥ ".repeat(c.lives).strip_edges() if m.mode == "deathmatch" else ""
+		if b.lives.text != hearts:
+			b.lives.text = hearts
 
 
 # ---------- minimap ----------

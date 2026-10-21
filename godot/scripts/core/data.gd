@@ -127,9 +127,9 @@ const MAPS := [
 ]
 
 const DIFFICULTY := [
-	{"id": "easy", "name": "Rookie", "enemies": 3, "dmg": 0.5, "accuracy": 0.45, "aggression": 0.6, "focus": 1.15, "level": 0, "hp": 0.75, "max_price": 2500, "reward": 1.0, "base": 100},
-	{"id": "normal", "name": "Veteran", "enemies": 4, "dmg": 0.72, "accuracy": 0.65, "aggression": 0.8, "focus": 0.95, "level": 1, "hp": 0.9, "max_price": 4000, "reward": 1.6, "base": 160},
-	{"id": "hard", "name": "Warlord", "enemies": 5, "dmg": 0.9, "accuracy": 0.85, "aggression": 1.0, "focus": 0.8, "level": 2, "hp": 1.0, "max_price": 99999, "reward": 2.5, "base": 250},
+	{"id": "easy", "name": "Easy", "enemies": 3, "dmg": 0.5, "accuracy": 0.45, "aggression": 0.6, "focus": 1.15, "level": 0, "hp": 0.75, "max_price": 2500, "reward": 1.0, "base": 100},
+	{"id": "normal", "name": "Medium", "enemies": 4, "dmg": 0.72, "accuracy": 0.65, "aggression": 0.8, "focus": 0.95, "level": 1, "hp": 0.9, "max_price": 4000, "reward": 1.6, "base": 160},
+	{"id": "hard", "name": "Hard", "enemies": 5, "dmg": 0.9, "accuracy": 0.85, "aggression": 1.0, "focus": 0.8, "level": 2, "hp": 1.0, "max_price": 99999, "reward": 2.5, "base": 250},
 ]
 
 const POWERS := {
@@ -150,7 +150,7 @@ const CONTRACTS := [
 	{"id": "streak", "text": "Score a Double Wreck", "goals": [1], "reward": 180},
 	{"id": "bounty", "text": "Claim {n} bounties", "goals": [1, 2], "reward": 120},
 	{"id": "winMap", "text": "Win a match on {map}", "goals": [1], "reward": 200},
-	{"id": "winVet", "text": "Win on Veteran or Warlord", "goals": [1], "reward": 260},
+	{"id": "winVet", "text": "Win on Medium or Hard", "goals": [1], "reward": 260},
 	{"id": "wave", "text": "Reach wave {n} in Survival", "goals": [4, 6, 8], "reward": 45},
 ]
 

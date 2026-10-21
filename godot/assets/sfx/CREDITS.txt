@@ -1,0 +1,17 @@
+IronMetal sound effects. Recordings from freesound.org; CC0 needs no credit, CC BY is credited in the game.
+
+launch / launch_heavy   100772  "Huge rocket launcher"                         CGEffex        CC BY 4.0
+incoming_hit            530886  "Incoming Artillery Strike Cinematic Explosion" EvanBoyerman  CC BY 3.0
+incoming                241837  "Incoming mortar 4"                            Zagge28        CC0
+boom_car / rocket / small 156031 "Explosion"                                   Iwiploppenisse CC BY 4.0
+  layered with          258195  "Deep explosion"                               kodack         CC0
+boom_nuke               719426  "Missile or bomb incoming whoosh and explosion" zapsplat      CC0
+  layered with          235968  "explosion_01" (tommccann, CC0) and 258195 (kodack, CC0)
+engine/rev sport        755999  "Car Revving (Engine and Exhaust Mix)"         EvanBoyerman   CC BY 4.0
+engine/rev jeep         127980, 127981 "Big Block V8 Rev" 1 and 2              Henaway        CC0
+engine/rev truck        405086  "truck large diesel ... APC accelerate"        kyles          CC0
+engine/rev tank         200303  "Tank Engine Loop"                             qubodup        CC BY 4.0 / CC0
+gun_*                   482122, 183656 (qubodup, CC0), 239596 (mikewest, CC0)
+Interface and ability sounds are synthesized for the game.
+
+Files were trimmed, cleaned, layered and level-matched for the game.

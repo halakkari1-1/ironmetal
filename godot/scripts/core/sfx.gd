@@ -1,5 +1,5 @@
 extends Node
-## Sound: recorded effects (CC0, see assets/sfx/CREDITS.txt), the engine loop, and music.
+## Sound: recorded effects (CC0 / CC BY, see assets/sfx/CREDITS.txt), the engine loop, and music.
 ## Every stream is loaded once at start-up, so nothing ever decodes or stalls in the middle of a fight.
 ## World sounds play on a fixed pool of 3D voices placed where the sound happens: Godot pans and fades them
 ## against the camera. When the pool is busy the quietest, oldest voice is reused instead of piling up more.
@@ -13,8 +13,11 @@ const BANKS := {
 	"launch": ["launch"], "launch_heavy": ["launch_heavy"],
 }
 const ONESHOTS := ["click", "confirm", "denied", "purchase", "ready", "ability_end", "crunch", "hit", "hurt", "pickup",
-	"powerup", "flame", "railgun", "alarm", "wind", "streak", "count", "count_go", "win", "lose", "incoming", "strike",
+	"powerup", "flame", "railgun", "alarm", "wind", "streak", "count", "count_go", "win", "lose", "incoming", "incoming_hit", "boom_nuke",
 	"ab_smoke", "ab_dash", "ab_toxic", "ab_riptide", "ab_zap", "ab_charge", "ab_roar", "ab_cannon", "ab_shield"]
+## Engine recording per kind of vehicle: sports cars, jeeps, the monster truck, and the tracked/armoured machines.
+const ENGINE_CLASS := {"venom": "sport", "toxic": "sport", "ghost": "jeep", "megalodon": "jeep", "siren": "jeep",
+	"rex": "truck", "reaper": "tank", "titan": "tank", "colossus": "tank"}
 const WORLD_VOICES := 28
 const UI_VOICES := 8
 const GUN_VOICES := 10
@@ -25,6 +28,9 @@ var _world_t: Array[float] = []
 var _ui: Array[AudioStreamPlayer] = []
 var _ui_i := 0
 var _engine: AudioStreamPlayer
+var _rev: AudioStreamPlayer
+var _engine_class := "jeep"
+var _rev_ready := true
 var _music: AudioStreamPlayer
 var _music_id := ""
 var _guns_playing := 0
@@ -40,10 +46,11 @@ func _ready() -> void:
 			_load(n)
 	for n in ONESHOTS:
 		_load(n)
-	for c in Data.CARS:
-		var s := _load("engine_" + c.id)
+	for k in ["sport", "jeep", "truck", "tank"]:
+		var s := _load("engine_" + k)
 		if s is AudioStreamOggVorbis:
 			s.loop = true
+		_load("rev_" + k)
 	for i in WORLD_VOICES:
 		var p := AudioStreamPlayer3D.new()
 		p.bus = "SFX"
@@ -63,6 +70,9 @@ func _ready() -> void:
 	_engine = AudioStreamPlayer.new()
 	_engine.bus = "SFX"
 	add_child(_engine)
+	_rev = AudioStreamPlayer.new()
+	_rev.bus = "SFX"
+	add_child(_rev)
 	_music = AudioStreamPlayer.new()
 	_music.bus = "Music"
 	add_child(_music)
@@ -182,36 +192,63 @@ func rocket(pos: Vector3, heavy := false, vol := 1.0) -> void:
 	bank_at("launch_heavy" if heavy else "launch", pos, vol)
 
 
-## "Wheeeew... boom": the falling whistle, offset so it ends on impact `secs` from now.
+## Red-zone shell: the falling whistle, started so it ends on impact `secs` from now.
 func incoming(secs: float, pos: Vector3, vol := 1.0) -> void:
 	var s: AudioStream = streams.get("incoming")
 	if s == null:
 		return
 	var len := s.get_length()
-	play_at("incoming", pos, vol * 0.9, 1.0, len - min(len, secs))
+	play_at("incoming", pos, vol, 1.0, len - min(len, secs))
+
+
+## The big blast of a red-zone shell or a mini nuke.
+func nuke_blast(pos: Vector3, vol := 1.2) -> void:
+	_boom_times.append(_now)
+	play_at("boom_nuke", pos, vol)
+
+
+## An enemy rocket about to hit the player: whoosh and blast in one recording, its blast 0.34 s in.
+const INCOMING_HIT_AT := 0.34
+
+
+func incoming_hit(pos: Vector3, vol := 1.0) -> void:
+	_boom_times.append(_now)
+	play_at("incoming_hit", pos, vol)
 
 
 # ---------- engine ----------
 
 func engine_start(car_id: String) -> void:
-	var s: AudioStream = streams.get("engine_" + car_id)
+	_engine_class = ENGINE_CLASS.get(car_id, "jeep")
+	var s: AudioStream = streams.get("engine_" + _engine_class)
 	if s == null:
 		return
 	_engine.stream = s
 	_engine.volume_db = linear_to_db(0.5)
+	_engine.pitch_scale = 0.8
 	_engine.play()
+	_rev_ready = true
 
 
+## Pitch and level follow speed and throttle; flooring it from low speed plays the class's rev.
 func engine_set(throttle: float, speed_frac: float) -> void:
 	if not _engine.playing:
 		return
-	var target := 0.75 + speed_frac * 0.95 + throttle * 0.12
-	_engine.pitch_scale = lerp(_engine.pitch_scale, target, 0.15)
-	_engine.volume_db = linear_to_db(0.42 + throttle * 0.25)
+	var target := 0.78 + speed_frac * 0.62 + throttle * 0.1
+	_engine.pitch_scale = lerp(_engine.pitch_scale, target, 0.12)
+	_engine.volume_db = linear_to_db(0.38 + throttle * 0.22 + speed_frac * 0.15)
+	if throttle > 0.8 and speed_frac < 0.35 and _rev_ready:
+		_rev_ready = false
+		_rev.stream = streams.get("rev_" + _engine_class)
+		_rev.volume_db = linear_to_db(0.6)
+		_rev.play()
+	elif throttle < 0.2:
+		_rev_ready = true
 
 
 func engine_stop() -> void:
 	_engine.stop()
+	_rev.stop()
 
 
 # ---------- music ----------

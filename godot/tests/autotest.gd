@@ -22,6 +22,8 @@ func _ready() -> void:
 		"match": await _matches()
 		"shots": await _shots()
 		"bench": await _bench()
+		"fx": await _fx()
+		"coords": await _coords()
 	get_tree().quit()
 
 
@@ -81,6 +83,12 @@ func _shots() -> void:
 	main._lobby()
 	await get_tree().process_frame
 	await _shot("4_lobby_ar")
+	main._controls_editor()
+	await get_tree().process_frame
+	await _shot("4b_controls_ar")
+	main._workshop()
+	await get_tree().process_frame
+	await _shot("4c_workshop_ar")
 	Save.state.lang = "en"
 	I18n.set_lang("en")
 	main._setup_screen()
@@ -127,3 +135,32 @@ func _bench() -> void:
 	print("TEST bench avg frame ms=%.1f draw_calls=%d prims=%d" % [(Time.get_ticks_usec() - t0) / 1000.0 / frames,
 		RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME),
 		RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME)])
+
+
+## Close-ups of the explosions and fire, frozen at a few moments.
+func _fx() -> void:
+	var g := await _start(2, "ghost", 0)
+	g.running = false
+	for c in g.cars:
+		c.visible = false
+	var p := Vector3(g.player.x, 0, g.player.z)       # spawn points are kept clear of cover
+	var right := g.player.forward().cross(Vector3.UP)
+	g.camera.global_position = p + g.player.forward() * 26 + Vector3.UP * 6
+	g.camera.look_at(p + Vector3.UP * 5)
+	var fire := g.fx.flame_emitter(1.6, 4)
+	fire.global_position = p - right * 9
+	fire.emitting = true
+	g.fx.explosion(p, 0.8, "rocket")
+	g.fx.explosion(p + right * 10, 1.8, "car")
+	for t in [0.25, 0.6, 1.2, 2.5]:
+		await get_tree().create_timer(t - (0.0 if t == 0.25 else [0.25, 0.6, 1.2, 2.5][[0.25, 0.6, 1.2, 2.5].find(t) - 1])).timeout
+		await _shot("fx_%.2f" % t)
+
+
+func _coords() -> void:
+	var g := await _start(0, "ghost", 0)
+	await get_tree().create_timer(0.3).timeout
+	var vp := get_viewport()
+	var wp := Vector3(g.player.x, 1, g.player.z)
+	print("TEST window=", DisplayServer.window_get_size(), " visible_rect=", vp.get_visible_rect().size, " hud_root=", main.hud._root.size,
+		" final=", vp.get_final_transform(), " unproject=", g.camera.unproject_position(wp))

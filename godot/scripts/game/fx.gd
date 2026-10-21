@@ -1,16 +1,21 @@
 class_name FX
 extends Node3D
 ## Visual effects on GPU particles: the simulation runs on the graphics chip, so a screen full of explosions,
-## fire and smoke costs the processor almost nothing. Explosion and fire use pre-rendered simulations
-## (Unity Labs VFX flipbooks, CC0) played frame by frame on each particle.
+## fire and smoke costs the processor almost nothing. Explosions and fire are pre-rendered fluid simulations
+## played frame by frame on camera-facing cards: the rocket hit (Aerial Explosion 07), the wrecked car
+## (Artillery Explosion 10) and the fire loop (Large Campfire) are CGHeven CC0 renders; smoke, dust and sparks
+## use Unity Labs CC0 flipbooks. The CGHeven sheets are premultiplied, so flame glows even where it is thin.
 ##
 ## Every one-shot effect is built once into a small pool when the match loads and is only moved and restarted
 ## when it plays, so nothing is created, compiled or loaded in the middle of a fight.
 
 const DIR := "res://assets/vfx/"
-## Explosion size classes: every blast uses the nearest pre-built size.
-const SIZES := [0.6, 1.0, 1.6, 2.6]
-const POOL := {0.6: 4, 1.0: 6, 1.6: 4, 2.6: 1}
+## Explosion pools: kind -> size class -> how many are built. Every blast uses the nearest pre-built size.
+## "rocket": a fireball in the air turning into a smoke ball (rocket hits, mines, red-zone shells).
+## "car": a ground blast rising into a tall black plume (wrecked cars, fuel barrels, the mini nuke).
+const POOL := {"rocket": {0.6: 4, 1.0: 6, 1.6: 3}, "car": {1.3: 3, 1.8: 4, 2.6: 1}}
+## Flipbook sheets: columns, rows, card height / width, and where the blast sits on its card (0 bottom .. 1 top).
+const SHEETS := {"fb_rocket_hit": [8, 8, 1.0, 0.45], "fb_car_blast": [8, 8, 1.344, 0.06], "fb_fire": [6, 6, 2.146, 0.04]}
 
 var _tex := {}
 var _mat_cache := {}
@@ -30,11 +35,13 @@ var fx_k := 1.0
 
 func setup() -> void:
 	fx_k = Quality.tier.fx
-	for s in SIZES:
-		_blasts[s] = []
-		_blast_i[s] = 0
-		for i in max(1, int(round(POOL[s] * (0.75 + 0.25 * fx_k)))):
-			_blasts[s].append(_make_blast(s))
+	for kind in POOL:
+		for s in POOL[kind]:
+			var key := "%s%.1f" % [kind, s]
+			_blasts[key] = []
+			_blast_i[key] = 0
+			for i in max(1, int(round(POOL[kind][s] * (0.75 + 0.25 * fx_k)))):
+				_blasts[key].append(_make_blast(kind, s))
 	_pool("spark", 14, func(): return _emitter(_spark_spec(8)))
 	_pool("spark_big", 6, func(): return _emitter(_spark_spec(16)))
 	_pool("dust", 8, func(): return _emitter({"tex": "puff", "amount": 4, "life": 1.0, "size": [1.2, 4.0], "vel": [0.6, 1.8], "dir": Vector3.UP, "spread": 70.0,
@@ -111,7 +118,7 @@ func _texture(name: String) -> Texture2D:
 
 
 func _draw_material(spec: Dictionary) -> StandardMaterial3D:
-	var key := "%s|%s|%d|%d|%s" % [spec.tex, spec.get("add", false), spec.get("h", 1), spec.get("v", 1), spec.get("shaded", false)]
+	var key := "%s|%s|%d|%d|%s|%s" % [spec.tex, spec.get("add", false), spec.get("h", 1), spec.get("v", 1), spec.get("shaded", false), spec.get("premult", false)]
 	if _mat_cache.has(key):
 		return _mat_cache[key]
 	var m := StandardMaterial3D.new()
@@ -121,7 +128,7 @@ func _draw_material(spec: Dictionary) -> StandardMaterial3D:
 	m.vertex_color_use_as_albedo = true
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_PER_VERTEX if spec.get("shaded", false) else BaseMaterial3D.SHADING_MODE_UNSHADED
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD if spec.get("add", false) else BaseMaterial3D.BLEND_MODE_MIX
+	m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD if spec.get("add", false) else (BaseMaterial3D.BLEND_MODE_PREMULT_ALPHA if spec.get("premult", false) else BaseMaterial3D.BLEND_MODE_MIX)
 	m.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
 	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR  # no mipmaps: neighbouring flipbook cells never bleed
 	m.disable_receive_shadows = true
@@ -159,8 +166,9 @@ func _emitter(spec: Dictionary) -> GPUParticles3D:
 	pm.gravity = spec.get("gravity", Vector3.ZERO)
 	pm.damping_min = spec.get("damping", 0.0)
 	pm.damping_max = spec.get("damping", 0.0) * 1.3
-	pm.angle_min = -180.0
-	pm.angle_max = 180.0
+	if not spec.get("upright", false):  # simulations of fire and blasts must stay upright; puffs may turn
+		pm.angle_min = -180.0
+		pm.angle_max = 180.0
 	pm.angular_velocity_min = -spec.get("spin", 30.0)
 	pm.angular_velocity_max = spec.get("spin", 30.0)
 	var s0: float = spec.size[0]
@@ -236,51 +244,72 @@ func _spark_spec(n: int) -> Dictionary:
 		"gravity": Vector3(0, -24, 0), "colors": [Color(1.6, 1.2, 0.6, 1), Color(1, 0.4, 0.1, 0)]}
 
 
-## One explosion of a given size class: flash, the main simulated blast with secondary bursts, fire billows,
-## a lingering smoke column, a ground dust ring and sparks.
-func _make_blast(s: float) -> Node3D:
+## A flipbook card that plays a whole simulation once over its life: one particle, no drift.
+func _sim_card(sheet: String, width: float, life: float, extra := {}) -> Dictionary:
+	var info: Array = SHEETS[sheet]
+	var spec := {"tex": sheet, "h": info[0], "v": info[1], "aspect": info[2], "premult": true, "upright": true, "amount": 1, "life": life, "life_rand": 0.05,
+		"size": [width, width], "vel": [0.0, 0.0], "spin": 0.0, "colors": [Color(1, 1, 1, 1), Color(1, 1, 1, 1)],
+		"y": width * info[2] * (0.5 - info[3])}
+	spec.merge(extra, true)
+	return spec
+
+
+## One explosion of a given kind and size class: a flash, the main simulated blast (plus smaller offset ones on
+## big blasts), a ground dust ring, sparks, debris and a light; the scorch mark is a decal.
+func _make_blast(kind: String, s: float) -> Node3D:
 	var root := Node3D.new()
 	add_child(root)
 	var k := s
-	var parts := [
-		{"tex": "glow", "add": true, "amount": 1, "life": 0.12, "size": [5 * k, 11 * k], "vel": [0.0, 0.0], "colors": [Color(2, 1.5, 1, 0.7), Color(1, 0.4, 0.1, 0)], "y": 1.6 * k},
-		{"tex": "explosion_big" if s >= 1.2 else "explosion", "h": 5, "v": 5, "amount": 1, "life": 1.5 * max(1.0, k * 0.9), "size": [7.5 * k, 10.5 * k], "vel": [1.0, 1.4],
-			"spread": 5.0, "colors": [Color(1.35, 1.3, 1.25, 1), Color(1, 1, 1, 0.85)], "y": 1.6 * k, "life_rand": 0.1},
-		{"tex": "explosion", "h": 5, "v": 5, "amount": int(2 + k * 2), "life": 1.3, "size": [4.5 * k, 7 * k], "vel": [1.5, 3.0], "spread": 70.0,
-			"colors": [Color(1.3, 1.25, 1.2, 1), Color(1, 1, 1, 0.7)], "shape_r": 2.0 * k, "y": 1.4 * k, "burst": 0.85},
-		{"tex": "fireball", "h": 8, "v": 8, "amount": int(6 * k * fx_k) + 2, "life": 0.65, "size": [2.0 * k, 4.3 * k], "vel": [4.0 * k, 9.0 * k], "spread": 75.0,
-			"gravity": Vector3(0, 2, 0), "damping": 2.4, "colors": [Color(1.3, 1.05, 0.85, 0.9), Color(0.9, 0.35, 0.12, 0)], "y": 0.8},
-		{"tex": "smoke", "h": 8, "v": 8, "amount": int(6 * k * fx_k) + 2, "life": 4.2, "size": [6.0 * k, 15.0 * k], "vel": [2.0, 4.5], "spread": 25.0,
-			"gravity": Vector3(0, 0.4, 0), "damping": 0.6, "colors": [Color(0.24, 0.22, 0.2, 0.85), Color(0.35, 0.34, 0.33, 0)], "y": 2.2 * k, "shape_r": 1.0 * k, "burst": 0.7},
+	var parts: Array = [
+		{"tex": "glow", "add": true, "amount": 1, "life": 0.14, "size": [5 * k, 12 * k], "vel": [0.0, 0.0], "colors": [Color(2.2, 1.6, 1, 0.8), Color(1, 0.4, 0.1, 0)], "y": 1.6 * k},
+	]
+	if kind == "rocket":
+		parts.append(_sim_card("fb_rocket_hit", 15.0 * k, 1.6 * max(1.0, k * 0.8)))
+	else:
+		parts.append(_sim_card("fb_car_blast", 9.0 * k, 3.4))
+		if k >= 1.6:  # big blasts: two smaller simulations offset to the sides fill out the fireball
+			for side in [-1.0, 1.0]:
+				var extra := _sim_card("fb_rocket_hit", 10.0 * k, 1.5, {"burst": 1.0})
+				extra.x = side * 2.2 * k
+				extra.y = 2.2 * k
+				parts.append(extra)
+	parts.append_array([
 		{"tex": "disc", "h": 16, "v": 4, "aspect": 2.0, "amount": 8, "life": 1.1, "size": [2.5 * k, 6.5 * k], "vel": [10.0 * k, 16.0 * k], "dir": Vector3(1, 0.05, 0), "spread": 180.0,
 			"damping": 3.0, "colors": [Color(0.62, 0.55, 0.47, 0.7), Color(0.6, 0.53, 0.45, 0)], "y": 0.6, "flat": true},
 		{"tex": "glow", "add": true, "amount": int(30 * k * fx_k) + 6, "life": 0.9, "size": [0.32, 0.08], "vel": [12.0 * k, 30.0 * k], "spread": 70.0,
 			"gravity": Vector3(0, -26, 0), "damping": 0.6, "colors": [Color(1.8, 1.3, 0.6, 1), Color(1, 0.3, 0.05, 0)], "y": 0.5},
-	]
+	])
 	for spec in parts:
 		var e := _emitter(spec)
 		remove_child(e)
 		root.add_child(e)
-		e.position.y = spec.get("y", 0.0)
+		e.position = Vector3(spec.get("x", 0.0), spec.get("y", 0.0), 0)
 		if spec.get("flat", false):
 			var pm: ParticleProcessMaterial = e.process_material
 			pm.spread = 180.0
 			pm.flatness = 1.0
+	if k >= 1.0:
+		var d := debris_emitter()
+		remove_child(d)
+		root.add_child(d)
+		d.position.y = 0.8
+		d.amount = int(6 + 4 * k)
 	return root
 
 
 # ---------- effects used by the game ----------
 
-func explosion(pos: Vector3, size := 1.0) -> void:
-	var best: float = SIZES[0]
-	for s in SIZES:
-		if abs(s - size) < abs(best - size):
-			best = s
-	var list: Array = _blasts[best]
-	var root: Node3D = list[_blast_i[best]]
-	_blast_i[best] = (_blast_i[best] + 1) % list.size()
+func explosion(pos: Vector3, size := 1.0, kind := "rocket") -> void:
+	var sizes: Dictionary = POOL[kind]
+	var best: float = sizes.keys()[0]
+	for sz in sizes:
+		if abs(sz - size) < abs(best - size):
+			best = sz
+	var key := "%s%.1f" % [kind, best]
+	var list: Array = _blasts[key]
+	var root: Node3D = list[_blast_i[key]]
+	_blast_i[key] = (_blast_i[key] + 1) % list.size()
 	root.global_position = Vector3(pos.x, 0.0, pos.z)
-	root.rotation.y = randf() * TAU
 	for e in root.get_children():
 		(e as GPUParticles3D).restart()
 	light(Vector3(pos.x, 4, pos.z), 6.0 * size)
@@ -406,11 +435,12 @@ func burn_emitter() -> GPUParticles3D:
 		"gravity": Vector3(0, 0.25, 0), "damping": 0.5, "colors": [Color(0.17, 0.16, 0.15, 0.8), Color(0.3, 0.29, 0.28, 0)], "shape_r": 0.5})
 
 
-## Licking flames: the looped fire simulation.
-func flame_emitter(k := 1.0, amount := 6) -> GPUParticles3D:
-	return _emitter({"continuous": true, "tex": "flame", "h": 16, "v": 4, "aspect": 2.0, "loop": true, "fps": 26.0, "add": true, "amount": amount, "life": 0.8,
-		"size": [2.6 * k, 3.2 * k], "vel": [0.6, 1.4], "spread": 15.0, "gravity": Vector3(0, 0.5, 0), "colors": [Color(1.1, 0.8, 0.5, 0.85), Color(0.9, 0.4, 0.2, 0)],
-		"shape_r": 0.5 * k, "spin": 5.0})
+## Fire: the campfire simulation looped on a few overlapping cards, each starting at a different frame.
+func flame_emitter(k := 1.0, amount := 4) -> GPUParticles3D:
+	var info: Array = SHEETS.fb_fire
+	return _emitter({"continuous": true, "tex": "fb_fire", "h": info[0], "v": info[1], "aspect": info[2], "premult": true, "upright": true, "loop": true, "fps": 24.0,
+		"amount": amount, "life": 1.4, "life_rand": 0.2, "size": [2.2 * k, 2.5 * k], "vel": [0.0, 0.25], "spread": 10.0, "spin": 0.0,
+		"colors": [Color(0, 0, 0, 0), Color(1, 1, 1, 1), Color(0, 0, 0, 0)], "shape_r": 0.35 * k})
 
 
 ## A smoke column drifting off a burning tower or chimney.
@@ -443,8 +473,10 @@ func toxic_emitter(r: float) -> GPUParticles3D:
 
 
 func fire_zone_emitter(r: float) -> GPUParticles3D:
-	return _emitter({"continuous": true, "tex": "flame", "h": 16, "v": 4, "aspect": 2.0, "loop": true, "fps": 26.0, "add": true, "amount": int(r * 2.5) + 4, "life": 0.8,
-		"size": [1.6, 2.4], "vel": [0.6, 1.4], "spread": 15.0, "shape_r": r * 0.8, "colors": [Color(1.1, 0.8, 0.5, 0.85), Color(0.9, 0.4, 0.2, 0)]})
+	var info: Array = SHEETS.fb_fire
+	return _emitter({"continuous": true, "tex": "fb_fire", "h": info[0], "v": info[1], "aspect": info[2], "premult": true, "upright": true, "loop": true, "fps": 24.0,
+		"amount": int(r * 1.6) + 4, "life": 1.4, "size": [1.6, 1.9], "vel": [0.0, 0.2], "spread": 10.0, "spin": 0.0, "shape_r": r * 0.8,
+		"colors": [Color(0, 0, 0, 0), Color(1, 1, 1, 1), Color(0, 0, 0, 0)]})
 
 
 func smoke_trail_emitter() -> GPUParticles3D:

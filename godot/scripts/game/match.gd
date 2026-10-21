@@ -801,7 +801,7 @@ func fire_rocket(c: Car, opts := {}) -> void:
 	r.trail.emitting = true
 	r.merge({"x": m.x, "y": max(1.2, m.y), "z": m.z, "dir": dir, "speed": opts.get("speed", 34.0 if big else 52.0), "life": 3.5 if big else 2.4,
 		"owner": c, "kind": kind, "dmg": opts.get("dmg", c.stats.rocket_dmg * c.dmg_mul * opts.get("dmg_mul", 1.0)),
-		"radius": opts.get("radius", c.stats.rocket_radius), "homing": opts.get("homing", null), "warned": false}, true)
+		"radius": opts.get("radius", c.stats.rocket_radius), "homing": opts.get("homing", null), "warned": false, "hit_sound": false}, true)
 	rockets.append(r)
 	Sfx.rocket(m, big, 1.0 if c.is_player else 0.8)
 
@@ -1080,7 +1080,7 @@ func _update_rockets(dt: float) -> void:
 			if r.kind == "nuke":
 				_nuke_blast(r.x, r.z, r.radius, r.dmg, r.owner)
 			else:
-				explode(r.x, r.z, r.radius, r.dmg, r.owner, 1.5 if r.kind == "shell" else 0.8, "special" if (r.homing or r.kind == "shell") else "rocket")
+				explode(r.x, r.z, r.radius, r.dmg, r.owner, 1.5 if r.kind == "shell" else 0.8, "special" if (r.homing or r.kind == "shell") else "rocket", r.get("hit_sound", false))
 				if r.kind == "napalm":
 					_add_zone(r.x, r.z, 7, 6, 20 * r.owner.dmg_mul, r.owner, "fire")
 		else:
@@ -1109,27 +1109,29 @@ func _warn_incoming(r: Dictionary) -> void:
 	if time - _last_incoming < 0.6:
 		return
 	_last_incoming = time
-	Sfx.incoming(ahead / r.speed, Vector3(r.x, r.y, r.z), 0.75 if r.kind == "rocket" or r.kind == "napalm" else 1.0)
+	r.hit_sound = true
+	var secs: float = ahead / r.speed
+	later(max(0.0, secs - Sfx.INCOMING_HIT_AT), func(): Sfx.incoming_hit(Vector3(player.x, 1, player.z)))
 
 
 func _nuke_blast(x: float, z: float, radius: float, dmg: float, owner: Car) -> void:
-	fx.explosion(Vector3(x, 0, z), 2.6)
-	later(0.15, func(): fx.explosion(Vector3(x + randf_range(-4, 4), 0, z + randf_range(-4, 4)), 1.4))
-	later(0.32, func(): fx.explosion(Vector3(x + randf_range(-5, 5), 0, z + randf_range(-5, 5)), 1.2))
+	fx.explosion(Vector3(x, 0, z), 2.6, "car")
+	later(0.15, func(): fx.explosion(Vector3(x + randf_range(-4, 4), 0, z + randf_range(-4, 4)), 1.6))
+	later(0.32, func(): fx.explosion(Vector3(x + randf_range(-5, 5), 0, z + randf_range(-5, 5)), 1.0))
 	fx.ring(Vector3(x, 0, z), radius * 1.3, Color(1, 0.88, 0.63))
 	fx.light(Vector3(x, 8, z), 30.0, Color(1, 0.94, 0.75))
-	Sfx.play_at("strike", Vector3(x, 1, z), 1.2, 1.0, 0.9)
-	Sfx.explosion(Vector3(x, 1, z), 2.6)
+	Sfx.nuke_blast(Vector3(x, 1, z))
 	hud.whiteout()
 	shake = 1.2
 	explode(x, z, radius, dmg, owner, 0, "rocket")
 	_add_zone(x, z, 10, 5, 15, owner, "fire")
 
 
-func explode(x: float, z: float, radius: float, dmg: float, owner: Car, size := 1.0, cause := "rocket") -> void:
+func explode(x: float, z: float, radius: float, dmg: float, owner: Car, size := 1.0, cause := "rocket", silent := false) -> void:
 	if size > 0:
-		fx.explosion(Vector3(x, 0, z), size)
-		Sfx.explosion(Vector3(x, 1, z), size)
+		fx.explosion(Vector3(x, 0, z), size, "car" if cause == "barrel" else "rocket")
+		if not silent:
+			Sfx.explosion(Vector3(x, 1, z), size)
 		var pd := Vector2(player.x - x, player.z - z).length()
 		shake = max(shake, clamp(1 - pd / 45, 0.0, 1.0) * 0.7 * size)
 	for c in cars:
@@ -1360,7 +1362,7 @@ func _update_strikes(dt: float) -> void:
 		var k: float = 1 - s.t / s.total
 		s.vis.rm.albedo_color.a = 0.4 + 0.5 * abs(sin(time * (6 + k * 14)))
 		s.vis.fill.scale = Vector3(max(0.01, k) * s.r, 1, max(0.01, k) * s.r)
-		if not s.whistled and s.t <= min(s.total, 2.4):
+		if not s.whistled and s.t <= min(s.total, 1.05):  # the shell's whistle is about a second long
 			s.whistled = true
 			Sfx.incoming(s.t, Vector3(s.x, 6, s.z))
 		if s.t > 0:
@@ -1369,7 +1371,8 @@ func _update_strikes(dt: float) -> void:
 		s.vis.busy = false
 		s.vis.ring.visible = false
 		s.vis.fill.visible = false
-		explode(s.x, s.z, s.r, s.dmg, null, s.size * 1.1, "event")
+		Sfx.nuke_blast(Vector3(s.x, 1, s.z), 1.0)
+		explode(s.x, s.z, s.r, s.dmg, null, s.size * 1.1, "event", true)
 		if s.after.is_valid():
 			s.after.call()
 	strikes = keep
@@ -1419,9 +1422,8 @@ func _kill(c: Car) -> void:
 	c.kx += randf_range(-6, 6)
 	c.kz += randf_range(-6, 6)
 	var p := c.position
-	fx.explosion(p, 1.7)
-	later(0.22, func(): fx.explosion(p + Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)), 1.0))
-	later(0.52, func(): fx.explosion(p + Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)), 0.6))
+	fx.explosion(p, 1.8, "car")
+	later(0.25, func(): fx.explosion(p + Vector3(randf_range(-1.5, 1.5), 0, randf_range(-1.5, 1.5)), 0.6))
 	Sfx.explosion(p, 1.6)
 	c.wreck()
 	var killer: Car = c.last_attacker if c.last_attacker and c.last_attacker != c else null

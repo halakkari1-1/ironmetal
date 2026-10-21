@@ -22,6 +22,7 @@ var _turn := 0.0
 var _ring_light: OmniLight3D
 var _t := 0.0
 var _scenes := {}
+var _focus_px := -1.0   # where the ring (and the car) should sit across the screen; < 0 = default
 var _env: WorldEnvironment
 
 
@@ -101,10 +102,14 @@ func activate(on: bool) -> void:
 ## Fits the painting to the screen (cover), then solves the camera so the ground ring matches it.
 func _layout() -> void:
 	var vp := get_viewport().get_visible_rect().size
-	var sc: float = max(vp.x / IMG_W, vp.y / IMG_H)
+	var cover: float = max(vp.x / IMG_W, vp.y / IMG_H)
+	var target: float = _focus_px if _focus_px >= 0 else 0.64 * vp.x
+	# zoom the painting in (up to 40%) when that is the only way to slide the ring to the target spot
+	var need: float = max(target / RING.x, (vp.x - target) / (1.0 - RING.x)) / IMG_W
+	var sc: float = clamp(need, cover, cover * 1.4)
 	var dw := IMG_W * sc
 	var dh := IMG_H * sc
-	var ox: float = clamp(0.64 * vp.x - RING.x * dw, vp.x - dw, 0.0)  # crop toward the ring
+	var ox: float = clamp(target - RING.x * dw, vp.x - dw, 0.0)
 	var oy := (vp.y - dh) / 2
 	_bg.position = Vector2(ox, oy)
 	_bg.size = Vector2(dw, dh)
@@ -119,6 +124,14 @@ func _layout() -> void:
 	_cam.size = vp.y / f * _cam.near
 	_cam.frustum_offset = Vector2(-(cx - vp.x / 2) / f * _cam.near, (cy - vp.y / 2) / f * _cam.near)
 	_ring_light.position = Vector3(0, 0.6, 0)
+
+
+## Slides the car to a spot across the screen (in canvas pixels), clear of the panels a screen shows.
+func set_focus(px: float) -> void:
+	if abs(px - _focus_px) < 0.5:
+		return
+	_focus_px = px
+	_layout()
 
 
 func show_car(id: String) -> void:

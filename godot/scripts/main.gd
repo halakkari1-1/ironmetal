@@ -70,21 +70,55 @@ func _t(s: String, v := {}) -> String:
 	return I18n.t(s, v)
 
 
+## Screen title bar: back button, title, scrap counter. Sized for reading at arm's length on a phone.
 func _top_bar(root: Control, title: String, back := true) -> void:
-	var bar := UI.hbox(14)
+	var bar := UI.hbox(16)
 	bar.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
 	bar.offset_left = 24
 	bar.offset_right = -24
-	bar.offset_top = 16
+	bar.offset_top = 14
 	if back:
-		bar.add_child(UI.button("‹  " + _t("Back"), _lobby))
-	var h := UI.heading(title, 34)
-	bar.add_child(h)
+		var b := UI.button("‹  " + _t("Back"), _lobby, false, 28)
+		b.custom_minimum_size = Vector2(150, 66)
+		bar.add_child(b)
+	bar.add_child(UI.heading(title, 44))
 	bar.add_child(UI.spacer())
-	var pts := UI.panel(0.55)
-	pts.add_child(UI.label("⚙ %d  %s" % [Save.state.points, _t("Scrap")], 22, UI.ACCENT_2, UI.font_head))
-	bar.add_child(pts)
+	bar.add_child(_points_pill())
 	root.add_child(bar)
+
+
+func _points_pill() -> Control:
+	var pts := UI.panel(0.6)
+	pts.add_child(UI.label("⚙ %d  %s" % [Save.state.points, _t("Scrap")], 28, UI.ACCENT_2, UI.font_head))
+	return pts
+
+
+## A row of choices with a label in front; the chosen one is highlighted.
+func _seg(title: String, opts: Array, cur, cb: Callable, label_w := 260.0) -> Control:
+	var h := UI.hbox(12)
+	var l := UI.label(title, 26)
+	l.custom_minimum_size.x = label_w
+	h.add_child(l)
+	for o in opts:
+		var b := UI.button(o[1], func():
+			cb.call(o[0])
+			_refresh(), o[0] == cur, 24)
+		b.custom_minimum_size.y = 60
+		h.add_child(b)
+	return h
+
+
+func _scroll(root: Control, left: float, top: float, right: float, bottom: float) -> ScrollContainer:
+	var sc := ScrollContainer.new()
+	sc.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	sc.offset_left = left
+	sc.offset_top = top
+	sc.offset_right = right
+	sc.offset_bottom = bottom
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	sc.scroll_deadzone = 12   # a finger drag anywhere scrolls; a tap still presses buttons
+	root.add_child(sc)
+	return sc
 
 
 # ---------- lobby ----------
@@ -94,85 +128,84 @@ func _lobby() -> void:
 		_end_game()
 	showroom.activate(true)
 	showroom.show_car(Save.state.selected)
+	_focus_right_of(470)
 	Sfx.music("lobby")
 	_show("lobby", func(root: Control):
 		var logo := TextureRect.new()
 		logo.texture = load("res://assets/ui/logo.png")
 		logo.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		logo.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT
-		logo.position = Vector2(24, 12)
-		logo.size = Vector2(300, 110)
+		logo.position = Vector2(20, 10)
+		logo.size = Vector2(130, 130)
 		root.add_child(logo)
-		_top_bar_points(root)
+		var top := UI.vbox(10)
+		top.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+		top.offset_left = -430
+		top.offset_right = -24
+		top.offset_top = 16
+		var pill := _points_pill()
+		pill.size_flags_horizontal = Control.SIZE_SHRINK_END
+		top.add_child(pill)
+		top.add_child(_contracts_panel())
+		root.add_child(top)
 		var c: Dictionary = Save.selected_car()
-		var info := UI.panel(0.55)
-		info.position = Vector2(24, 128)
-		info.custom_minimum_size = Vector2(340, 0)
-		var v := UI.vbox(4)
-		v.add_child(UI.label(_t("Your ride"), 16, UI.DIM, UI.font_head))
-		v.add_child(UI.heading(c.name, 30))
-		v.add_child(UI.label(_t(c.special.name).to_upper() + " · " + _t(c.cls).to_upper(), 16, UI.ACCENT_2, UI.font_head))
-		var st := Data.car_stats(c, Save.upgrades(c.id))
+		var info := UI.panel(0.6)
+		info.position = Vector2(24, 150)
+		info.custom_minimum_size = Vector2(400, 0)
+		var v := UI.vbox(6)
+		v.add_child(UI.heading(c.name, 38))
+		v.add_child(UI.label(_t(c.special.name).to_upper() + " · " + _t(c.cls).to_upper(), 22, UI.ACCENT_2, UI.font_head))
 		for row in [["Speed", c.stats.speed], ["Armor", c.stats.armor], ["Guns", c.stats.gun], ["Rockets", c.stats.rocket], ["Handling", c.stats.handling]]:
-			var h := UI.hbox(10)
-			var l := UI.label(_t(row[0]), 16, UI.TEXT)
-			l.custom_minimum_size.x = 100
+			var h := UI.hbox(12)
+			var l := UI.label(_t(row[0]), 22)
+			l.custom_minimum_size.x = 130
 			h.add_child(l)
-			h.add_child(UI.bar(row[1] / 10.0, UI.ACCENT, 180, 8))
+			h.add_child(UI.bar(row[1] / 10.0, UI.ACCENT, 220, 12))
 			v.add_child(h)
 		info.add_child(v)
 		root.add_child(info)
 		var menu := UI.vbox(12)
 		menu.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
 		menu.offset_left = 24
-		menu.offset_top = -170
-		menu.offset_bottom = -24
-		menu.custom_minimum_size.x = 300
-		var play := UI.button(_t("PLAY"), _setup_screen, true, 32)
-		play.custom_minimum_size = Vector2(340, 66)
+		menu.offset_top = -176
+		menu.offset_bottom = -20
+		var play := UI.button(_t("PLAY"), _setup_screen, true, 40)
+		play.custom_minimum_size = Vector2(470, 84)
 		menu.add_child(play)
-		var row := UI.hbox(10)
+		var row := UI.hbox(12)
 		for b in [["Garage", _garage], ["Upgrade", _workshop], ["Settings", _settings]]:
-			var btn := UI.button(_t(b[0]), b[1])
-			btn.custom_minimum_size.y = 56
+			var btn := UI.button(_t(b[0]), b[1], false, 26)
+			btn.custom_minimum_size = Vector2(148, 68)
 			row.add_child(btn)
 		menu.add_child(row)
-		root.add_child(menu)
-		_contracts_panel(root))
+		root.add_child(menu))
 
 
-func _top_bar_points(root: Control) -> void:
-	var pts := UI.panel(0.55)
-	pts.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
-	pts.offset_left = -260
-	pts.offset_right = -24
-	pts.offset_top = 18
-	pts.add_child(UI.label("⚙ %d  %s" % [Save.state.points, _t("Scrap")], 22, UI.ACCENT_2, UI.font_head))
-	root.add_child(pts)
+## Centres the car in the free space to the right of a panel that ends at `px`.
+func _focus_right_of(px: float) -> void:
+	var w := get_viewport().get_visible_rect().size.x
+	# Arabic mirrors the screens, so the panels sit on the right and the car goes to the left
+	showroom.set_focus((w - px) / 2.0 if I18n.is_ar() else (px + w) / 2.0)
 
 
-func _contracts_panel(root: Control) -> void:
-	var p := UI.panel(0.5)
-	p.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
-	p.offset_left = -360
-	p.offset_right = -24
-	p.offset_top = -210
-	p.offset_bottom = -24
+func _contracts_panel() -> Control:
+	var p := UI.panel(0.55)
 	var v := UI.vbox(6)
-	v.add_child(UI.label(_t("Daily contracts"), 16, UI.DIM, UI.font_head))
+	v.add_child(UI.label(_t("Daily contracts"), 22, UI.DIM, UI.font_head))
 	for c in Save.contracts():
 		var h := UI.hbox(8)
-		var txt := UI.label(_t(c.text, {"n": c.goal, "map": _t(c.map_name)}), 16, UI.GOOD if c.done else UI.TEXT)
+		var txt := UI.label(_t(c.text, {"n": c.goal, "map": _t(c.map_name)}), 21, UI.GOOD if c.done else UI.TEXT)
 		txt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		txt.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		h.add_child(txt)
-		h.add_child(UI.label("%d/%d" % [c.progress, c.goal] if not c.done else "✓", 16, UI.ACCENT_2, UI.font_head))
+		h.add_child(UI.label("%d/%d" % [c.progress, c.goal] if not c.done else "✓", 21, UI.ACCENT_2, UI.font_head))
 		v.add_child(h)
 	p.add_child(v)
-	root.add_child(p)
+	return p
 
 
 # ---------- garage ----------
+# Everything sits on the left half, so the car on the painted ring (right half) is never covered.
 
 func _garage() -> void:
 	_garage_pick = Save.state.selected
@@ -181,67 +214,75 @@ func _garage() -> void:
 
 func _garage_view() -> void:
 	showroom.show_car(_garage_pick)
+	_focus_right_of(336 + 430)
 	_show("garage", func(root: Control):
 		_top_bar(root, _t("Garage"))
-		var list := UI.vbox(8)
-		var scroll := ScrollContainer.new()
-		scroll.position = Vector2(24, 90)
-		scroll.size = Vector2(300, 600)
-		scroll.set_anchors_and_offsets_preset(Control.PRESET_LEFT_WIDE)
-		scroll.offset_left = 24
-		scroll.offset_right = 324
-		scroll.offset_top = 90
-		scroll.offset_bottom = -20
-		scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		var sc := _scroll(root, 24, 96, 0, -16)
+		sc.anchor_right = 0.0
+		sc.offset_right = 24 + 300
+		var list := UI.vbox(10)
 		for c in Data.CARS:
 			var owned := Save.owns(c.id)
-			var label: String = c.name + ("" if owned else "   ⚙%d" % c.price)
-			var b := UI.button(label, func():
+			var b := UI.button(c.name, func():
 				_garage_pick = c.id
-				_garage_view(), c.id == _garage_pick, 20)
+				_garage_view(), c.id == _garage_pick, 24)
 			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-			b.custom_minimum_size = Vector2(280, 52)
+			b.custom_minimum_size = Vector2(290, 66)
 			if not owned:
-				b.modulate = Color(1, 1, 1, 0.75)
+				b.text = c.name + "\n⚙ %d" % c.price
+				b.add_theme_font_size_override("font_size", 21)
+				b.modulate = Color(1, 1, 1, 0.8)
 			list.add_child(b)
-		scroll.add_child(list)
-		root.add_child(scroll)
+		sc.add_child(list)
 		var c: Dictionary = Data.car(_garage_pick)
-		var p := UI.panel(0.55)
-		p.set_anchors_and_offsets_preset(Control.PRESET_RIGHT_WIDE)
-		p.offset_left = -420
-		p.offset_right = -24
-		p.offset_top = 90
-		p.offset_bottom = -20
-		var v := UI.vbox(8)
-		v.add_child(UI.heading(c.name, 32))
-		v.add_child(UI.label(_t(c.cls).to_upper(), 16, UI.ACCENT_2, UI.font_head))
-		var d := UI.label(c.desc_ar if I18n.is_ar() else c.desc, 17, UI.TEXT)
-		d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		d.custom_minimum_size.x = 360
-		v.add_child(d)
-		var sp := UI.label(_t(c.special.name) + ": " + _t(c.special.desc), 16, UI.GOOD)
+		var p := UI.panel(0.68)
+		p.set_anchors_and_offsets_preset(Control.PRESET_LEFT_WIDE)
+		p.offset_left = 336
+		p.offset_right = 336 + 430
+		p.offset_top = 96
+		p.offset_bottom = -16
+		var col := UI.vbox(10)
+		var info := ScrollContainer.new()
+		info.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		info.scroll_deadzone = 12
+		info.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		col.add_child(info)
+		var v := UI.vbox(10)
+		v.custom_minimum_size.x = 390
+		v.add_child(UI.heading(c.name, 36))
+		v.add_child(UI.label(_t(c.cls).to_upper() + " · " + _t(c.special.name).to_upper(), 22, UI.ACCENT_2, UI.font_head))
+		for row in [["Speed", c.stats.speed], ["Armor", c.stats.armor], ["Guns", c.stats.gun], ["Rockets", c.stats.rocket], ["Handling", c.stats.handling]]:
+			var h := UI.hbox(12)
+			var l := UI.label(_t(row[0]), 21)
+			l.custom_minimum_size.x = 120
+			h.add_child(l)
+			h.add_child(UI.bar(row[1] / 10.0, UI.ACCENT, 230, 12))
+			v.add_child(h)
+		var sp := UI.label(_t(c.special.desc), 21, UI.GOOD)
 		sp.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		sp.custom_minimum_size.x = 360
 		v.add_child(sp)
-		v.add_child(UI.label("+ " + _t(c.strong), 16, UI.TEXT))
-		v.add_child(UI.label("− " + _t(c.weak), 16, UI.DIM))
-		v.add_child(UI.spacer())
+		var d := UI.label(c.desc_ar if I18n.is_ar() else c.desc, 21, UI.TEXT)
+		d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		v.add_child(d)
+		v.add_child(UI.label("+ " + _t(c.strong), 21, UI.TEXT))
+		v.add_child(UI.label("− " + _t(c.weak), 21, UI.DIM))
+		info.add_child(v)
+		var act: Button
 		if Save.owns(c.id):
-			var sel := UI.button(_t("Selected") if Save.state.selected == c.id else _t("Select"), func():
+			act = UI.button(_t("Selected") if Save.state.selected == c.id else _t("Select"), func():
 				Save.select(c.id)
-				_garage_view(), true)
-			sel.disabled = Save.state.selected == c.id
-			v.add_child(sel)
+				_garage_view(), true, 30)
+			act.disabled = Save.state.selected == c.id
 		else:
 			var can: bool = Save.state.points >= c.price
-			var buy := UI.button((_t("Buy") + "  ⚙%d" % c.price) if can else _t("Need {n}", {"n": c.price}), func():
+			act = UI.button((_t("Buy") + "  ⚙ %d" % c.price) if can else _t("Need {n}", {"n": c.price}), func():
 				if Save.buy(c):
 					Sfx.play("purchase")
-				_garage_view(), true)
-			buy.disabled = not can
-			v.add_child(buy)
-		p.add_child(v)
+				_garage_view(), true, 30)
+			act.disabled = not can
+		act.custom_minimum_size = Vector2(0, 74)
+		col.add_child(act)
+		p.add_child(col)
 		root.add_child(p))
 
 
@@ -250,42 +291,48 @@ func _garage_view() -> void:
 func _workshop() -> void:
 	var c: Dictionary = Save.selected_car()
 	showroom.show_car(c.id)
+	_focus_right_of(24 + 560)
 	_show("workshop", func(root: Control):
-		_top_bar(root, _t("Workshop") + " · " + c.name)
-		var p := UI.panel(0.6)
+		_top_bar(root, _t("Workshop"))
+		var p := UI.panel(0.68)
 		p.set_anchors_and_offsets_preset(Control.PRESET_LEFT_WIDE)
 		p.offset_left = 24
-		p.offset_right = 560
+		p.offset_right = 24 + 560
 		p.offset_top = 96
-		p.offset_bottom = -24
-		var v := UI.vbox(12)
+		p.offset_bottom = -16
+		var sc := _scroll(p, 0, 0, 0, 0)
+		var v := UI.vbox(14)
+		v.custom_minimum_size.x = 520
+		v.add_child(UI.heading(c.name, 34))
 		var ups := Save.upgrades(c.id)
 		for u in Data.UPGRADES:
 			var lvl: int = ups[u.id]
-			var row := UI.hbox(12)
-			var col := UI.vbox(2)
+			var row := UI.hbox(14)
+			var col := UI.vbox(4)
 			col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			col.add_child(UI.label(_t(u.name), 22, UI.TEXT, UI.font_head))
-			col.add_child(UI.label(_t(u.desc), 15, UI.DIM))
-			var pips := UI.hbox(4)
+			col.add_child(UI.label(_t(u.name), 28, UI.TEXT, UI.font_head))
+			col.add_child(UI.label(_t(u.desc), 20, UI.DIM))
+			var pips := UI.hbox(6)
 			for i in Data.MAX_UPGRADE:
-				pips.add_child(UI.bar(1.0 if i < lvl else 0.0, UI.ACCENT, 28, 8))
+				pips.add_child(UI.bar(1.0 if i < lvl else 0.0, UI.ACCENT, 46, 12))
 			col.add_child(pips)
 			row.add_child(col)
 			if lvl >= Data.MAX_UPGRADE:
-				row.add_child(UI.label(_t("Max"), 20, UI.ACCENT_2, UI.font_head))
+				row.add_child(UI.label(_t("Max"), 28, UI.ACCENT_2, UI.font_head))
 			else:
 				var cost := Data.upgrade_cost(c, lvl)
-				var b := UI.button("⚙%d" % cost, func():
+				var b := UI.button("⚙ %d" % cost, func():
 					if Save.spend(cost):
 						ups[u.id] += 1
 						Save.write()
 						Sfx.play("purchase")
-					_workshop(), true, 20)
+					_workshop(), true, 26)
+				b.custom_minimum_size = Vector2(150, 66)
+				b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 				b.disabled = Save.state.points < cost
 				row.add_child(b)
 			v.add_child(row)
-		p.add_child(v)
+		sc.add_child(v)
 		root.add_child(p))
 
 
@@ -294,16 +341,15 @@ func _workshop() -> void:
 func _settings() -> void:
 	_show("settings", func(root: Control):
 		_top_bar(root, _t("Settings"))
-		var scroll := ScrollContainer.new()
-		scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		scroll.offset_left = 24
-		scroll.offset_right = -24
-		scroll.offset_top = 90
-		scroll.offset_bottom = -16
-		scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-		var p := UI.panel(0.62)
-		p.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		var v := UI.vbox(14)
+		var p := UI.panel(0.7)
+		p.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		p.offset_left = 24
+		p.offset_right = -24
+		p.offset_top = 96
+		p.offset_bottom = -16
+		var sc := _scroll(p, 0, 0, 0, 0)
+		var v := UI.vbox(18)
+		v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		v.add_child(_seg(_t("Language"), [["en", "English"], ["ar", "العربية"]], Save.state.lang, func(x):
 			Save.state.lang = x
 			Save.write()
@@ -317,21 +363,18 @@ func _settings() -> void:
 			Save.write()
 			Sfx.apply_settings()))
 		for vk in [["master", "Volume"], ["music", "Music volume"], ["sfx", "Effects volume"]]:
-			var h := UI.hbox(12)
-			var l := UI.label(_t(vk[1]), 20)
-			l.custom_minimum_size.x = 240
+			var h := UI.hbox(16)
+			var l := UI.label(_t(vk[1]), 26)
+			l.custom_minimum_size.x = 260
 			h.add_child(l)
-			var s := HSlider.new()
-			s.min_value = 0
-			s.max_value = 1
-			s.step = 0.05
-			s.value = Save.state.volume[vk[0]]
-			s.custom_minimum_size = Vector2(320, 32)
-			s.value_changed.connect(func(val):
+			var s := UI.slider(Save.state.volume[vk[0]], 0.0, 1.0, func(val):
 				Save.state.volume[vk[0]] = val
-				Sfx.apply_settings())
-			s.drag_ended.connect(func(_c): Save.write())
+				Sfx.apply_settings(), func(): Save.write())
 			h.add_child(s)
+			var pct := UI.label("%d%%" % roundi(Save.state.volume[vk[0]] * 100), 24, UI.ACCENT_2, UI.font_head)
+			pct.custom_minimum_size.x = 70
+			s.value_changed.connect(func(val): pct.text = "%d%%" % roundi(val * 100))
+			h.add_child(pct)
 			v.add_child(h)
 		v.add_child(_seg(_t("Graphics"), [["auto", _t("Auto")], ["high", _t("High")], ["medium", _t("Medium")], ["low", _t("Low")]], Save.state.graphics, func(x):
 			Save.state.graphics = x
@@ -344,77 +387,140 @@ func _settings() -> void:
 		v.add_child(_seg(_t("Steering"), [["classic", _t("Classic")], ["direction", _t("Direction")], ["autogas", _t("Auto gas")]], Save.state.scheme, func(x):
 			Save.state.scheme = x
 			Save.write()))
-		var credits := UI.label(_t("Credits") + "\n" + _t("Game by") + " Hussain Al-Akari\n" + _t("Environment art") + ": Post Apocalypse Kitbash · Oleg Ushenok (Fab)\n" \
-			+ _t("Music") + ": THE COST · Kill Dyll\n" + _t("Visual effects") + ": Free VFX Flipbooks · Unity Labs (CC0)\n" \
-			+ _t("Sound effects") + ": Freesound · qubodup, kodack, tommccann, mikewest, morganpurkis, zapsplat (CC0)\n" \
-			+ _t("Fonts") + ": Saira · Omnibus-Type, Cairo · Mohamed Gaber (SIL OFL)\n" + _t("Engine") + ": Godot Engine (MIT)", 15, UI.DIM)
+		var ctl := UI.hbox(12)
+		var cl := UI.label(_t("Controls"), 26)
+		cl.custom_minimum_size.x = 260
+		ctl.add_child(cl)
+		var edit := UI.button(_t("Edit button size and position"), _controls_editor, true, 24)
+		edit.custom_minimum_size.y = 60
+		ctl.add_child(edit)
+		v.add_child(ctl)
+		var credits := UI.label(_t("Credits") + "\n" + _t("Game by") + " Hussain Al-Akari\n" \
+			+ _t("Environment art") + ": Post Apocalypse Kitbash · Oleg Ushenok (Fab)\n" \
+			+ _t("Music") + ": THE COST · Kill Dyll\n" \
+			+ _t("Visual effects") + ": CGHeven (CC0) · Unity Labs (CC0)\n" \
+			+ _t("Sound effects") + ": Freesound · CGEffex, EvanBoyerman, Iwiploppenisse, Zagge28, Henaway, kyles, qubodup, kodack, tommccann, mikewest, zapsplat\n" \
+			+ _t("Fonts") + ": Saira · Omnibus-Type, Cairo · Mohamed Gaber (SIL OFL)\n" + _t("Engine") + ": Godot Engine (MIT)", 19, UI.DIM)
 		credits.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		v.add_child(credits)
-		p.add_child(v)
-		scroll.add_child(p)
-		root.add_child(scroll))
+		sc.add_child(v)
+		root.add_child(p))
 
 
-func _seg(title: String, opts: Array, cur, cb: Callable) -> Control:
-	var h := UI.hbox(10)
-	var l := UI.label(title, 20)
-	l.custom_minimum_size.x = 240
-	h.add_child(l)
-	for o in opts:
-		var b := UI.button(o[1], func():
-			cb.call(o[0])
-			_refresh(), o[0] == cur, 19)
-		h.add_child(b)
-	return h
+## Drag the buttons where you want them, pick one and size it with the slider; saved for every match.
+func _controls_editor() -> void:
+	var editor := ControlsEditor.new()
+	editor.done.connect(func():
+		editor.queue_free()
+		_settings())
+	_show("controls", func(root: Control): root.add_child(editor))
 
 
 # ---------- match setup ----------
 
+const DIFF_INFO := [
+	{"name": "Easy", "cars": "Cheapest cars only", "aim": "Weak aim"},
+	{"name": "Medium", "cars": "Cars up to Rex", "aim": "Good aim"},
+	{"name": "Hard", "cars": "Every car", "aim": "Sharp aim"},
+]
+
+
 func _setup_screen() -> void:
 	_show("setup", func(root: Control):
 		_top_bar(root, _t("Enter the arena"))
-		var p := UI.panel(0.62)
-		p.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		p.offset_left = 24
-		p.offset_right = -24
-		p.offset_top = 90
-		p.offset_bottom = -24
-		var v := UI.vbox(16)
-		v.add_child(_seg(_t("Mode"), [["deathmatch", _t("Deathmatch")], ["survival", _t("Survival")]], _setup.mode, func(x): _setup.mode = x))
-		var maps := UI.hbox(10)
+		var col := UI.vbox(16)
+		col.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		col.offset_left = 24
+		col.offset_right = -24
+		col.offset_top = 96
+		col.offset_bottom = -16
+		# mode
+		var modes := UI.hbox(14)
+		for m in [["deathmatch", "Deathmatch", "Last car running wins"], ["survival", "Survival", "Endless waves hunt you"]]:
+			modes.add_child(_card(_t(m[1]), _t(m[2]), _setup.mode == m[0], func():
+				_setup.mode = m[0]
+				_refresh()))
+		col.add_child(modes)
+		# maps
+		var maps := UI.hbox(12)
 		for i in Data.MAPS.size():
 			var m: Dictionary = Data.MAPS[i]
-			var card := UI.vbox(4)
-			var tex := TextureRect.new()
-			tex.texture = load("res://assets/ui/maps/%s.jpg" % m.id)
-			tex.custom_minimum_size = Vector2(190, 106)
-			tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-			tex.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-			card.add_child(tex)
-			var b := UI.button(_t(m.name), func():
+			var card := _map_card(m, _setup.map == i, func():
 				_setup.map = i
-				_refresh(), _setup.map == i, 18)
-			card.add_child(b)
+				_refresh())
 			maps.add_child(card)
-		var ms := ScrollContainer.new()
-		ms.custom_minimum_size.y = 170
-		ms.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-		ms.add_child(maps)
-		v.add_child(ms)
+		col.add_child(maps)
+		# difficulty and fight
+		var bottom := UI.hbox(14)
+		bottom.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		if _setup.mode == "deathmatch":
-			var opts: Array = []
 			for i in Data.DIFFICULTY.size():
-				opts.append([i, _t(Data.DIFFICULTY[i].name)])
-			v.add_child(_seg(_t("Difficulty"), opts, _setup.diff, func(x): _setup.diff = x))
-		v.add_child(UI.spacer())
+				var d: Dictionary = Data.DIFFICULTY[i]
+				var info: Dictionary = DIFF_INFO[i]
+				var lines := "%s\n%s\n%s" % [_t("{n} enemy cars", {"n": d.enemies}), _t(info.cars), _t(info.aim)]
+				bottom.add_child(_card(_t(info.name), lines, _setup.diff == i, func():
+					_setup.diff = i
+					_refresh()))
+		else:
+			bottom.add_child(_card(_t("Survival"), _t("Waves get bigger and tougher. How long can you last?"), true, func(): pass))
 		var go := UI.button(_t("FIGHT"), func():
 			_start_match({"car": Save.selected_car(), "upgrades": Save.upgrades(Save.state.selected), "map": Data.MAPS[_setup.map],
-				"diff": Data.DIFFICULTY[_setup.diff], "mode": _setup.mode}), true, 34)
-		go.custom_minimum_size = Vector2(300, 70)
-		go.size_flags_horizontal = Control.SIZE_SHRINK_END
-		v.add_child(go)
-		p.add_child(v)
-		root.add_child(p))
+				"diff": Data.DIFFICULTY[_setup.diff], "mode": _setup.mode}), true, 44)
+		go.custom_minimum_size = Vector2(260, 0)
+		go.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		go.size_flags_horizontal = Control.SIZE_SHRINK_END | Control.SIZE_EXPAND
+		bottom.add_child(go)
+		col.add_child(bottom)
+		root.add_child(col))
+
+
+## A large selectable card: title and a few lines of detail.
+func _card(title: String, detail: String, on: bool, cb: Callable) -> Control:
+	var b := UI.button("", cb, on, 24)
+	b.custom_minimum_size = Vector2(0, 110)
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var v := UI.vbox(2)
+	v.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	v.offset_left = 18
+	v.offset_right = -18
+	v.offset_top = 10
+	v.offset_bottom = -10
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var t := UI.label(title, 32, Color.WHITE, UI.font_head)
+	t.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(t)
+	var d := UI.label(detail, 20, Color(1, 1, 1, 0.9) if on else UI.DIM)
+	d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	d.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(d)
+	b.add_child(v)
+	return b
+
+
+func _map_card(m: Dictionary, on: bool, cb: Callable) -> Control:
+	var b := UI.button("", cb, on, 22)
+	b.custom_minimum_size = Vector2(0, 190)
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var v := UI.vbox(6)
+	v.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	v.offset_left = 8
+	v.offset_right = -8
+	v.offset_top = 8
+	v.offset_bottom = -8
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var tex := TextureRect.new()
+	tex.texture = load("res://assets/ui/maps/%s.jpg" % m.id)
+	tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	tex.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	tex.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	tex.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(tex)
+	var l := UI.label(_t(m.name), 24, Color.WHITE, UI.font_head)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(l)
+	b.add_child(v)
+	return b
 
 
 # ---------- match lifecycle ----------
@@ -485,13 +591,15 @@ func _pause() -> void:
 	p.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	p.grow_vertical = Control.GROW_DIRECTION_BOTH
 	var v := UI.vbox(14)
-	v.add_child(UI.heading(_t("Paused"), 44))
-	var resume := UI.button(_t("Resume"), _resume, true, 28)
-	resume.custom_minimum_size = Vector2(320, 64)
+	v.add_child(UI.heading(_t("Paused"), 52))
+	var resume := UI.button(_t("Resume"), _resume, true, 34)
+	resume.custom_minimum_size = Vector2(380, 80)
 	v.add_child(resume)
-	v.add_child(UI.button(_t("Quit match"), func():
+	var quit := UI.button(_t("Quit match"), func():
 		get_tree().paused = false
-		_lobby(), false, 24))
+		_lobby(), false, 28)
+	quit.custom_minimum_size = Vector2(380, 70)
+	v.add_child(quit)
 	p.add_child(v)
 	root.add_child(p)
 
@@ -528,13 +636,13 @@ func _on_finished(r: Dictionary) -> void:
 		p.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 		p.grow_horizontal = Control.GROW_DIRECTION_BOTH
 		p.grow_vertical = Control.GROW_DIRECTION_BOTH
-		p.custom_minimum_size.x = 560
+		p.custom_minimum_size.x = 660
 		var v := UI.vbox(8)
 		var good: bool = r.result == "win" or (surv and r.stats.wave > prev_best)
-		var title := UI.heading(_t("Wave {n}", {"n": r.stats.wave}) if surv else _t("Victory" if r.result == "win" else "Wrecked"), 52)
+		var title := UI.heading(_t("Wave {n}", {"n": r.stats.wave}) if surv else _t("Victory" if r.result == "win" else "Wrecked"), 60)
 		title.add_theme_color_override("font_color", Color("ffd25a") if good else UI.BAD)
 		v.add_child(title)
-		v.add_child(UI.label("%s · %s · %s" % [_t(cfg.map.name), _t("Survival" if surv else d.name), cfg.car.name], 17, UI.DIM))
+		v.add_child(UI.label("%s · %s · %s" % [_t(cfg.map.name), _t("Survival" if surv else d.name), cfg.car.name], 22, UI.DIM))
 		var lines := [[_t("Time in arena"), "%d:%02d" % [int(r.time) / 60, int(r.time) % 60]], [_t("Kills"), "%d" % r.kills]]
 		if r.result == "win":
 			lines.append([_t("Victory bonus"), "+%d" % win_pts])
@@ -545,22 +653,23 @@ func _on_finished(r: Dictionary) -> void:
 			lines.append([_t(b.label, {"n": b.get("n", "")}), "+%d" % b.pts])
 		for ln in lines:
 			var h := UI.hbox(10)
-			var a := UI.label(ln[0], 19)
+			var a := UI.label(ln[0], 24)
 			a.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			h.add_child(a)
-			h.add_child(UI.label(ln[1], 19, UI.TEXT, UI.font_head))
+			h.add_child(UI.label(ln[1], 24, UI.TEXT, UI.font_head))
 			v.add_child(h)
 		var tot := UI.hbox(10)
-		var tl := UI.label(_t("Scrap earned"), 24, UI.ACCENT_2, UI.font_head)
+		var tl := UI.label(_t("Scrap earned"), 30, UI.ACCENT_2, UI.font_head)
 		tl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		tot.add_child(tl)
-		tot.add_child(UI.label("+%d" % total, 24, UI.ACCENT_2, UI.font_head))
+		tot.add_child(UI.label("+%d" % total, 30, UI.ACCENT_2, UI.font_head))
 		v.add_child(tot)
 		for c in done:
-			v.add_child(UI.label(_t("Contract complete") + ": " + _t(c.text, {"n": c.goal, "map": _t(c.map_name)}) + "  +%d" % c.reward, 17, UI.GOOD))
+			v.add_child(UI.label(_t("Contract complete") + ": " + _t(c.text, {"n": c.goal, "map": _t(c.map_name)}) + "  +%d" % c.reward, 22, UI.GOOD))
 		var row := UI.hbox(10)
-		row.add_child(UI.button(_t("Lobby"), _lobby))
-		row.add_child(UI.button(_t("Rematch"), func(): _start_match(cfg), true))
+		for b in [UI.button(_t("Lobby"), _lobby, false, 28), UI.button(_t("Rematch"), func(): _start_match(cfg), true, 28)]:
+			b.custom_minimum_size = Vector2(220, 70)
+			row.add_child(b)
 		v.add_child(row)
 		p.add_child(v)
 		root.add_child(p))
