@@ -1,9 +1,9 @@
 class_name Showroom
 extends Node3D
-## The lobby yard, built in 3D all the way round so the camera can circle the car: a wet asphalt yard with the
-## car on a glowing ring platform, barriers, drums and lamp posts close by, container stacks and a ruined
-## bridge further out, and a burning city on the horizon, under a night sky drawn by a shader (moving clouds,
-## stars, the moon, the glow of the fires). Drag anywhere free of buttons to turn the view; left alone, it
+## The lobby: the car on a glowing ring platform in the middle of a city street (the "street city 7" scene,
+## dasy444 on Sketchfab), at night: the street darkened and wet, lamps and burning drums close by, fires and
+## smoke rising behind the blocks, under a night sky drawn by a shader (moving clouds, stars, the moon, the
+## glow of the fires). The whole street is real 3D, so the camera can circle the car. Drag anywhere free of buttons to turn the view; left alone, it
 ## drifts round slowly. set_focus() slides the car sideways on screen (a lens shift) to keep it clear of panels.
 
 const RADIUS := 5.0          # the glowing ring, metres
@@ -146,9 +146,8 @@ func _ready() -> void:
 	_fx.setup()
 	_ground()
 	_platform()
-	_yard()
-	_bridge()
-	_city()
+	_street()
+	_fires()
 	get_viewport().size_changed.connect(_layout)
 	_layout()
 
@@ -181,10 +180,11 @@ func _ground() -> void:
 	mat.uv1_scale = Vector3(60, 60, 1)
 	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	var plane := PlaneMesh.new()
-	plane.size = Vector2(900, 900)
+	plane.size = Vector2(900, 900)  # beyond the street model
 	var g := MeshInstance3D.new()
 	g.mesh = plane
 	g.material_override = mat
+	g.position.y = -0.3
 	add_child(g)
 
 
@@ -229,57 +229,76 @@ func _platform() -> void:
 	add_child(_ring_light)
 
 
-func _prop(name: String, x: float, z: float, ry: float, s := 1.0) -> void:
-	var mi := MeshInstance3D.new()
-	mi.mesh = Kit.mesh("prop_" + name)
-	mi.material_override = Kit.material
-	mi.scale = Vector3.ONE * Arena.PS * s
-	mi.rotation.y = ry
-	mi.position = Vector3(x, 0, z)
-	if Quality.tier_id == "low":
-		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(mi)
+const STREET := "res://assets/lobby/street.glb"
+const STREET_SCALE := 6.0
+const STREET_SPOT := Vector3(-2.6, 0.0, 3.0)   # the platform's place in the street model (middle of the road)
+
+
+## The street, scaled up round the platform. Its daylight photo textures are darkened for night; the road is
+## made wet so it shines with the lamps and fires; every surface is drawn from both sides (the far blocks are
+## single cards).
+func _street() -> void:
+	var scene: PackedScene = load(STREET)
+	var st: Node3D = scene.instantiate()
+	st.scale = Vector3.ONE * STREET_SCALE
+	st.position = -STREET_SPOT * STREET_SCALE + Vector3(0, -0.02, 0)
+	add_child(st)
+	var done := {}
+	for mi in st.find_children("*", "MeshInstance3D", true, false):
+		var m := mi as MeshInstance3D
+		m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		var box: AABB = m.mesh.get_aabb()
+		var flat: bool = box.size.y * m.global_transform.basis.get_scale().y < 0.7 * STREET_SCALE and m.name.begins_with("Plane")
+		for i in m.mesh.get_surface_count():
+			var src := m.get_active_material(i)
+			if not (src is BaseMaterial3D):
+				continue
+			var key := str(src.get_instance_id()) + ("w" if flat else "")
+			if not done.has(key):
+				var mat: BaseMaterial3D = src.duplicate()
+				mat.albedo_color = mat.albedo_color * Color(0.42, 0.4, 0.42)
+				mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+				mat.metallic = 0.0
+				if flat:     # wet road and pavement
+					mat.roughness = 0.32
+					mat.metallic_specular = 0.6
+				else:
+					mat.roughness = 0.9
+					mat.metallic_specular = 0.3
+				done[key] = mat
+			m.set_surface_override_material(i, done[key])
+	for p in [Vector3(-11.5, 0, 6.0), Vector3(11.0, 0, -7.5)]:
+		_lamp(p)
+	for p in [Vector3(-8.5, 0, -16.0), Vector3(9.5, 0, 17.0), Vector3(7.0, 0, -20.0)]:   # burning drums in the road
+		var f := _fx.flame_emitter(1.0, 4)
+		f.global_position = p + Vector3(0, 0.4, 0)
+		f.emitting = true
+		_fire_light(p + Vector3.UP * 1.6, 1.6, 12)
+
+
+## Fires and smoke rising behind the blocks all round, lighting the sky and the building tops orange.
+func _fires() -> void:
+	var fx_k: float = Quality.tier.fx
+	var n := 9 if Quality.tier_id != "low" else 5
+	for i in n:
+		var a := i * TAU / n + 0.3 + (_r() - 0.5) * 0.3
+		var dist := 120.0 + _r() * 60.0
+		var p := _at(a, dist)
+		var base := Vector3(p.x, 0, p.y)
+		if _r() < 0.75:
+			var f := _fx.flame_emitter(9.0 + _r() * 5.0, 10)
+			f.global_position = base + Vector3(0, 6, 0)
+			f.emitting = true
+			_fire_light(base + Vector3(0, 25, 0) - base.normalized() * 30.0, 6.0, 110)
+		if _r() < 0.6 + 0.3 * fx_k:
+			var sm := _fx.tower_smoke_emitter(true)
+			sm.global_position = base + Vector3(0, 30 + _r() * 30, 0)
+			sm.scale = Vector3.ONE * 2.0
+			sm.emitting = true
 
 
 func _at(ang: float, dist: float) -> Vector2:
 	return Vector2(sin(ang), cos(ang)) * dist
-
-
-## Close by: barriers, drums and crates in loose groups, lamp posts; then container stacks with gaps between
-## them so the city shows through.
-func _yard() -> void:
-	var groups := [["barrier", 0.4], ["drums", 1.3], ["crates", 2.0], ["barrier", 2.7], ["tarpDrums", 3.5], ["dumpster", 4.3], ["cylinders", 5.1], ["barrier", 5.8]]
-	for gp in groups:
-		var a: float = gp[1] + (_r() - 0.5) * 0.2
-		var p := _at(a, 12.5 + _r() * 4)
-		_prop(gp[0], p.x, p.y, a + PI / 2 + (_r() - 0.5) * 0.6)
-		if gp[0] == "barrier":
-			var p2 := _at(a + 0.2, 13.0 + _r() * 2)
-			_prop("barrier", p2.x, p2.y, a + PI / 2 + (_r() - 0.5) * 0.3)
-	for i in 4:
-		var a := i * TAU / 4 + 0.8
-		var p := _at(a, 10.5)
-		_lamp(Vector3(p.x, 0, p.y))
-	var cm := Kit.solid_material
-	for i in 7:
-		var a := i * TAU / 7 + 0.3 + (_r() - 0.5) * 0.25
-		var dist := 34 + _r() * 14
-		var p := _at(a, dist)
-		var stack := 1 + int(_r() * 3)
-		for k in stack:
-			var mi := MeshInstance3D.new()
-			mi.mesh = Kit.container(int(_r() * 3))
-			mi.material_override = cm
-			mi.scale = Vector3.ONE * 1.5
-			mi.rotation.y = a + PI / 2 + (_r() - 0.5) * 0.3 + k * 0.08
-			mi.position = Vector3(p.x, k * 3.9, p.y) + Vector3(_r() - 0.5, 0, _r() - 0.5)
-			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			add_child(mi)
-		if _r() < 0.45:   # a burning drum by some of them
-			var f := _fx.flame_emitter(1.0, 4)
-			f.global_position = Vector3(p.x, 0.2, p.y) + Vector3(cos(a), 0, -sin(a)) * 4
-			f.emitting = true
-			_fire_light(f.global_position + Vector3.UP * 1.5, 1.4, 9)
 
 
 func _lamp(pos: Vector3) -> void:
@@ -325,98 +344,6 @@ func _fire_light(pos: Vector3, energy: float, rng_: float) -> void:
 	l.position = pos
 	add_child(l)
 	_flicker.append([l, energy, _r() * 10])
-
-
-## A broken road bridge on pillars, its lamps still burning, crossing behind the yard as in the old painting.
-func _bridge() -> void:
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var ang := -0.55
-	var dir := Vector3(cos(ang), 0, -sin(ang))
-	var centre := Vector3(sin(ang), 0, cos(ang)) * 95
-	var length := 240.0
-	var deck := 22.0
-	var segs := 10
-	for i in segs:
-		if i == 6:
-			continue   # the collapsed span
-		var u := -length / 2 + (i + 0.5) * length / segs
-		var p := centre + dir * u
-		var basis := Basis(Vector3.UP, atan2(dir.x, dir.z))
-		st.append_from(Kit.block(9, 2.2, length / segs + 0.2, Kit.ATLAS.concrete, Kit.ATLAS.grey_plate, Kit.ATLAS.concrete), 0, Transform3D(basis, p + Vector3(0, deck, 0)))
-		st.append_from(Kit.block(3.2, deck, 3.2, Kit.ATLAS.concrete, Kit.ATLAS.concrete, Kit.ATLAS.concrete), 0, Transform3D(basis, p - dir * length / segs * 0.5))
-	var mi := MeshInstance3D.new()
-	mi.mesh = st.commit()
-	mi.material_override = Kit.solid_material
-	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(mi)
-	var mm := MultiMesh.new()
-	mm.transform_format = MultiMesh.TRANSFORM_3D
-	var bulb := SphereMesh.new()
-	bulb.radius = 0.35
-	bulb.height = 0.7
-	var bm := StandardMaterial3D.new()
-	bm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	bm.albedo_color = Color(3.0, 1.6, 0.6)
-	bulb.material = bm
-	mm.mesh = bulb
-	var lamps: Array = []
-	var u := -length / 2 + 6
-	while u < length / 2:
-		if abs(u - (-length / 2 + 6.5 * length / segs)) > length / segs * 0.6:
-			for side in [-1, 1]:
-				lamps.append(centre + dir * u + Vector3(dir.z, 0, -dir.x) * 4.2 * side + Vector3(0, deck + 2.6, 0))
-		u += 12
-	mm.instance_count = lamps.size()
-	for i in lamps.size():
-		mm.set_instance_transform(i, Transform3D(Basis(), lamps[i]))
-	var lm := MultiMeshInstance3D.new()
-	lm.multimesh = mm
-	lm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(lm)
-
-
-## The burning city: ruined towers and works all round the horizon, smoke from their tops, fires in them.
-func _city() -> void:
-	var kinds: Array = []
-	for k in Arena.SKYLINE:
-		var scene: PackedScene = load("res://assets/buildings/%s.glb" % k.id)
-		var probe := scene.instantiate()
-		var box := Car.new()._aabb(probe)
-		probe.free()
-		kinds.append({"tall": k.tall, "scene": scene, "box": box})
-	var low := Quality.tier_id == "low"
-	var n := 12 if low else 18
-	var fx_k: float = Quality.tier.fx
-	for i in n:
-		var kind: Dictionary = kinds[i % kinds.size()]
-		var a := i * TAU / n + (_r() - 0.5) * 0.2
-		var dist := 265 + _r() * 75
-		var hgt: float = (70 + _r() * 45) if kind.tall else (38 + _r() * 18)
-		var box: AABB = kind.box
-		var sc: float = hgt / box.size.y
-		var node: Node3D = kind.scene.instantiate()
-		var p := _at(a, dist)
-		var c := (box.get_center() * Vector3(1, 0, 1)) * sc
-		var ry := _r() * TAU
-		node.scale = Vector3.ONE * sc
-		node.rotation.y = ry
-		node.position = Vector3(p.x, -box.position.y * sc - 1.5, p.y) - c.rotated(Vector3.UP, ry)
-		for mi in node.find_children("*", "GeometryInstance3D", true, false):
-			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		add_child(node)
-		if _r() < 0.5 + 0.3 * fx_k:
-			var sm := _fx.tower_smoke_emitter(true)
-			sm.global_position = Vector3(p.x, hgt * 0.92, p.y)
-			sm.emitting = true
-		if not low and _r() < 0.75 * fx_k:
-			var toward := atan2(-p.x, -p.y)
-			var r := (box.size.x + box.size.z) * 0.25 * sc
-			var fpos := Vector3(p.x + sin(toward) * r, hgt * (0.25 + _r() * 0.4), p.y + cos(toward) * r)
-			var f := _fx.flame_emitter(4.5, 8)
-			f.global_position = fpos
-			f.emitting = true
-			_fire_light(fpos + Vector3(sin(toward), 0, cos(toward)) * 8, 5.0, 60)
 
 
 # ---------- camera ----------

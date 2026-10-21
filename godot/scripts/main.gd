@@ -443,7 +443,7 @@ func _settings() -> void:
 		ctl.add_child(edit)
 		v.add_child(ctl)
 		var credits := UI.label(_t("Credits") + "\n" + _t("Game by") + " Hussain Al-Akari\n" \
-			+ _t("Environment art") + ": Post Apocalypse Kitbash · Oleg Ushenok (Fab)\n" \
+			+ _t("Environment art") + ": Post Apocalypse Kitbash · Oleg Ushenok (Fab); lobby street · dasy444 (Sketchfab)\n" \
 			+ _t("Music") + ": THE COST · Kill Dyll\n" \
 			+ _t("Visual effects") + ": CGHeven (CC0) · Unity Labs (CC0)\n" \
 			+ _t("Sound effects") + ": Freesound · CGEffex, EvanBoyerman, Iwiploppenisse, Zagge28, Henaway, kyles, qubodup, kodack, tommccann, mikewest, zapsplat\n" \
