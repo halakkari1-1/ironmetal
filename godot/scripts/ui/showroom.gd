@@ -29,6 +29,7 @@ var _drag_id := -2
 var _drag_last := Vector2.ZERO
 var _drag_moved := 0.0
 var _flicker: Array = []      # [light, base energy, phase]
+var _lamps: Array = []
 var _rng := RandomNumberGenerator.new()
 
 
@@ -107,10 +108,10 @@ func _ready() -> void:
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color(0.36, 0.3, 0.38)
-	env.ambient_light_energy = 0.55
+	env.ambient_light_energy = 0.8
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
-	env.tonemap_exposure = 1.1
+	env.tonemap_exposure = 1.25
 	env.glow_enabled = true
 	env.glow_intensity = 0.6
 	env.glow_bloom = 0.05
@@ -256,7 +257,7 @@ func _street() -> void:
 			var key := str(src.get_instance_id()) + ("w" if flat else "")
 			if not done.has(key):
 				var mat: BaseMaterial3D = src.duplicate()
-				mat.albedo_color = mat.albedo_color * Color(0.42, 0.4, 0.42)
+				mat.albedo_color = mat.albedo_color * Color(0.5, 0.48, 0.5)
 				mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 				mat.metallic = 0.0
 				if flat:     # wet road and pavement
@@ -267,8 +268,11 @@ func _street() -> void:
 					mat.metallic_specular = 0.3
 				done[key] = mat
 			m.set_surface_override_material(i, done[key])
-	for p in [Vector3(-11.5, 0, 6.0), Vector3(11.0, 0, -7.5)]:
-		_lamp(p)
+	var i := 0
+	for z in [-38.0, -22.0, -6.0, 10.0, 26.0, 42.0]:   # both kerbs, staggered; two of them failing
+		var x := -11.0 if i % 2 == 0 else 11.0
+		_lamp(Vector3(x, 0, z), Vector3(-x, 0, 0), i == 1 or i == 4)
+		i += 1
 	for p in [Vector3(-8.5, 0, -16.0), Vector3(9.5, 0, 17.0), Vector3(7.0, 0, -20.0)]:   # burning drums in the road
 		var f := _fx.flame_emitter(1.0, 4)
 		f.global_position = p + Vector3(0, 0.4, 0)
@@ -301,39 +305,110 @@ func _at(ang: float, dist: float) -> Vector2:
 	return Vector2(sin(ang), cos(ang)) * dist
 
 
-func _lamp(pos: Vector3) -> void:
+## A street lamp leaning over the road: a bright head, a spotlight throwing a warm pool on the wet road, and a
+## soft beam of light in the air beneath it. Some of them are failing and flicker.
+func _lamp(pos: Vector3, toward: Vector3, flicker := false) -> void:
+	var arm_dir := Vector3(toward.x, 0, toward.z).normalized()
+	var h := 7.5
+	var pm := StandardMaterial3D.new()
+	pm.albedo_color = Color(0.1, 0.095, 0.09)
+	pm.metallic = 0.6
+	pm.roughness = 0.45
 	var post := MeshInstance3D.new()
 	var cyl := CylinderMesh.new()
-	cyl.top_radius = 0.09
-	cyl.bottom_radius = 0.14
-	cyl.height = 6.5
+	cyl.top_radius = 0.1
+	cyl.bottom_radius = 0.16
+	cyl.height = h
 	post.mesh = cyl
-	var pm := StandardMaterial3D.new()
-	pm.albedo_color = Color(0.12, 0.11, 0.1)
-	pm.metallic = 0.6
-	pm.roughness = 0.5
 	post.material_override = pm
-	post.position = pos + Vector3(0, 3.25, 0)
+	post.position = pos + Vector3(0, h / 2, 0)
 	add_child(post)
+	var arm := MeshInstance3D.new()
+	var ab := BoxMesh.new()
+	ab.size = Vector3(0.12, 0.12, 2.4)
+	arm.mesh = ab
+	arm.material_override = pm
+	var head_pos := pos + arm_dir * 2.2 + Vector3(0, h - 0.1, 0)
+	arm.position = pos + arm_dir * 1.1 + Vector3(0, h, 0)
+	arm.rotation.y = atan2(arm_dir.x, arm_dir.z)
+	add_child(arm)
 	var head := MeshInstance3D.new()
-	var box := BoxMesh.new()
-	box.size = Vector3(0.7, 0.18, 0.35)
-	head.mesh = box
+	var hb := BoxMesh.new()
+	hb.size = Vector3(0.55, 0.16, 0.9)
+	head.mesh = hb
 	var hm := StandardMaterial3D.new()
-	hm.albedo_color = Color(1, 0.8, 0.5)
+	hm.albedo_color = Color(1, 0.85, 0.6)
 	hm.emission_enabled = true
-	hm.emission = Color(1, 0.72, 0.4)
-	hm.emission_energy_multiplier = 5.0
+	hm.emission = Color(1, 0.75, 0.42)
+	hm.emission_energy_multiplier = 9.0
 	head.material_override = hm
-	head.position = pos + Vector3(0, 6.5, 0)
+	head.position = head_pos
+	head.rotation.y = arm.rotation.y
 	head.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(head)
-	var l := OmniLight3D.new()
-	l.light_color = Color(1, 0.7, 0.42)
-	l.light_energy = 1.6
-	l.omni_range = 14
-	l.position = pos + Vector3(0, 6.2, 0)
-	add_child(l)
+	var spot := SpotLight3D.new()
+	spot.light_color = Color(1, 0.72, 0.42)
+	spot.light_energy = 14.0
+	spot.spot_range = 22.0
+	spot.spot_angle = 52.0
+	spot.spot_attenuation = 0.6
+	spot.spot_angle_attenuation = 1.6
+	spot.position = head_pos - Vector3(0, 0.15, 0)
+	spot.rotation = Vector3(-PI / 2, 0, 0)
+	add_child(spot)
+	var beam := MeshInstance3D.new()        # the light hanging in the damp air under the lamp
+	var cone := CylinderMesh.new()
+	cone.top_radius = 0.3
+	cone.bottom_radius = 4.6
+	cone.height = h - 0.3
+	cone.radial_segments = 24
+	cone.cap_top = false
+	cone.cap_bottom = false
+	beam.mesh = cone
+	var bm := ShaderMaterial.new()
+	bm.shader = _beam_shader()
+	beam.material_override = bm
+	beam.position = head_pos - Vector3(0, (h - 0.3) / 2 + 0.1, 0)
+	beam.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(beam)
+	_lamps.append({"spot": spot, "head": hm, "beam": bm, "flicker": flicker, "on": 1.0, "next": _r() * 3.0, "phase": _r() * 10.0})
+
+
+static var _beam: Shader
+
+
+static func _beam_shader() -> Shader:
+	if _beam:
+		return _beam
+	_beam = Shader.new()
+	_beam.code = """
+shader_type spatial;
+render_mode unshaded, blend_add, depth_draw_never, cull_disabled, shadows_disabled;
+uniform float level = 1.0;
+void fragment() {
+	float edge = pow(abs(dot(NORMAL, VIEW)), 2.0);   // fades out at the cone's silhouette
+	float down = smoothstep(1.0, 0.0, UV.y) * 0.85 + 0.15;   // brightest by the lamp
+	float fade_floor = smoothstep(0.0, 0.08, UV.y) ;
+	ALBEDO = vec3(1.0, 0.68, 0.36) * 0.26 * edge * level * (1.0 - UV.y * 0.75) * fade_floor;
+}
+"""
+	return _beam
+
+
+## Failing lamps: mostly on, then a stutter of short drop-outs, now and then dark for a moment.
+func _update_lamps(dt: float) -> void:
+	for L in _lamps:
+		var lvl := 1.0
+		if L.flicker:
+			L.next -= dt
+			if L.next <= 0:
+				L.on = 0.08 if L.on > 0.5 else 1.0
+				L.next = randf_range(0.03, 0.12) if L.on < 0.5 else (randf_range(0.05, 0.25) if randf() < 0.6 else randf_range(1.0, 3.5))
+			lvl = L.on * (0.9 + 0.1 * sin(_t * 60.0 + L.phase))
+		L.spot.light_energy = 14.0 * lvl
+		L.head.emission_energy_multiplier = 9.0 * lvl
+		L.beam.set_shader_parameter("level", lvl)
+
 
 
 func _fire_light(pos: Vector3, energy: float, rng_: float) -> void:
@@ -470,6 +545,7 @@ func _process(dt: float) -> void:
 			_place_cam()
 	_ring_light.light_energy = 1.5 + sin(_t * 2.2) * 0.35
 	_ring_mat.emission_energy_multiplier = 2.4 + sin(_t * 2.2) * 0.5
+	_update_lamps(dt)
 	for f in _flicker:
 		var l: OmniLight3D = f[0]
 		l.light_energy = f[1] * (0.8 + 0.2 * sin(_t * 9.0 + f[2]) * sin(_t * 5.3 + f[2] * 2.0))
