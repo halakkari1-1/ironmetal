@@ -443,7 +443,7 @@ func _settings() -> void:
 		ctl.add_child(edit)
 		v.add_child(ctl)
 		var credits := UI.label(_t("Credits") + "\n" + _t("Game by") + " Hussain Al-Akari\n" \
-			+ _t("Environment art") + ": Post Apocalypse Kitbash · Oleg Ushenok (Fab); lobby street · dasy444 (Sketchfab)\n" \
+			+ _t("Environment art") + ": Post Apocalypse Kitbash · Oleg Ushenok (Fab)\n" \
 			+ _t("Music") + ": THE COST · Kill Dyll\n" \
 			+ _t("Visual effects") + ": CGHeven (CC0) · Unity Labs (CC0)\n" \
 			+ _t("Sound effects") + ": Freesound · CGEffex, EvanBoyerman, Iwiploppenisse, Zagge28, Henaway, kyles, qubodup, kodack, tommccann, mikewest, zapsplat\n" \
@@ -696,40 +696,55 @@ func _on_finished(r: Dictionary) -> void:
 	var lv := Profile.award(r.result, r.kills, r.stats.wave if surv else 0, r.get("net", false))
 	_end_game(false)
 	showroom.activate(true)
+	_focus_right_of(24 + 620)
 	Sfx.music("lobby")
 	_show("results", func(root: Control):
-		var p := UI.panel(0.7)
-		p.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
-		p.grow_horizontal = Control.GROW_DIRECTION_BOTH
-		p.grow_vertical = Control.GROW_DIRECTION_BOTH
-		p.custom_minimum_size.x = 660
+		# a full-height column on the left: the car stays in view, the list scrolls, the buttons never fall off
+		var p := UI.panel(0.72)
+		p.set_anchors_and_offsets_preset(Control.PRESET_LEFT_WIDE)
+		p.offset_left = 24
+		p.offset_right = 24 + 620
+		p.offset_top = 16
+		p.offset_bottom = -16
 		if net:
-			p.set_anchors_and_offsets_preset(Control.PRESET_LEFT_WIDE)
-			p.offset_left = 24
-			p.offset_right = 24 + 660
-			p.offset_top = 24
-			p.offset_bottom = -24
 			root.add_child(_standings(r.ranking))
-		var v := UI.vbox(8)
+		var outer := UI.vbox(10)
+		var v := UI.vbox(6)
 		var good: bool = r.result == "win" or (surv and r.stats.wave > prev_best)
 		var title := UI.heading(_t("Wave {n}", {"n": r.stats.wave}) if surv else _t("Victory" if r.result == "win" else "Wrecked"), 60)
 		title.add_theme_color_override("font_color", Color("ffd25a") if good else UI.BAD)
-		v.add_child(title)
-		v.add_child(UI.label("%s · %s · %s" % [_t(cfg.map.name), _t("Survival" if surv else d.name), cfg.car.name], 22, UI.DIM))
+		outer.add_child(title)
+		outer.add_child(UI.label("%s · %s · %s" % [_t(cfg.map.name), _t("Survival" if surv else d.name), cfg.car.name], 22, UI.DIM))
+		var sc := ScrollContainer.new()
+		sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		sc.scroll_deadzone = 12
+		sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		sc.add_child(v)
+		outer.add_child(sc)
 		var lines := [[_t("Time in arena"), "%d:%02d" % [int(r.time) / 60, int(r.time) % 60]], [_t("Kills"), "%d" % r.kills]]
 		if r.result == "win":
 			lines.append([_t("Victory bonus"), "+%d" % win_pts])
 		elif show_pts:
 			lines.append([_t("Show-up pay"), "+%d" % show_pts])
 		lines.append([_t("Kill pay"), "+%d" % kill_pts])
+		var merged := {}   # the same bonus twice reads "Double Wreck ×2"
+		var order: Array = []
 		for b in r.stats.bonus:
-			lines.append([_t(b.label, {"n": b.get("n", "")}), "+%d" % b.pts])
+			var key: String = _t(b.label, {"n": b.get("n", "")})
+			if not merged.has(key):
+				merged[key] = [0, 0]
+				order.append(key)
+			merged[key][0] += 1
+			merged[key][1] += b.pts
+		for key in order:
+			lines.append([key + ("  ×%d" % merged[key][0] if merged[key][0] > 1 else ""), "+%d" % merged[key][1]])
 		for ln in lines:
 			var h := UI.hbox(10)
-			var a := UI.label(ln[0], 24)
+			var a := UI.label(ln[0], 22)
 			a.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			h.add_child(a)
-			h.add_child(UI.label(ln[1], 24, UI.TEXT, UI.font_head))
+			h.add_child(UI.label(ln[1], 22, UI.TEXT, UI.font_head))
 			v.add_child(h)
 		var tot := UI.hbox(10)
 		var tl := UI.label(_t("Scrap earned"), 30, UI.ACCENT_2, UI.font_head)
@@ -738,7 +753,9 @@ func _on_finished(r: Dictionary) -> void:
 		tot.add_child(UI.label("+%d" % total, 30, UI.ACCENT_2, UI.font_head))
 		v.add_child(tot)
 		for c in done:
-			v.add_child(UI.label(_t("Contract complete") + ": " + _t(c.text, {"n": c.goal, "map": _t(c.map_name)}) + "  +%d" % c.reward, 22, UI.GOOD))
+			var cl := UI.label(_t("Contract complete") + ": " + _t(c.text, {"n": c.goal, "map": _t(c.map_name)}) + "  +%d" % c.reward, 21, UI.GOOD)
+			cl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			v.add_child(cl)
 		var xp_row := UI.hbox(10)
 		var xl := UI.label(_t("Experience"), 24)
 		xl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -750,14 +767,16 @@ func _on_finished(r: Dictionary) -> void:
 			var up := UI.label(_t("LEVEL UP!") + "  " + _t("Level {n}", {"n": lv.to}), 30, nt.color, UI.font_head)
 			if Profile.tier_of(lv.from).id != nt.id:
 				up.text += "  ·  " + _t("New rank") + ": " + _t(nt.name)
+			up.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 			v.add_child(up)
 		var row := UI.hbox(10)
 		var again := UI.button(_t("Back to the room"), _mp_room, true, 28) if net else UI.button(_t("Rematch"), func(): _start_match(cfg), true, 28)
 		for b in [UI.button(_t("Lobby"), _lobby, false, 28), again]:
-			b.custom_minimum_size = Vector2(220, 70)
+			b.custom_minimum_size = Vector2(0, 70)
+			b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			row.add_child(b)
-		v.add_child(row)
-		p.add_child(v)
+		outer.add_child(row)
+		p.add_child(outer)
 		root.add_child(p))
 
 

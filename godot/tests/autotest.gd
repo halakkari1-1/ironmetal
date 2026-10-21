@@ -28,6 +28,7 @@ func _ready() -> void:
 		"intro": await _intro()
 		"profile": await _profile_shots()
 		"lobby3d": await _lobby3d()
+		"results": await _results()
 		"net_host": await _net_host()
 		"net_join": await _net_join()
 	get_tree().quit()
@@ -346,7 +347,7 @@ func _intro() -> void:
 	var it: Intro = main.get_node("Intro")
 	it.set_process(false)
 	var t := 0.0
-	for at in [0.6, 1.0, 1.75, 2.4, 2.9, 3.6, 4.6, 5.6, 6.3]:
+	for at in [0.6, 1.0, 1.75, 2.4, 3.0, 3.6, 4.4, 5.0]:
 		while t < at:
 			it._process(1.0 / 30.0)
 			t += 1.0 / 30.0
@@ -400,3 +401,18 @@ func _lobby3d() -> void:
 	for f in 10:
 		await get_tree().process_frame
 	await _shot("l3d_garage")
+
+
+func _results() -> void:
+	await get_tree().create_timer(0.5).timeout
+	main._last_cfg = {"map": Data.MAPS[0], "diff": Data.DIFFICULTY[0], "mode": "deathmatch", "car": Data.car("rex")}
+	var b := [{"label": "First blood", "pts": 25}, {"label": "Double wreck", "pts": 40}, {"label": "Crown claimed", "pts": 100}, {"label": "Double wreck", "pts": 40}, {"label": "Triple wreck", "pts": 80}]
+	Save.state.xp = Profile.xp_at(2) - 50
+	main._on_finished({"result": "win", "mode": "deathmatch", "kills": 6, "time": 84.0, "stats": {"bonus": b, "wave": 0, "kills": 6, "rocket_kills": 2, "barrels": 0, "airdrops": 0, "bounty": 1, "streak_max": 3}, "ranking": [], "net": false})
+	for f in 6:
+		await get_tree().process_frame
+	await _shot("r_results")
+	main._lobby()
+	for f in 6:
+		await get_tree().process_frame
+	await _shot("r_lobby")

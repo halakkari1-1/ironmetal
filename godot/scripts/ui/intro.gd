@@ -1,7 +1,7 @@
 class_name Intro
 extends CanvasLayer
-## The opening on every launch: the designer's emblem is shot up, catches fire and burns while the credit
-## fades in, then everything fades into the lobby. A tap skips it. The lobby loads underneath meanwhile.
+## The opening on every launch: the designer's emblem is shot up (sparks, smoking bullet holes) while the
+## credit fades in, then everything fades into the lobby. A tap skips it. The lobby loads underneath meanwhile.
 
 signal done
 
@@ -10,10 +10,10 @@ const FIRE := preload("res://assets/vfx/fb_fire.png")
 const SHOTS := 7
 const T_SHOTS := 0.9          # first shot
 const T_GAP := 0.2            # between shots
-const T_IGNITE := 2.55        # the bullet holes catch
-const T_CREDIT := 3.1
-const T_FADE := 5.9
-const T_END := 6.7
+const T_IGNITE := 999.0       # no fire: the emblem only takes the hits
+const T_CREDIT := 2.6
+const T_FADE := 4.7
+const T_END := 5.5
 
 var _t := 0.0
 var _root: Control
