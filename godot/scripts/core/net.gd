@@ -178,7 +178,7 @@ func _discovery(dt: float) -> void:
 func _me(peer: int) -> Dictionary:
 	var car: String = Save.state.selected
 	return {"peer": peer, "id": Save.state.player_id, "name": Save.player_name(), "color": COLORS[int(Save.state.player_color) % COLORS.size()],
-		"team": 1, "car": car, "ups": Save.upgrades(car).duplicate(), "ready": peer == 1}
+		"team": 1, "car": car, "ups": Save.upgrades(car).duplicate(), "ready": peer == 1, "lv": Profile.level()}
 
 
 func host() -> bool:
@@ -238,6 +238,7 @@ func _on_connected() -> void:
 	_connect_t = 0.0
 	var me := _me(0)
 	_hello.rpc_id(1, PROTO, me.id, me.name, me.color, me.car, me.ups)
+	_set_me.rpc_id(1, {"lv": me.lv})
 
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -315,7 +316,7 @@ func _set_me(d: Dictionary) -> void:
 func _apply_me(peer: int, d: Dictionary) -> void:
 	for p in lobby.players:
 		if p.peer == peer:
-			for k in ["car", "ups", "ready", "team", "color", "name"]:
+			for k in ["car", "ups", "ready", "team", "color", "name", "lv"]:
 				if d.has(k):
 					p[k] = d[k]
 	_sync()

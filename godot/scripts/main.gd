@@ -12,6 +12,7 @@ var _last_cfg := {}
 var _garage_pick := ""
 var _setup := {"mode": "deathmatch", "map": 0, "diff": 0}
 var _mp_status := ""
+var _intro: Intro
 var _mp_ip := ""
 
 
@@ -19,6 +20,7 @@ func _ready() -> void:
 	UI.init()
 	I18n.changed.connect(_refresh)
 	showroom = Showroom.new()
+	showroom.blocks = _ui_at
 	add_child(showroom)
 	ui_layer = CanvasLayer.new()
 	ui_layer.layer = 10
@@ -42,8 +44,20 @@ func _ready() -> void:
 			_mp_home())
 	Net.start_match.connect(_start_net_match)
 	Net.session_over.connect(_on_session_over)
+	var test := ""
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--test="):
+			test = a.substr(7)
+	if test == "" or test == "intro":
+		_intro = Intro.new()
+		_intro.name = "Intro"
+		add_child(_intro)
+		_intro.done.connect(func():
+			_intro = null
+			Sfx.music("lobby"))
 	_lobby()
-	Sfx.music("lobby")
+	if test != "" and test != "intro":
+		Sfx.music("lobby")
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--test=") and ResourceLoader.exists("res://tests/autotest.gd"):
 			var t: Node = load("res://tests/autotest.gd").new()
@@ -61,7 +75,7 @@ func _notification(what: int) -> void:
 		elif _current != "lobby":
 			_lobby()
 		else:
-			get_tree().quit()
+			_confirm_exit()
 	elif what == NOTIFICATION_APPLICATION_PAUSED and game and game.running and not Net.active():
 		_pause()
 
@@ -152,15 +166,12 @@ func _lobby() -> void:
 	showroom.activate(true)
 	showroom.show_car(Save.state.selected)
 	_focus_right_of(470)
-	Sfx.music("lobby")
+	if _intro == null:
+		Sfx.music("lobby")
 	_show("lobby", func(root: Control):
-		var logo := TextureRect.new()
-		logo.texture = load("res://assets/ui/logo.png")
-		logo.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		logo.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT
-		logo.position = Vector2(20, 10)
-		logo.size = Vector2(130, 130)
-		root.add_child(logo)
+		var card := _profile_card()
+		card.position = Vector2(24, 12)
+		root.add_child(card)
 		var top := UI.vbox(10)
 		top.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
 		top.offset_left = -430
@@ -682,6 +693,7 @@ func _on_finished(r: Dictionary) -> void:
 		"result": r.result, "kills": r.kills, "points": total, "wave": r.stats.wave if surv else 0})
 	var done := Save.apply_contracts({"result": r.result, "map": cfg.map.id, "diff": "survival" if surv else d.id, "stats": r.stats})
 	var net: bool = r.get("net", false) and Net.active()
+	var lv := Profile.award(r.result, r.kills, r.stats.wave if surv else 0, r.get("net", false))
 	_end_game(false)
 	showroom.activate(true)
 	Sfx.music("lobby")
@@ -727,6 +739,18 @@ func _on_finished(r: Dictionary) -> void:
 		v.add_child(tot)
 		for c in done:
 			v.add_child(UI.label(_t("Contract complete") + ": " + _t(c.text, {"n": c.goal, "map": _t(c.map_name)}) + "  +%d" % c.reward, 22, UI.GOOD))
+		var xp_row := UI.hbox(10)
+		var xl := UI.label(_t("Experience"), 24)
+		xl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		xp_row.add_child(xl)
+		xp_row.add_child(UI.label("+%d XP" % lv.xp, 24, Color("8fc4ff"), UI.font_head))
+		v.add_child(xp_row)
+		if lv.to > lv.from:
+			var nt: Dictionary = Profile.tier_of(lv.to)
+			var up := UI.label(_t("LEVEL UP!") + "  " + _t("Level {n}", {"n": lv.to}), 30, nt.color, UI.font_head)
+			if Profile.tier_of(lv.from).id != nt.id:
+				up.text += "  ·  " + _t("New rank") + ": " + _t(nt.name)
+			v.add_child(up)
 		var row := UI.hbox(10)
 		var again := UI.button(_t("Back to the room"), _mp_room, true, 28) if net else UI.button(_t("Rematch"), func(): _start_match(cfg), true, 28)
 		for b in [UI.button(_t("Lobby"), _lobby, false, 28), again]:
@@ -926,7 +950,11 @@ func _mp_room() -> void:
 			var nm := UI.vbox(0)
 			nm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			var tag := ("  · " + _t("HOST")) if p.peer == 1 else ""
-			nm.add_child(UI.label(str(p.name) + tag, 26, UI.TEXT, UI.font_head))
+			var top := UI.hbox(8)
+			top.add_child(UI.label(str(p.name) + tag, 26, UI.TEXT, UI.font_head))
+			var plv: int = int(p.get("lv", 1))
+			top.add_child(UI.label(_t("LV") + " %d" % plv, 20, Profile.tier_of(plv).color, UI.font_head))
+			nm.add_child(top)
 			var sub: String = Data.car(p.car).name
 			if L.mode == "team":
 				sub += "  · " + _t(TEAM_NAMES[int(p.team)])
@@ -1057,3 +1085,319 @@ func _on_session_over(reason: String) -> void:
 		Sfx.music("lobby")
 	if _current != "lobby":
 		_mp_home()
+
+
+## "Are you sure?" before the game closes. A second back press while it is open closes it (keeps the game).
+var _exit_layer: CanvasLayer
+
+
+func _confirm_exit() -> void:
+	if _intro:
+		return
+	if _exit_layer:
+		_exit_layer.queue_free()
+		_exit_layer = null
+		return
+	_exit_layer = CanvasLayer.new()
+	_exit_layer.layer = 30
+	add_child(_exit_layer)
+	var root := UI.full(Control.new())
+	root.theme = UI.theme
+	root.layout_direction = Control.LAYOUT_DIRECTION_RTL if I18n.is_ar() else Control.LAYOUT_DIRECTION_LTR
+	_exit_layer.add_child(root)
+	var dim := UI.full(ColorRect.new())
+	dim.color = Color(0, 0, 0, 0.6)
+	root.add_child(dim)
+	var p := UI.panel(0.85)
+	p.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	p.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	p.grow_vertical = Control.GROW_DIRECTION_BOTH
+	var v := UI.vbox(18)
+	v.custom_minimum_size.x = 560
+	var h := UI.heading(_t("Leave the game?"), 46)
+	h.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(h)
+	var sub := UI.label(_t("Your progress is saved on this phone."), 24, UI.DIM)
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(sub)
+	var row := UI.hbox(14)
+	var stay := UI.button(_t("Stay"), func():
+		_exit_layer.queue_free()
+		_exit_layer = null, true, 30)
+	var leave := UI.button(_t("Exit"), func(): get_tree().quit(), false, 30)
+	for b in [stay, leave]:
+		b.custom_minimum_size = Vector2(0, 80)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(b)
+	v.add_child(row)
+	p.add_child(v)
+	root.add_child(p)
+
+
+# ---------- profile ----------
+
+## Top-left of the lobby: photo in its rank frame, name, rank and level, progress to the next level.
+func _profile_card() -> Control:
+	var b := UI.button("", _profile, false, 20)
+	b.custom_minimum_size = Vector2(430, 126)
+	b.size = b.custom_minimum_size
+	var h := UI.hbox(14)
+	h.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	h.offset_left = 10
+	h.offset_right = -14
+	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var badge := AvatarBadge.for_me(108)
+	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	h.add_child(badge)
+	var v := UI.vbox(4)
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var t: Dictionary = Profile.tier()
+	var n := UI.label(Save.player_name(), 30, UI.TEXT, UI.font_head)
+	n.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	n.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(n)
+	var r := UI.label(_t(t.name).to_upper() + "  ·  " + _t("LV") + " %d" % Profile.level(), 22, t.color, UI.font_head)
+	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(r)
+	var bar := UI.bar(Profile.progress(), t.color, 250, 10)
+	v.add_child(bar)
+	h.add_child(v)
+	b.add_child(h)
+	return b
+
+
+## The profile: photo, name, level and rank, the record, every rank and how to reach it, and the backup.
+func _profile() -> void:
+	_focus_right_of(1280)
+	_show("profile", func(root: Control):
+		_top_bar(root, _t("Profile"))
+		var lv := Profile.level()
+		var t: Dictionary = Profile.tier()
+		var left := UI.panel(0.72)
+		left.set_anchors_and_offsets_preset(Control.PRESET_LEFT_WIDE)
+		left.offset_left = 24
+		left.offset_right = 24 + 400
+		left.offset_top = 96
+		left.offset_bottom = -16
+		var lc := UI.vbox(12)
+		lc.alignment = BoxContainer.ALIGNMENT_CENTER
+		var badge := AvatarBadge.for_me(200)
+		badge.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		lc.add_child(badge)
+		var nm := UI.heading(Save.player_name(), 36)
+		nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		lc.add_child(nm)
+		var rk := UI.label(_t(t.name).to_upper() + "  ·  " + _t("LV") + " %d" % lv, 26, t.color, UI.font_head)
+		rk.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		lc.add_child(rk)
+		var photo := UI.button(_t("Change photo"), _pick_avatar, true, 24)
+		photo.custom_minimum_size.y = 62
+		lc.add_child(photo)
+		var row := UI.hbox(10)
+		var ed := UI.button(_t("Edit name"), func(): _name_screen(_profile), false, 22)
+		var rm := UI.button(_t("Remove photo"), func():
+			Profile.clear_avatar()
+			_profile(), false, 22)
+		rm.disabled = Profile.avatar() == null
+		for b in [ed, rm]:
+			b.custom_minimum_size.y = 58
+			b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			row.add_child(b)
+		lc.add_child(row)
+		if _mp_status != "" and _current == "profile":
+			var st := UI.label(_mp_status, 21, UI.ACCENT_2)
+			st.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			lc.add_child(st)
+		left.add_child(lc)
+		root.add_child(left)
+		var right := UI.panel(0.62)
+		right.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		right.offset_left = 24 + 400 + 16
+		right.offset_right = -24
+		right.offset_top = 96
+		right.offset_bottom = -16
+		var sc := _scroll(right, 0, 0, 0, 0)
+		var v := UI.vbox(16)
+		v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		# level progress
+		var x0 := Profile.xp() - Profile.xp_at(lv)
+		var need := Profile.step(lv)
+		v.add_child(UI.label(_t("Level {n}", {"n": lv}) + "   ·   \u2066%d / %d XP\u2069" % [x0, need], 26, UI.TEXT, UI.font_head))
+		var bar := UI.bar(Profile.progress(), t.color, 600, 16)
+		bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		v.add_child(bar)
+		var hint := UI.label(_t("Every match gives experience: more for kills and wins, and a bit more with friends."), 20, UI.DIM)
+		hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		v.add_child(hint)
+		# record
+		var s: Dictionary = Save.state.stats
+		var rec := UI.hbox(10)
+		for it in [["Matches", s.matches], ["Wins", s.wins], ["Kills", s.kills], ["Best wave", Save.state.best.wave]]:
+			var p := UI.panel(0.5)
+			p.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			var pv := UI.vbox(0)
+			var num := UI.label(str(it[1]), 32, UI.ACCENT_2, UI.font_head)
+			num.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			var lab := UI.label(_t(it[0]), 19, UI.DIM)
+			lab.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			pv.add_child(num)
+			pv.add_child(lab)
+			p.add_child(pv)
+			rec.add_child(p)
+		v.add_child(rec)
+		# ranks
+		v.add_child(UI.heading(_t("Ranks"), 28))
+		var ranks := UI.hbox(8)
+		for tt in Profile.TIERS:
+			var col := UI.vbox(4)
+			col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			var bd := AvatarBadge.new()
+			bd.custom_minimum_size = Vector2(84, 84)
+			bd.tier = tt
+			bd.lvl = int(tt.from)
+			bd.initial = ""
+			bd.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+			bd.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			var got: bool = lv >= int(tt.from)
+			bd.modulate = Color(1, 1, 1, 1.0 if got else 0.35)
+			col.add_child(bd)
+			var nl := UI.label(_t(tt.name), 21, tt.color if got else UI.DIM, UI.font_head)
+			nl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			col.add_child(nl)
+			var fl := UI.label(_t("LV") + " %d+" % tt.from, 18, UI.DIM)
+			fl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			col.add_child(fl)
+			ranks.add_child(col)
+		v.add_child(ranks)
+		# backup
+		v.add_child(UI.heading(_t("Your data"), 28))
+		var bh := UI.label(_t("Your progress lives on this phone. Back it up to a file (Google Drive, Downloads…) to move to a new phone, then restore it there."), 20, UI.DIM)
+		bh.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		v.add_child(bh)
+		var brow := UI.hbox(12)
+		var bk := UI.button(_t("Back up my data"), _backup, true, 24)
+		var rs := UI.button(_t("Restore from a backup"), _restore, false, 24)
+		for b in [bk, rs]:
+			b.custom_minimum_size.y = 66
+			b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			brow.add_child(b)
+		v.add_child(brow)
+		sc.add_child(v)
+		root.add_child(right))
+
+
+## Opens the phone's own file picker (or Godot's on a computer) and hands back the chosen path.
+func _pick_file(title: String, filters: PackedStringArray, save_name: String, cb: Callable) -> void:
+	var saving := save_name != ""
+	if DisplayServer.has_feature(DisplayServer.FEATURE_NATIVE_DIALOG_FILE):
+		var mode := DisplayServer.FILE_DIALOG_MODE_SAVE_FILE if saving else DisplayServer.FILE_DIALOG_MODE_OPEN_FILE
+		DisplayServer.file_dialog_show(title, OS.get_system_dir(OS.SYSTEM_DIR_DOWNLOADS), save_name, false, mode, filters,
+			func(ok: bool, paths: PackedStringArray, _filter: int):
+				if ok and paths.size() > 0:
+					cb.call_deferred(paths[0]))
+		return
+	var fd := FileDialog.new()
+	fd.access = FileDialog.ACCESS_FILESYSTEM
+	fd.file_mode = FileDialog.FILE_MODE_SAVE_FILE if saving else FileDialog.FILE_MODE_OPEN_FILE
+	fd.filters = filters
+	fd.current_file = save_name
+	fd.title = title
+	fd.file_selected.connect(func(p):
+		fd.queue_free()
+		cb.call(p))
+	fd.canceled.connect(fd.queue_free)
+	add_child(fd)
+	fd.popup_centered_ratio(0.8)
+
+
+func _pick_avatar() -> void:
+	_pick_file(_t("Choose a photo"), PackedStringArray(["*.png, *.jpg, *.jpeg, *.webp ; " + _t("Pictures")]), "", func(path: String):
+		var err := Profile.set_avatar_from(path)
+		_mp_status = _t(err) if err != "" else ""
+		_profile())
+
+
+func _backup() -> void:
+	var d := Time.get_date_dict_from_system()
+	var fname := "IronMetal-backup-%s-%04d%02d%02d.json" % [Save.player_name().validate_filename(), d.year, d.month, d.day]
+	_pick_file(_t("Save the backup"), PackedStringArray(["*.json"]), fname, func(path: String):
+		var f := FileAccess.open(path, FileAccess.WRITE)
+		if f == null:
+			_mp_status = _t("Couldn't save there. Try another place.")
+		else:
+			f.store_string(Profile.backup_text())
+			f.close()
+			_mp_status = _t("Backup saved. Keep that file safe.")
+		_profile())
+
+
+func _restore() -> void:
+	_pick_file(_t("Choose a backup file"), PackedStringArray(), "", func(path: String):
+		var text := FileAccess.get_file_as_string(path)
+		var info := Profile.inspect_backup(text)
+		if not info.ok:
+			_mp_status = _t(info.error)
+			_profile()
+			return
+		_confirm(_t("Restore this backup?"), _t("{name} · level {lv} · {pts} scrap. This replaces everything on this phone.", {"name": info.name, "lv": info.level, "pts": info.points}), _t("Restore"), func():
+			Profile.restore(info.data)
+			_mp_status = _t("Backup restored.")
+			showroom.show_car(Save.state.selected)
+			_profile()))
+
+
+## A yes/no box over the current screen.
+func _confirm(title: String, text: String, yes: String, cb: Callable) -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = 30
+	add_child(layer)
+	var root := UI.full(Control.new())
+	root.theme = UI.theme
+	root.layout_direction = Control.LAYOUT_DIRECTION_RTL if I18n.is_ar() else Control.LAYOUT_DIRECTION_LTR
+	layer.add_child(root)
+	var dim := UI.full(ColorRect.new())
+	dim.color = Color(0, 0, 0, 0.6)
+	root.add_child(dim)
+	var p := UI.panel(0.88)
+	p.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	p.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	p.grow_vertical = Control.GROW_DIRECTION_BOTH
+	var v := UI.vbox(16)
+	v.custom_minimum_size.x = 620
+	v.add_child(UI.heading(title, 38))
+	var l := UI.label(text, 24, UI.TEXT)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(l)
+	var row := UI.hbox(12)
+	var no := UI.button(_t("Cancel"), layer.queue_free, false, 28)
+	var ok := UI.button(yes, func():
+		layer.queue_free()
+		cb.call(), true, 28)
+	for b in [no, ok]:
+		b.custom_minimum_size = Vector2(0, 74)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(b)
+	v.add_child(row)
+	p.add_child(v)
+	root.add_child(p)
+
+
+## For the lobby camera: is a button, panel, list or text box under this screen point? Drags that start on
+## the menus belong to the menus; everywhere else they turn the view.
+func _ui_at(pos: Vector2) -> bool:
+	if _intro or _exit_layer or pause_layer or game:
+		return true
+	var stack: Array = [screen_root]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		for ch in n.get_children():
+			if ch is Control and (ch as Control).is_visible_in_tree():
+				var c := ch as Control
+				if (c is BaseButton or c is PanelContainer or c is Panel or c is ScrollContainer or c is LineEdit or c is Range) \
+						and c.mouse_filter != Control.MOUSE_FILTER_IGNORE and c.get_global_rect().has_point(pos):
+					return true
+				stack.append(c)
+	return false

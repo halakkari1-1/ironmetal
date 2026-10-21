@@ -25,6 +25,9 @@ func _ready() -> void:
 		"fx": await _fx()
 		"coords": await _coords()
 		"mpshots": await _mpshots()
+		"intro": await _intro()
+		"profile": await _profile_shots()
+		"lobby3d": await _lobby3d()
 		"net_host": await _net_host()
 		"net_join": await _net_join()
 	get_tree().quit()
@@ -335,3 +338,65 @@ func _mpshots() -> void:
 	await get_tree().process_frame
 	await _shot("m5_results")
 	Net.leave()
+
+
+## Frames of the opening, stepped by hand so slow rendering here doesn't skip moments.
+func _intro() -> void:
+	await get_tree().process_frame
+	var it: Intro = main.get_node("Intro")
+	it.set_process(false)
+	var t := 0.0
+	for at in [0.6, 1.0, 1.75, 2.4, 2.9, 3.6, 4.6, 5.6, 6.3]:
+		while t < at:
+			it._process(1.0 / 30.0)
+			t += 1.0 / 30.0
+		await get_tree().process_frame
+		await _shot("intro_%.1f" % at)
+
+
+func _profile_shots() -> void:
+	await get_tree().create_timer(0.5).timeout
+	Save.state.player_name = "Hussain"
+	Profile.set_avatar_from(ProjectSettings.globalize_path("res://assets/ui/icon.png"))
+	for lv in [3, 14, 27, 52]:
+		Save.state.xp = Profile.xp_at(lv) + Profile.step(lv) / 3
+		main._lobby()
+		for f in 6:
+			await get_tree().process_frame
+		await _shot("p_lobby_%d" % lv)
+	main._profile()
+	for f in 6:
+		await get_tree().process_frame
+	await _shot("p_profile")
+	Save.state.lang = "ar"
+	I18n.set_lang("ar")
+	main._profile()
+	for f in 6:
+		await get_tree().process_frame
+	await _shot("p_profile_ar")
+	Save.state.lang = "en"
+	I18n.set_lang("en")
+	main._confirm_exit()
+	await get_tree().process_frame
+	await _shot("p_exit")
+
+
+func _lobby3d() -> void:
+	await get_tree().create_timer(0.5).timeout
+	var sr: Showroom = main.showroom
+	for i in 4:
+		sr._yaw = 0.55 + i * PI / 2
+		sr._idle = 0.0
+		sr._place_cam()
+		for f in 30:
+			await get_tree().process_frame
+		await _shot("l3d_%d" % i)
+	sr._pitch = 0.5
+	sr._place_cam()
+	for f in 10:
+		await get_tree().process_frame
+	await _shot("l3d_high")
+	main._garage()
+	for f in 10:
+		await get_tree().process_frame
+	await _shot("l3d_garage")

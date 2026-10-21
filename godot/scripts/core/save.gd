@@ -49,6 +49,7 @@ func _ready() -> void:
 			state.volume = vol
 	_normalize()
 	_validate()
+	Profile.ensure_started()
 	if str(state.player_id).length() < 16:
 		state.player_id = _new_id()
 		write()
@@ -73,6 +74,17 @@ static func _new_id() -> String:
 func player_name() -> String:
 	var n := str(state.get("player_name", "")).strip_edges()
 	return n if n != "" else "Player-" + str(state.player_id).substr(0, 4).to_upper()
+
+
+## After the whole state was replaced (a restored backup): the same clean-up as at start-up.
+func reload_state() -> void:
+	var vol: Dictionary = _fresh().volume
+	vol.merge(state.get("volume", {}), true)
+	state.volume = vol
+	_normalize()
+	_validate()
+	Profile.ensure_started()
+	I18n.set_lang(state.lang)
 
 
 ## JSON stores every number as a float; counters, prices and levels go back to whole numbers.
