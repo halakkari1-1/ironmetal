@@ -78,10 +78,10 @@ func _environment() -> void:
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = sk.ambient
-	env.ambient_light_energy = sk.ambient_energy * 0.55
+	env.ambient_light_energy = sk.ambient_energy * 0.95
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
-	env.tonemap_exposure = 1.0
+	env.tonemap_exposure = 1.2
 	env.tonemap_white = 6.0
 	env.glow_enabled = Quality.tier.glow
 	env.glow_intensity = 0.7
@@ -89,8 +89,9 @@ func _environment() -> void:
 	env.glow_hdr_threshold = 1.0
 	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SOFTLIGHT
 	env.adjustment_enabled = true
-	env.adjustment_contrast = 1.1
-	env.adjustment_saturation = 1.0
+	env.adjustment_contrast = 1.0
+	env.adjustment_saturation = 1.05
+	env.adjustment_brightness = 1.06
 	# a light distance haze in the horizon colour: depth, and it softens the district
 	env.fog_enabled = false   # fog turns the premultiplied fire sprites into glowing boxes on some renderers
 	env.fog_light_color = map.horizon.lerp(map.sky_top, 0.35)
@@ -112,7 +113,7 @@ func _environment() -> void:
 	sun.shadow_bias = 0.04
 	sun.shadow_normal_bias = 1.2
 	sun.shadow_blur = 0.8
-	sun.shadow_opacity = 0.92
+	sun.shadow_opacity = 0.7   # shadows soft enough that nothing disappears in them
 	sun.light_angular_distance = 0.4
 	add_child(sun)
 	_clouds(sk)

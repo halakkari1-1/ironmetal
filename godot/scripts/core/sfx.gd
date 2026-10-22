@@ -17,8 +17,8 @@ const ONESHOTS := ["click", "confirm", "denied", "purchase", "ready", "ability_e
 	"ab_smoke", "ab_dash", "ab_toxic", "ab_riptide", "ab_zap", "ab_charge", "ab_roar", "ab_cannon", "ab_shield"]
 ## Which engine each car runs (play-tested groups): the sports cars on the two race engines, the police car on a
 ## V8, the Rex on a big-block truck V8, the Titan tank on a 9-cylinder radial (the engine of the Second World War tanks), the tracked Reaper and the Colossus
-## on their tracked loop. ENGINE_TUNE nudges one car's pitch so cars sharing an engine still differ.
-const ENGINE_CLASS := {"wraith": "lfa", "toxic": "lfa", "venom": "f136", "ghost": "f136", "megalodon": "f136",
+## on their tracked loop; the Ghost on a straight-six of its own. ENGINE_TUNE nudges one car's pitch so cars sharing an engine still differ.
+const ENGINE_CLASS := {"wraith": "lfa", "toxic": "lfa", "venom": "f136", "ghost": "m52", "megalodon": "f136",
 	"siren": "ls", "rex": "c454", "titan": "radial", "reaper": "tank", "colossus": "tank"}
 const ENGINE_TUNE := {"toxic": 0.94, "venom": 1.06, "megalodon": 0.88, "titan": 0.95}
 const WORLD_VOICES := 28
@@ -238,6 +238,8 @@ const REV := {
 		"gears": [0.17, 0.35, 0.55, 0.77, 1.0]},
 	"c454": {"rpms": [1000, 1700, 2400, 3100, 3800, 4500, 5300], "idle": 950.0, "top": 5200.0, "vol": 1.0,
 		"gears": [0.18, 0.38, 0.6, 0.8, 1.0]},
+	"m52": {"rpms": [1000, 1800, 2700, 3600, 4600, 5600, 6700], "idle": 900.0, "top": 6600.0, "vol": 1.0,
+		"gears": [0.16, 0.33, 0.52, 0.74, 1.0]},
 	"radial": {"rpms": [900, 1250, 1600, 1950, 2300, 2650, 2950], "idle": 820.0, "top": 2900.0, "vol": 1.0,
 		"gears": [0.25, 0.5, 0.75, 1.0]},
 }

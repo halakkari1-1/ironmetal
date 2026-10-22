@@ -17,6 +17,7 @@ REV = {
     "f136": {"rpms": [1400, 2600, 3800, 5000, 6300, 7600, 8800], "idle": 1010.0, "top": 8600.0, "gears": [0.16, 0.31, 0.47, 0.63, 0.8, 1.0]},
     "ls": {"rpms": [1000, 1800, 2600, 3500, 4400, 5300, 6300], "idle": 640.0, "top": 6200.0, "gears": [0.17, 0.35, 0.55, 0.77, 1.0]},
     "c454": {"rpms": [1000, 1700, 2400, 3100, 3800, 4500, 5300], "idle": 950.0, "top": 5200.0, "gears": [0.18, 0.38, 0.6, 0.8, 1.0]},
+    "m52": {"rpms": [1000, 1800, 2700, 3600, 4600, 5600, 6700], "idle": 900.0, "top": 6600.0, "gears": [0.16, 0.33, 0.52, 0.74, 1.0]},
     "radial": {"rpms": [900, 1250, 1600, 1950, 2300, 2650, 2950], "idle": 820.0, "top": 2900.0, "gears": [0.25, 0.5, 0.75, 1.0]},
 }
 
@@ -96,7 +97,8 @@ def render(eid, src, tune=1.0):
 def main():
     src, dst = sys.argv[1], sys.argv[2]
     os.makedirs(dst, exist_ok=True)
-    names = {"lfa": "sports_V10", "f136": "sports_V8", "ls": "police_V8", "c454": "rex_bigblock", "radial": "titan_tank_radial"}
+    names = {"m52": "ghost_inline6",
+             "lfa": "sports_V10", "f136": "sports_V8", "ls": "police_V8", "c454": "rex_bigblock", "radial": "titan_tank_radial"}
     for eid, nm in names.items():
         a = render(eid, src)
         tmp = f"{dst}/{nm}.wav"
