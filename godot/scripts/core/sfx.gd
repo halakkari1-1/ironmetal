@@ -15,9 +15,12 @@ const BANKS := {
 const ONESHOTS := ["click", "confirm", "denied", "purchase", "ready", "ability_end", "crunch", "hit", "hurt", "pickup",
 	"powerup", "flame", "railgun", "alarm", "wind", "streak", "count", "count_go", "win", "lose", "incoming", "incoming_hit", "boom_nuke",
 	"ab_smoke", "ab_dash", "ab_toxic", "ab_riptide", "ab_zap", "ab_charge", "ab_roar", "ab_cannon", "ab_shield"]
-## Engine recording per kind of vehicle: sports cars, jeeps, the monster truck, and the tracked/armoured machines.
-const ENGINE_CLASS := {"venom": "sport", "toxic": "sport", "ghost": "jeep", "megalodon": "jeep", "siren": "jeep",
+## Engine recording per kind of vehicle: sports cars, the big V8 truck, and the tracked/armoured machines.
+## The jeeps share the truck's recording (it sounded best in play-testing), each tuned a little higher so no two
+## cars sound the same.
+const ENGINE_CLASS := {"venom": "sport", "toxic": "sport", "ghost": "truck", "megalodon": "truck", "siren": "truck",
 	"rex": "truck", "reaper": "tank", "titan": "tank", "colossus": "tank", "wraith": "sport"}
+const ENGINE_TUNE := {"ghost": 1.28, "siren": 1.17, "megalodon": 1.07}
 const WORLD_VOICES := 28
 const UI_VOICES := 8
 const GUN_VOICES := 10
@@ -28,7 +31,8 @@ var _world_t: Array[float] = []
 var _ui: Array[AudioStreamPlayer] = []
 var _ui_i := 0
 var _engine_layers: Array[AudioStreamPlayer] = []
-var _engine_class := "jeep"
+var _engine_class := "truck"
+var _tune := 1.0
 var _engine_on := false
 var _gear := 1
 var _rpm := 0.0
@@ -237,7 +241,8 @@ const ENGINES := {
 
 
 func engine_start(car_id: String) -> void:
-	_engine_class = ENGINE_CLASS.get(car_id, "jeep")
+	_engine_class = ENGINE_CLASS.get(car_id, "truck")
+	_tune = ENGINE_TUNE.get(car_id, 1.0)
 	var layers: Array = ENGINES[_engine_class].layers
 	for i in _engine_layers.size():
 		var p := _engine_layers[i]
@@ -292,7 +297,7 @@ func engine_set(throttle: float, speed_frac: float, dt: float) -> void:
 			else:
 				w = 1.0 if i == layers.size() - 1 else max(0.0, 1.0 - (lf - at) / (log(float(layers[i + 1][2])) - at))
 		var p := _engine_layers[i]
-		p.pitch_scale = clamp(f / float(layers[i][1]), 0.3, 3.0)
+		p.pitch_scale = clamp(f * _tune / float(layers[i][1]), 0.3, 3.0)
 		p.volume_db = linear_to_db(max(sqrt(w) * vol, 0.0005))
 
 
