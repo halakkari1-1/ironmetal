@@ -132,6 +132,15 @@ func start(opts: Dictionary) -> void:
 		e.global_position = b
 		e.emitting = true
 		_stack_fx.append(e)
+	for b in arena.ground_fires:   # small fires along the walls, with a thin smoke
+		var e := fx.flame_emitter(1.0, 4)
+		e.global_position = b + Vector3(0, 0.3, 0)
+		e.emitting = true
+		_stack_fx.append(e)
+		var sm := fx.burn_emitter()
+		sm.global_position = b + Vector3(0, 1.2, 0)
+		sm.emitting = true
+		_stack_fx.append(sm)
 	if map.event == "sandstorm":
 		_sand = fx.sand_emitter()
 
@@ -351,7 +360,7 @@ func _build_pickups() -> void:
 	for s in arena.pickup_spots:
 		_nudge_clear(s, 3)
 		var g := prop_model("medkit" if s.type == "health" else "ammo", 2.1)
-		g.position = Vector3(s.x, 1.4, s.z)
+		g.position = Vector3(s.x, 1.4 + arena.height_at(s.x, s.z), s.z)
 		var ring := MeshInstance3D.new()
 		var t := TorusMesh.new()
 		t.inner_radius = 1.52
@@ -490,7 +499,7 @@ func _process(dt_real: float) -> void:
 				c.firing = false
 			_drive(c, dt)
 		_weapons(c, dt)
-		c.animate(dt, c.speed, c.steer_s)
+		c.animate(dt, c.speed, c.steer_s, c.air)
 		c.update_fx(map.id == "dustbowl")
 		if c.crown:
 			c.crown.rotation.y += dt * 2
@@ -644,9 +653,63 @@ func _drive(c: Car, dt: float) -> void:
 	var kd := exp(-4 * dt)
 	c.kx *= kd
 	c.kz *= kd
+	var px := c.x - (f.x * c.speed + c.kx) * dt
+	var pz := c.z - (f.z * c.speed + c.kz) * dt
 	_collide_world(c)
-	c.position = Vector3(c.x, 0, c.z)
-	c.rotation = Vector3(0, c.heading, 0)   # the body's own lean and pitch come from its suspension (Car.animate)
+	_vertical(c, dt, px, pz, true)
+
+
+const GRAV := 24.0
+
+
+## Height: a car follows the ground (hills, ramps) and leaves it when the ground falls away faster than gravity
+## would pull it down, so a fast run up a ramp throws it into the air. A sudden rise (a ramp's side) is a wall.
+## Pitch and roll follow the slope; in the air the nose follows the flight. Runs for every car on every device,
+## so other players' cars jump the same way on screen.
+func _vertical(c: Car, dt: float, px: float, pz: float, can_block: bool) -> void:
+	var g := arena.height_at(c.x, c.z)
+	if not c.air:
+		if can_block and g - c.y > 0.55:
+			c.x = px
+			c.z = pz
+			c.speed *= -0.25
+			g = arena.height_at(c.x, c.z)
+		var pred := c.y + c.vy * dt - 0.5 * GRAV * dt * dt
+		if pred > g + 0.06 and (c.vy > 1.5 or c.y - g > 0.3):   # thrown off a crest, or rolled off an edge
+			c.air = true
+			c.y = pred
+			c.vy -= GRAV * dt
+		else:
+			c.vy = clamp((g - c.y) / max(dt, 0.001), -20.0, 16.0)
+			c.y = g
+	else:
+		c.vy -= GRAV * dt
+		c.y += c.vy * dt
+		if c.y <= g:
+			var impact := -c.vy
+			c.air = false
+			c.y = g
+			c.vy = 0.0
+			if impact > 5.0:
+				c.jolt(clamp(impact * 0.05, 0.1, 0.6))
+				fx.dust(Vector3(c.x, g, c.z))
+				if c == view_car():
+					shake = max(shake, clamp(impact * 0.03, 0.1, 0.45))
+				if Vector2(c.x - view_car().x, c.z - view_car().z).length() < 45:
+					Sfx.play_at("crunch", c.position)
+	# lean with the ground, or with the flight
+	var want := Vector2.ZERO
+	var f := c.forward()
+	if c.air:
+		want.x = -atan(c.vy / max(abs(c.speed), 6.0)) * 0.6
+	elif g > 0.01 or c.tilt.length() > 0.001:
+		var r := Vector3(f.z, 0, -f.x)
+		var dh_f := (arena.height_at(c.x + f.x * 1.6, c.z + f.z * 1.6) - arena.height_at(c.x - f.x * 1.6, c.z - f.z * 1.6)) / 3.2
+		var dh_r := (arena.height_at(c.x + r.x * 1.0, c.z + r.z * 1.0) - arena.height_at(c.x - r.x * 1.0, c.z - r.z * 1.0)) / 2.0
+		want = Vector2(-atan(dh_f), atan(dh_r))
+	c.tilt = c.tilt.lerp(want, min(1.0, dt * (4.0 if c.air else 12.0)))
+	c.position = Vector3(c.x, c.y, c.z)
+	c.rotation = Vector3(c.tilt.x, c.heading, c.tilt.y)   # the body's own lean and pitch come from its suspension (Car.animate)
 
 
 ## The body is three circles along its length; on contact only the motion into the obstacle is lost,
@@ -671,9 +734,11 @@ func _collide_world(c: Car) -> void:
 			c.z -= cz - (lim - r); nz -= 1; any = true
 		elif cz < -lim + r:
 			c.z += -lim + r - cz; nz += 1; any = true
-	if c.y <= 2:
+	if c.y <= 2.6:
 		for o in arena.obstacles:
-			if o.get("dead", false):
+			if o.get("dead", false) or c.y > float(o.h) * 0.85:
+				continue
+			if o.get("ramp", false) and c.y > 0.25:   # a ramp's back stops cars behind it, not the ones driving up it
 				continue
 			var bound: float = o.get("r", Vector2(o.get("hw", 0), o.get("hd", 0)).length()) + r + L
 			if abs(c.x - o.x) > bound or abs(c.z - o.z) > bound:
@@ -775,7 +840,7 @@ func _collide_cars() -> void:
 				continue
 			if client and a != player and b != player:
 				continue
-			if a.y > 2 or b.y > 2:
+			if abs(a.y - b.y) > 1.8:
 				continue
 			var dx := b.x - a.x
 			var dz := b.z - a.z
@@ -1412,7 +1477,7 @@ func _update_pickups(dt: float) -> void:
 			p.node.visible = p.respawn <= 0
 			continue
 		p.node.rotation.y += dt * 1.6
-		p.node.position.y = 1.4 + sin(time * 3 + p.x) * 0.25
+		p.node.position.y = 1.4 + arena.height_at(p.x, p.z) + sin(time * 3 + p.x) * 0.25
 		if not auth():
 			continue
 		for c in cars:
@@ -1458,7 +1523,7 @@ func _spawn_drop(at := {}, type := "", did := -1) -> void:
 	var beacon := fx.beacon_emitter()
 	beacon.global_position = Vector3(s.x, 1.2, s.z)
 	beacon.emitting = true
-	drops.append({"id": did, "x": s.x, "z": s.z, "y": 40.0, "ground": ch / 2 + 0.05, "node": g, "chute": chute, "landed": false, "type": type, "beacon": beacon})
+	drops.append({"id": did, "x": s.x, "z": s.z, "y": 40.0, "ground": ch / 2 + 0.05 + arena.height_at(s.x, s.z), "node": g, "chute": chute, "landed": false, "type": type, "beacon": beacon})
 	hud.announce(I18n.t("AIRDROP INCOMING"), I18n.t("Follow the blue smoke"), "blue")
 	Sfx.play("alarm", 0.8)
 
@@ -1722,13 +1787,14 @@ func _kill(c: Car) -> void:
 
 func _update_wreck(c: Car, dt: float) -> void:
 	c.death_t += dt
-	if c.y > 0 or c.vy > 0:  # airborne tumble
+	var gy := arena.height_at(c.x, c.z)
+	if c.y > gy + 0.01 or c.vy > 0:  # airborne tumble
 		c.vy -= 30 * dt
 		c.y += c.vy * dt
 		c.rx += c.srx * dt
 		c.rz += c.srz * dt
-		if c.y <= 0:
-			c.y = 0
+		if c.y <= gy:
+			c.y = gy
 			if c.vy < -4:
 				c.vy *= -0.3
 				c.srx *= 0.4
@@ -1742,6 +1808,7 @@ func _update_wreck(c: Car, dt: float) -> void:
 				c.srx = 0
 				c.srz = 0
 	else:  # settle flat: right side up or on its roof
+		c.y = gy
 		c.rx += (round(c.rx / PI) * PI - c.rx) * min(1.0, dt * 6)
 		c.rz += (round(c.rz / PI) * PI - c.rz) * min(1.0, dt * 6)
 	c.speed *= exp(-3 * dt)
@@ -1802,7 +1869,10 @@ func _respawn(c: Car, at := {}) -> void:
 	c.respawn_t = 0
 	c.slow_t = 0; c.jam_t = 0; c.skid_t = 0; c.hide_t = 0; c.spin_t = 0
 	c.rammed.clear()
-	c.position = Vector3(c.x, 0, c.z)
+	c.air = false
+	c.tilt = Vector2.ZERO
+	c.y = arena.height_at(c.x, c.z)
+	c.position = Vector3(c.x, c.y, c.z)
 	c.basis = Basis(Vector3.UP, c.heading)
 	if c.crown:
 		c.crown.position = c.roof
@@ -2329,8 +2399,7 @@ func _pose_remote(c: Car, dt: float) -> void:
 	c.steer_s = b[5]
 	c.throttle = b[6]
 	c.firing = b[7] > 0.5
-	c.position = Vector3(c.x, 0, c.z)
-	c.rotation = Vector3(0, c.heading, 0)
+	_vertical(c, dt, c.x, c.z, false)
 
 
 ## Client: our own car moves at once from the stick; the host's view of it gently pulls it back in line.

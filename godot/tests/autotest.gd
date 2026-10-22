@@ -35,6 +35,8 @@ func _ready() -> void:
 		"victory": await _victory()
 		"engines": await _engines()
 		"dumpmesh": _dumpmesh()
+		"arenas": await _arenas()
+		"jump": await _jump()
 		"net_host": await _net_host()
 		"net_join": await _net_join()
 	get_tree().quit()
@@ -70,9 +72,107 @@ func _simulate(g: Match, seconds: float) -> void:
 			break
 
 
+## Drives a car at full throttle at the first ramp of each map and reports the jump; then across a hill.
+func _jump() -> void:
+	for i in Data.MAPS.size():
+		var g := await _start(i, "toxic", 1)
+		g.running = false
+		var p := g.player
+		print("TEST %s: %d ramps, %d hills" % [g.map.id, g.arena.ramps.size(), g.arena.hills.size()])
+		if g.arena.ramps.is_empty():
+			main._lobby()
+			await get_tree().process_frame
+			continue
+		var r: Dictionary = g.arena.ramps[0]
+		p.x = r.x - r.fx * 30
+		p.z = r.z - r.fz * 30
+		p.heading = atan2(r.fx, r.fz)
+		p.speed = 0
+		p.y = 0
+		var max_y := 0.0
+		var air_t := 0.0
+		var took_off := Vector2.ZERO
+		var landed := Vector2.ZERO
+		for k in 360:
+			p.throttle = 1.0
+			p.steer = 0.0
+			var was := p.air
+			g._drive(p, 1.0 / 60.0)
+			if p.air and not was:
+				took_off = Vector2(p.x, p.z)
+			if was and not p.air and landed == Vector2.ZERO:
+				landed = Vector2(p.x, p.z)
+			if p.air:
+				air_t += 1.0 / 60.0
+			max_y = max(max_y, p.y)
+		print("TEST jump %s: speed %.1f max_y %.2f air %.2fs distance %.1f m" % [g.map.id, p.speed, max_y, air_t, took_off.distance_to(landed)])
+		# a hill: drive across the first one
+		if g.arena.hills.size():
+			var h: Dictionary = g.arena.hills[0]
+			p.x = h.x - 25
+			p.z = h.z
+			p.heading = PI / 2
+			p.speed = 10
+			p.air = false
+			p.y = g.arena.height_at(p.x, p.z)
+			var top := 0.0
+			var pitch := 0.0
+			for k in 240:
+				p.throttle = 0.5
+				p.steer = 0.0
+				g._drive(p, 1.0 / 60.0)
+				top = max(top, p.y)
+				pitch = max(pitch, abs(p.tilt.x))
+			print("TEST hill %s: height %.2f, max %.2f, pitch %.1f deg" % [g.map.id, h.h, top, rad_to_deg(pitch)])
+		main._lobby()
+		await get_tree().process_frame
+
+
+## Every map from the driver's seat and from above, without playing it.
+func _arenas() -> void:
+	var only := _arg("map", "")
+	for i in Data.MAPS.size():
+		if only != "" and Data.MAPS[i].id != only:
+			continue
+		var t0 := Time.get_ticks_msec()
+		print("TEST starting ", Data.MAPS[i].id)
+		var g := await _start(i, "toxic", 1)
+		print("TEST built in %d ms" % (Time.get_ticks_msec() - t0))
+		t0 = Time.get_ticks_msec()
+		for f in 12:
+			await get_tree().process_frame
+		print("TEST 12 frames in %d ms" % (Time.get_ticks_msec() - t0))
+		await _shot("arena_%s_0" % g.map.id)
+		g.running = false
+		var h: float = g.arena.half
+		for v in [[Vector3(h * 0.95, 34, h * 0.95), Vector3(0, 0, 0)], [Vector3(-h * 0.2, 9, h * 0.35), Vector3(h * 0.6, 4, -h * 0.9)]]:
+			g.camera.global_position = v[0]
+			g.camera.look_at(v[1])
+			for f in 6:
+				await get_tree().process_frame
+			await _shot("arena_%s_%d" % [g.map.id, [1, 2][int(v[0].y < 20)]])
+		# a jump ramp from its run-up, and a wreck pile up close
+		if g.arena.ramps.size():
+			var r: Dictionary = g.arena.ramps[0]
+			g.camera.global_position = Vector3(r.x - r.fx * 13, 3.2, r.z - r.fz * 13)
+			g.camera.look_at(Vector3(r.x + r.fx * 4, 1.0, r.z + r.fz * 4))
+			for f in 6:
+				await get_tree().process_frame
+			await _shot("arena_%s_3" % g.map.id)
+		if g.arena.wreck_spots.size():
+			var w: Vector3 = g.arena.wreck_spots[0]
+			g.camera.global_position = w * 0.82 + Vector3(0, 5, 0)
+			g.camera.look_at(w + Vector3(0, 2, 0))
+			for f in 6:
+				await get_tree().process_frame
+			await _shot("arena_%s_4" % g.map.id)
+		main._lobby()
+		await get_tree().process_frame
+
+
 ## Writes each tracked car's vertices (model space) and triangles to <out>/<id>.bin, for measuring the tracks.
 func _dumpmesh() -> void:
-	for id in ["titan", "reaper"]:
+	for id in Data.CARS.map(func(c): return c.id):
 		var model: Node3D = load("res://assets/cars/%s.glb" % id).instantiate()
 		var f := FileAccess.open("%s/%s.bin" % [out, id], FileAccess.WRITE)
 		for mi_ in model.find_children("*", "MeshInstance3D", true, false):

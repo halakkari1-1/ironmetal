@@ -11,8 +11,10 @@ const RADIUS := 5.0                    # the ring's radius in metres
 ## half-height (fractions of image width / height); focal: lens focal length in image widths; fit: car length
 ## as a fraction of the ring's diameter.
 const BACKDROPS := {
-	"yard": {"img": "res://assets/ui/lobby.jpg", "w": 2576.0, "h": 1448.0, "ring": Vector2(0.6724, 0.674), "a": 0.2686, "b": 0.0622, "focal": 0.898, "fit": 0.875},
-	"harbor": {"img": "res://assets/ui/offers/harbor.jpg", "w": 1672.0, "h": 941.0, "ring": Vector2(0.6926, 0.661), "a": 0.2703, "b": 0.0659, "focal": 0.898, "fit": 0.86, "alive": true},
+	"yard": {"img": "res://assets/ui/lobby.jpg", "w": 2576.0, "h": 1448.0, "ring": Vector2(0.6724, 0.674), "a": 0.2686, "b": 0.0622, "focal": 0.898, "fit": 0.875,
+		"shader": "res://scripts/ui/yard.gdshader"},
+	"harbor": {"img": "res://assets/ui/offers/harbor.jpg", "w": 1672.0, "h": 941.0, "ring": Vector2(0.6926, 0.661), "a": 0.2703, "b": 0.0659, "focal": 0.898, "fit": 0.86, "alive": true,
+		"shader": "res://scripts/ui/harbor.gdshader", "fireworks": true},
 }
 
 var IMG_W := 2576.0
@@ -117,20 +119,18 @@ func set_backdrop(id: String) -> void:
 	RING_B = b.b
 	FOCAL = b.focal
 	_fit = b.fit
-	var alive: bool = b.get("alive", false)
-	if alive:
-		if _alive_mat == null:
-			_alive_mat = ShaderMaterial.new()
-			_alive_mat.shader = load("res://scripts/ui/harbor.gdshader")
-		_bg.material = _alive_mat
+	# every backdrop is a living painting: its own shader animates it (clouds, lights, ring)
+	var mat := ShaderMaterial.new()
+	mat.shader = load(b.shader)
+	mat.set_shader_parameter("noise_tex", load("res://assets/arena/cloud_noise.png"))
+	_bg.material = mat
+	if b.get("fireworks", false):
 		if _fireworks == null:
 			_fireworks = Fireworks.new()
 			_bg.add_child(_fireworks)
 		_fireworks.active = true
-	else:
-		_bg.material = null
-		if _fireworks:
-			_fireworks.active = false
+	elif _fireworks:
+		_fireworks.active = false
 	if _car:   # refit the car for this ring
 		var id_ := _car_id
 		_car_id = ""

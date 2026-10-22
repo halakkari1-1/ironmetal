@@ -24,6 +24,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Version
+        # 0.7 started at run 21 (0.7.0); the version code keeps counting runs so updates always install over
+        run: echo "VERSION=0.7.$(( ${{ github.run_number }} - 21 ))" >> "$GITHUB_ENV"
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin

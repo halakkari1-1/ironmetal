@@ -176,16 +176,25 @@ func _lobby() -> void:
 		root.add_child(card)
 		var top := UI.vbox(10)
 		top.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
-		top.offset_left = -430
+		top.offset_left = -560
 		top.offset_right = -24
-		top.offset_top = 16
+		top.offset_top = 14
+		# the top bar: the offers chip (animated) next to the scrap count
+		var bar := UI.hbox(14)
+		bar.alignment = BoxContainer.ALIGNMENT_END
+		var chip := OfferChip.new()
+		chip.text = _t("OFFERS")
+		chip.art = load(Data.OFFERS[0].card)
+		chip.pressed.connect(_offers)
+		bar.add_child(chip)
 		var pill := _points_pill()
-		pill.size_flags_horizontal = Control.SIZE_SHRINK_END
-		top.add_child(pill)
-		top.add_child(_contracts_panel())
-		var offers := _premium_button(_t("OFFERS") + "  ✦", _offers, 30)
-		offers.custom_minimum_size = Vector2(0, 74)
-		top.add_child(offers)
+		pill.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		bar.add_child(pill)
+		top.add_child(bar)
+		var cp := _contracts_panel()
+		cp.size_flags_horizontal = Control.SIZE_SHRINK_END
+		cp.custom_minimum_size.x = 406
+		top.add_child(cp)
 		root.add_child(top)
 		var c: Dictionary = Save.selected_car()
 		var info := UI.panel(0.6)

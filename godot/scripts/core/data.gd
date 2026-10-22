@@ -153,17 +153,34 @@ const UPGRADES := [
 const MAX_UPGRADE := 5
 
 ## Arena maps. size is the side of the square in metres; colours tint the ground, sun and sky.
+## Each map has its own time of day ("sky"): the sky dome and clouds, the sun (or moon), the light and shadow
+## colours, and the searchlights (two colours) and ground fires that light the arena.
 const MAPS := [
-	{"id": "scrapyard", "name": "Scrapyard", "tag": "Junk piles and a watchtower", "size": 132.0,
-		"ground": Color("8a7058"), "sun": Color("ffcf9a"), "sky_top": Color("3b4a63"), "horizon": Color("c9a582"), "concrete": 0.0, "event": "artillery"},
-	{"id": "refinery", "name": "Refinery", "tag": "Fuel tanks ready to blow", "size": 142.0,
-		"ground": Color("8c8778"), "sun": Color("e6ecff"), "sky_top": Color("41505f"), "horizon": Color("b9bcc2"), "concrete": 0.8, "event": "rupture"},
-	{"id": "dustbowl", "name": "Dust Bowl", "tag": "Open ground, rock pillars", "size": 150.0,
-		"ground": Color("c39a66"), "sun": Color("ffe2b0"), "sky_top": Color("6f8bab"), "horizon": Color("e3c79c"), "concrete": 0.0, "event": "sandstorm"},
-	{"id": "shanty", "name": "Shanty Town", "tag": "Three towers, tight streets", "size": 138.0,
-		"ground": Color("7a6452"), "sun": Color("ffb27a"), "sky_top": Color("2a2638"), "horizon": Color("a5786a"), "concrete": 0.45, "event": "artillery"},
-	{"id": "outpost", "name": "The Outpost", "tag": "Fight around the fortress", "size": 142.0,
-		"ground": Color("9b8366"), "sun": Color("ffd9a8"), "sky_top": Color("4d5d75"), "horizon": Color("cdb59a"), "concrete": 0.42, "event": "artillery"},
+	{"id": "scrapyard", "name": "Scrapyard", "tag": "Junk piles and a watchtower", "size": 132.0, "concrete": 0.0, "event": "artillery",
+		"ground": Color("777069"), "sun": Color("ffc296"), "sky_top": Color("252a52"), "horizon": Color("ff8f52"),
+		"sky": {"elev": 15.0, "az": -38.0, "sun_energy": 2.2, "ambient": Color("8a7c98"), "ambient_energy": 1.5,
+			"cloud_lit": Color("ffb090"), "cloud_shade": Color("4a3a5a"), "cover": 0.55, "stars": 0.0, "moon": 0.0,
+			"search": [Color("3d7bff"), Color("ff3b3b")], "fires": 6}},
+	{"id": "refinery", "name": "Refinery", "tag": "Fuel tanks ready to blow", "size": 142.0, "concrete": 0.8, "event": "rupture",
+		"ground": Color("6f6c68"), "sun": Color("9db4ff"), "sky_top": Color("060a18"), "horizon": Color("26344f"),
+		"sky": {"elev": 38.0, "az": 140.0, "sun_energy": 1.15, "ambient": Color("5a6a90"), "ambient_energy": 2.0,
+			"cloud_lit": Color("6c7aa0"), "cloud_shade": Color("161c2c"), "cover": 0.45, "stars": 1.0, "moon": 1.0,
+			"search": [Color("4a8cff"), Color("ff3030")], "fires": 9}},
+	{"id": "dustbowl", "name": "Dust Bowl", "tag": "Open ground, rock pillars", "size": 150.0, "concrete": 0.0, "event": "sandstorm",
+		"ground": Color("b39470"), "sun": Color("fff0d2"), "sky_top": Color("3a7cc6"), "horizon": Color("f0d6aa"),
+		"sky": {"elev": 42.0, "az": -50.0, "sun_energy": 1.45, "ambient": Color("a8bad2"), "ambient_energy": 0.8,
+			"cloud_lit": Color("ffffff"), "cloud_shade": Color("a8b4c8"), "cover": 0.35, "stars": 0.0, "moon": 0.0,
+			"search": [Color("ffd27a"), Color("ff6a3a")], "fires": 3}},
+	{"id": "shanty", "name": "Shanty Town", "tag": "Three towers, tight streets", "size": 138.0, "concrete": 0.45, "event": "artillery",
+		"ground": Color("6c6662"), "sun": Color("ffb08a"), "sky_top": Color("1d1838"), "horizon": Color("d07a86"),
+		"sky": {"elev": 12.0, "az": 30.0, "sun_energy": 1.5, "ambient": Color("6c7096"), "ambient_energy": 1.5,
+			"cloud_lit": Color("ff8a7a"), "cloud_shade": Color("2c2038"), "cover": 0.75, "stars": 0.25, "moon": 0.0,
+			"search": [Color("3d7bff"), Color("ff2e6a")], "fires": 8}},
+	{"id": "outpost", "name": "The Outpost", "tag": "Fight around the fortress", "size": 142.0, "concrete": 0.42, "event": "artillery",
+		"ground": Color("8a7a66"), "sun": Color("ffd08a"), "sky_top": Color("44699c"), "horizon": Color("ffc27a"),
+		"sky": {"elev": 22.0, "az": -120.0, "sun_energy": 1.8, "ambient": Color("8a94b0"), "ambient_energy": 0.9,
+			"cloud_lit": Color("fff0d0"), "cloud_shade": Color("7a7a90"), "cover": 0.45, "stars": 0.0, "moon": 0.0,
+			"search": [Color("3d7bff"), Color("ff3b3b")], "fires": 5}},
 ]
 
 const DIFFICULTY := [
