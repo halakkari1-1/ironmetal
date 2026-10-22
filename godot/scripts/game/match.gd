@@ -2013,8 +2013,8 @@ func _update_camera(dt: float, snap := false) -> void:
 		look = Vector3(p.x + f.x * 30, h - 2.6, p.z + f.z * 30)
 		k = 1.0 if snap else 1 - exp(-dt * 30)
 	else:
-		var back := (13.0 if mode_ == "far" else 8.5) * size
-		var up := (7.5 if mode_ == "far" else 4.6) * sqrt(size)
+		var back := (13.0 if mode_ == "far" else 6.2) * size
+		var up := (7.5 if mode_ == "far" else 3.5) * sqrt(size)
 		want = Vector3(p.x - f.x * (back + speed_pull), up + speed_pull * 0.3, p.z - f.z * (back + speed_pull))
 		look = Vector3(p.x + f.x * (6 if mode_ == "far" else 8), 1.5 if mode_ == "far" else 1.8, p.z + f.z * (6 if mode_ == "far" else 8))
 		k = 1.0 if snap else 1 - exp(-dt * (4.5 if mode_ == "far" else 6.0))

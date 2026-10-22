@@ -1,36 +1,48 @@
 class_name Intro
 extends CanvasLayer
-## The opening on every launch: the designer's emblem is shot up (sparks, smoking bullet holes) while the
-## credit fades in, then everything fades into the lobby. A tap skips it. The lobby loads underneath meanwhile.
+## The opening on every launch, filmed like an action-film slow motion: the camera rides along with a single
+## bullet crawling through the air towards the designer's emblem, a ripple of displaced air trailing it. It hits:
+## the picture freezes for a heartbeat with a shock ring and a burst of dust, then time snaps back to full speed,
+## the camera pulls out and the rest of the burst tears into the emblem, the credit comes up, and everything fades
+## into the lobby. A tap skips it. The lobby loads underneath meanwhile.
 
 signal done
 
 const LOGO := preload("res://assets/ui/hussain_logo.png")
-const FIRE := preload("res://assets/vfx/fb_fire.png")
+const PUFF := preload("res://assets/vfx/puff.png")
 const SHOTS := 7
-const T_SHOTS := 0.9          # first shot
-const T_GAP := 0.2            # between shots
-const T_IGNITE := 999.0       # no fire: the emblem only takes the hits
-const T_CREDIT := 2.6
-const T_FADE := 4.7
-const T_END := 5.5
+const T_BULLET := 0.9         # the slow bullet appears
+const T_HIT := 2.6            # ...and lands
+const T_FREEZE := 0.32        # the frozen moment after the hit
+const T_BURST := 3.3          # the rest of the burst, at full speed
+const T_GAP := 0.085
+const T_CREDIT := 3.9
+const T_FADE := 5.9
+const T_END := 6.7
+const ZOOM := 1.9             # camera zoom while it rides with the bullet
 
 var _t := 0.0
 var _root: Control
-var _stage: Control           # shaken as a whole
+var _stage: Control           # the "camera": zoomed, panned and shaken as a whole
 var _logo: TextureRect
 var _mat: ShaderMaterial
 var _flash: ColorRect
 var _black: ColorRect
 var _credit: Control
+var _bars: Array = []         # letterbox bars while in slow motion
 var _holes: Array = []        # [uv, time hit]
-var _flames: Array = []       # {sprite, born, size}
-var _embers: CPUParticles2D
-var _next_shot := 0
+var _next_shot := 1
 var _shake := 0.0
-var _ignited := false
 var _finished := false
-
+var _bullet: Node2D
+var _from := Vector2.ZERO
+var _trail: Line2D
+var _rings: Array = []        # air ripples left behind the bullet: {line, born, pos}
+var _ring_t := 0.0
+var _shock: Line2D
+var _dust: Array = []         # {sprite, vel, born, spin}
+var _hit_done := false
+var _whoosh_done := false
 
 const SHADER := """
 shader_type canvas_item;
@@ -88,7 +100,6 @@ func _ready() -> void:
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(bg)
 	_stage = Control.new()
-	_stage.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(_stage)
 	_logo = TextureRect.new()
@@ -103,21 +114,23 @@ func _ready() -> void:
 	_mat.shader = sh
 	_logo.material = _mat
 	_stage.add_child(_logo)
-	_embers = CPUParticles2D.new()
-	_embers.emitting = false
-	_embers.amount = 90
-	_embers.lifetime = 2.2
-	_embers.emission_shape = CPUParticles2D.EMISSION_SHAPE_RECTANGLE
-	_embers.direction = Vector2(0, -1)
-	_embers.spread = 25.0
-	_embers.gravity = Vector2(0, -60)
-	_embers.initial_velocity_min = 40.0
-	_embers.initial_velocity_max = 140.0
-	_embers.scale_amount_min = 1.5
-	_embers.scale_amount_max = 4.0
-	_embers.color_ramp = _ramp([Color(1, 0.9, 0.5, 1), Color(1, 0.45, 0.1, 0.9), Color(0.6, 0.1, 0.0, 0)])
-	_embers.material = _add_mat()
-	_stage.add_child(_embers)
+	# the vapour trail and the bullet
+	_trail = Line2D.new()
+	_trail.width = 10.0
+	_trail.gradient = _ramp([Color(1, 1, 1, 0), Color(0.85, 0.9, 1.0, 0.16), Color(1, 0.9, 0.7, 0.5)])
+	_trail.begin_cap_mode = Line2D.LINE_CAP_ROUND
+	_trail.end_cap_mode = Line2D.LINE_CAP_ROUND
+	_trail.material = _add_mat()
+	_stage.add_child(_trail)
+	_bullet = _make_bullet()
+	_bullet.visible = false
+	_stage.add_child(_bullet)
+	_shock = Line2D.new()
+	_shock.closed = true
+	_shock.visible = false
+	_shock.default_color = Color(1, 0.92, 0.75, 0.9)
+	_shock.material = _add_mat()
+	_stage.add_child(_shock)
 	_credit = VBoxContainer.new()
 	(_credit as VBoxContainer).alignment = BoxContainer.ALIGNMENT_CENTER
 	_credit.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -129,10 +142,16 @@ func _ready() -> void:
 		l.add_theme_constant_override("outline_size", 8)
 		l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
 		_credit.add_child(l)
-	_stage.add_child(_credit)
+	_root.add_child(_credit)
+	for i in 2:
+		var bar := ColorRect.new()
+		bar.color = Color.BLACK
+		bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_root.add_child(bar)
+		_bars.append(bar)
 	_flash = ColorRect.new()
 	_flash.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_flash.color = Color(1, 0.75, 0.4, 0)
+	_flash.color = Color(1, 0.85, 0.6, 0)
 	_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_flash.material = _add_mat()
 	_root.add_child(_flash)
@@ -144,6 +163,32 @@ func _ready() -> void:
 	_pick_holes()
 	_root.resized.connect(_layout)
 	_layout.call_deferred()
+
+
+## A brass slug with a hot white nose and a soft glow, pointing along +x.
+func _make_bullet() -> Node2D:
+	var n := Node2D.new()
+	var glow := Polygon2D.new()
+	var pts := PackedVector2Array()
+	for k in 24:
+		var a := TAU * k / 24.0
+		pts.append(Vector2(cos(a) * 34, sin(a) * 11))
+	glow.polygon = pts
+	glow.color = Color(1, 0.7, 0.35, 0.22)
+	glow.material = _add_mat()
+	n.add_child(glow)
+	var body := Polygon2D.new()
+	body.polygon = PackedVector2Array([Vector2(-20, -5), Vector2(8, -5), Vector2(16, -3.5), Vector2(21, 0), Vector2(16, 3.5),
+		Vector2(8, 5), Vector2(-20, 5)])
+	body.vertex_colors = PackedColorArray([Color(0.55, 0.38, 0.15), Color(0.95, 0.75, 0.4), Color(1, 0.9, 0.7), Color(1, 1, 0.95),
+		Color(1, 0.9, 0.7), Color(0.95, 0.75, 0.4), Color(0.55, 0.38, 0.15)])
+	n.add_child(body)
+	var shine := Line2D.new()
+	shine.points = PackedVector2Array([Vector2(-16, -2.5), Vector2(12, -2.5)])
+	shine.width = 1.5
+	shine.default_color = Color(1, 1, 0.9, 0.8)
+	n.add_child(shine)
+	return n
 
 
 func _add_mat() -> CanvasItemMaterial:
@@ -164,18 +209,19 @@ func _ramp(cols: Array) -> Gradient:
 
 func _layout() -> void:
 	var vp := _root.size
+	_stage.size = vp
 	var h: float = vp.y * 0.5
 	var w: float = h * LOGO.get_width() / LOGO.get_height()
 	_logo.size = Vector2(w, h)
 	_logo.position = Vector2((vp.x - w) / 2, vp.y * 0.12)
-	_logo.pivot_offset = _logo.size / 2
-	_embers.position = _logo.position + Vector2(w / 2, h * 0.55)
-	_embers.emission_rect_extents = Vector2(w * 0.4, h * 0.3)
 	_credit.position = Vector2(0, vp.y * 0.69)
 	_credit.size = Vector2(vp.x, vp.y * 0.2)
+	# the slow bullet comes in from the upper left, off screen
+	_from = Vector2(-vp.x * 0.1, vp.y * 0.06)
 
 
-## Bullet holes land on the emblem itself: random opaque spots, spread over its width.
+## Bullet holes land on the emblem itself: random opaque spots, spread over its width; the first one, the slow
+## bullet's, near the middle.
 func _pick_holes() -> void:
 	var img := LOGO.get_image()
 	var rng := RandomNumberGenerator.new()
@@ -183,8 +229,9 @@ func _pick_holes() -> void:
 	var tries := 0
 	while _holes.size() < SHOTS and tries < 4000:
 		tries += 1
-		var u := rng.randf_range(0.12, 0.88)
-		var v := rng.randf_range(0.15, 0.85)
+		var first := _holes.is_empty()
+		var u := rng.randf_range(0.4, 0.6) if first else rng.randf_range(0.12, 0.88)
+		var v := rng.randf_range(0.3, 0.55) if first else rng.randf_range(0.15, 0.85)
 		var px := img.get_pixel(int(u * (img.get_width() - 1)), int(v * (img.get_height() - 1)))
 		if px.a < 0.9:
 			continue
@@ -194,55 +241,130 @@ func _pick_holes() -> void:
 				ok = false
 		if ok:
 			_holes.append([Vector2(u, v), -1.0])
-	_holes.sort_custom(func(a, b): return a[0].x < b[0].x if randf() < 0.5 else a[0].x > b[0].x)
 
 
-func _uv_to_screen(uv: Vector2) -> Vector2:
+func _uv_to_stage(uv: Vector2) -> Vector2:
 	return _logo.position + uv * _logo.size
 
 
 func _on_input(e: InputEvent) -> void:
 	if (e is InputEventMouseButton or e is InputEventScreenTouch) and e.pressed and _t > 1.0 and _t < T_FADE:
 		_t = T_FADE   # skip: straight to the fade
+		_hit_done = true
+		_bullet.visible = false
+		_trail.visible = false
+		Engine.time_scale = 1.0
+
+
+## Where the camera looks (stage coordinates) and how far it is zoomed in, over time.
+func _camera() -> Array:
+	var target := _uv_to_stage(_holes[0][0])
+	var vp := _root.size
+	if _t < T_BULLET:
+		return [vp / 2, 1.0]
+	if _t < T_HIT:
+		# riding just behind the bullet, the emblem growing ahead of it
+		var b := _bullet.position
+		var k: float = smoothstep(T_BULLET, T_BULLET + 0.35, _t)
+		var z: float = lerp(1.0, ZOOM, k)
+		var look := (vp / 2).lerp(b.lerp(target, 0.62), k)
+		return [look, z]
+	if _t < T_HIT + T_FREEZE:
+		return [target, ZOOM * 1.08]
+	# pull back out to the whole emblem
+	var o: float = smoothstep(T_HIT + T_FREEZE, T_HIT + T_FREEZE + 0.45, _t)
+	return [target.lerp(vp / 2, o), lerp(ZOOM * 1.08, 1.0, o)]
 
 
 func _process(dt: float) -> void:
 	if _finished:
 		return
 	_t += dt
-	# emblem fades in, a slow push in
-	_logo.modulate.a = clamp((_t - 0.15) / 0.5, 0.0, 1.0)
-	_logo.scale = Vector2.ONE * (0.94 + 0.06 * min(1.0, _t / T_FADE))
-	# gunfire
-	while _next_shot < _holes.size() and _t >= T_SHOTS + _next_shot * T_GAP + (0.12 if _next_shot > 3 else 0.0):
+	var vp := _root.size
+	_logo.modulate.a = clamp((_t - 0.1) / 0.6, 0.0, 1.0)
+	# the slow bullet
+	var target := _uv_to_stage(_holes[0][0])
+	if _t >= T_BULLET and _t < T_HIT and not _hit_done:
+		var k: float = (_t - T_BULLET) / (T_HIT - T_BULLET)
+		var pos := _from.lerp(target, k)
+		var dir := (target - _from).normalized()
+		_bullet.visible = true
+		_bullet.position = pos
+		_bullet.rotation = dir.angle()
+		_bullet.scale = Vector2.ONE * (_logo.size.y / 420.0)
+		var tail: Vector2 = pos - dir * min(_from.distance_to(pos), _logo.size.y * 0.9)
+		_trail.points = PackedVector2Array([tail, pos.lerp(tail, 0.5), pos - dir * 14.0])
+		_trail.width = 9.0 * _bullet.scale.x
+		# air ripples peeling off behind it
+		_ring_t -= dt
+		if _ring_t <= 0.0:
+			_ring_t = 0.07
+			_ripple(pos - dir * 18.0 * _bullet.scale.x, dir)
+		if not _whoosh_done:
+			_whoosh_done = true
+			Sfx.play("wind", 1.0, 0.45)
+			Sfx.play("incoming", 0.5, 0.55)
+	if _t >= T_HIT and not _hit_done:
+		_hit()
+	# ripples grow and fade (frozen while time is frozen)
+	var slow := 0.08 if (_t >= T_HIT and _t < T_HIT + T_FREEZE) else 1.0
+	for r in _rings.duplicate():
+		r.age += dt * slow
+		var a: float = r.age / 0.9
+		if a >= 1.0:
+			r.line.queue_free()
+			_rings.erase(r)
+			continue
+		r.line.scale = Vector2(1.0 + a * 1.4, 1.0 + a * 2.6) * r.size
+		r.line.default_color = Color(0.8, 0.88, 1.0, 0.35 * (1.0 - a))
+	# shock ring and dust after the hit
+	if _shock.visible:
+		var sa: float = _shock_age()
+		var rad: float = _logo.size.y * (0.08 + 0.75 * (1.0 - exp(-sa * 3.2)))
+		_ring_points(_shock, target, rad, rad)
+		_shock.width = max(1.0, 6.0 * (1.0 - clamp(sa / 0.8, 0.0, 1.0)))
+		_shock.default_color.a = clamp(1.0 - sa / 0.8, 0.0, 1.0) * 0.55
+		if sa > 0.8:
+			_shock.visible = false
+	for d in _dust.duplicate():
+		var age: float = _shock_age() - d.delay
+		if age < 0:
+			continue
+		var s: Sprite2D = d.sprite
+		s.visible = true
+		s.position = d.origin + d.vel * (1.0 - exp(-age * 2.2)) / 2.2
+		s.rotation = d.spin * age
+		s.scale = Vector2.ONE * d.size * (0.5 + age * 0.9)
+		s.modulate.a = clamp(1.0 - age / 1.6, 0.0, 1.0) * 0.85
+		if age > 1.6:
+			s.queue_free()
+			_dust.erase(d)
+	# the rest of the burst
+	while _hit_done and _next_shot < _holes.size() and _t >= T_BURST + (_next_shot - 1) * T_GAP:
 		_shoot(_next_shot)
 		_next_shot += 1
-	# fire
-	if not _ignited and _t >= T_IGNITE:
-		_ignite()
-	var burn: float = clamp((_t - T_IGNITE) / 2.2, 0.0, 1.0)
-	_mat.set_shader_parameter("burn", burn)
-	_mat.set_shader_parameter("t", _t)
 	var arr: Array = []
 	for i in 8:
 		if i < _holes.size() and _holes[i][1] >= 0:
-			arr.append(Vector4(_holes[i][0].x, _holes[i][0].y, _t - _holes[i][1], 0))
+			arr.append(Vector4(_holes[i][0].x, _holes[i][0].y, (_t - _holes[i][1]) * slow, 0))
 		else:
 			arr.append(Vector4(0, 0, -1, 0))
 	_mat.set_shader_parameter("holes", arr)
-	for f in _flames:
-		var age: float = _t - f.born
-		var s: float = f.size * clamp(age / 0.6, 0.0, 1.0) * (0.92 + 0.08 * sin(_t * 9 + f.size))
-		f.sprite.scale = Vector2.ONE * s
-		f.sprite.frame = int((_t + f.phase) * 24.0) % 36
-		f.sprite.position = _uv_to_screen(f.uv) - Vector2(0, f.sprite.get_rect().size.y * s * 0.32)
-	# credit
+	_mat.set_shader_parameter("t", _t)
+	# camera
+	var cam := _camera()
+	var z: float = cam[1]
+	_shake = max(0.0, _shake - dt * 3.5) if slow == 1.0 else _shake
+	_stage.scale = Vector2.ONE * z
+	_stage.position = vp / 2 - cam[0] * z + Vector2(randf_range(-1, 1), randf_range(-1, 1)) * _shake * 16.0
+	# letterbox while in slow motion
+	var lb: float = smoothstep(T_BULLET - 0.2, T_BULLET + 0.2, _t) * (1.0 - smoothstep(T_HIT + T_FREEZE, T_HIT + T_FREEZE + 0.3, _t))
+	_bars[0].position = Vector2.ZERO
+	_bars[0].size = Vector2(vp.x, vp.y * 0.11 * lb)
+	_bars[1].size = Vector2(vp.x, vp.y * 0.11 * lb)
+	_bars[1].position = Vector2(0, vp.y - _bars[1].size.y)
 	_credit.modulate.a = clamp((_t - T_CREDIT) / 0.7, 0.0, 1.0)
-	# shake and flashes
-	_shake = max(0.0, _shake - dt * 4.0)
-	_stage.position = Vector2(randf_range(-1, 1), randf_range(-1, 1)) * _shake * 14.0
-	_flash.color.a = max(0.0, _flash.color.a - dt * 6.0)
-	# out
+	_flash.color.a = max(0.0, _flash.color.a - dt * (2.5 if slow < 1.0 else 5.0))
 	_black.color.a = clamp((_t - T_FADE) / (T_END - T_FADE - 0.2), 0.0, 1.0)
 	if _t >= T_END - 0.2 and _t - dt < T_END - 0.2:
 		done.emit()          # the lobby takes over under the black
@@ -251,12 +373,70 @@ func _process(dt: float) -> void:
 		queue_free()
 
 
+func _shock_age() -> float:
+	# time since the hit, crawling through the freeze and then running normally
+	var since: float = _t - T_HIT
+	if since < T_FREEZE:
+		return since * 0.08
+	return T_FREEZE * 0.08 + (since - T_FREEZE)
+
+
+func _ring_points(l: Line2D, c: Vector2, rx: float, ry: float) -> void:
+	var pts := PackedVector2Array()
+	for k in 40:
+		var a := TAU * k / 40.0
+		pts.append(c + Vector2(cos(a) * rx, sin(a) * ry))
+	l.points = pts
+
+
+## A ring of displaced air, flattened along the flight path.
+func _ripple(pos: Vector2, dir: Vector2) -> void:
+	var l := Line2D.new()
+	l.closed = true
+	l.width = 2.0
+	l.material = _add_mat()
+	var pts := PackedVector2Array()
+	for k in 28:
+		var a := TAU * k / 28.0
+		pts.append(Vector2(cos(a) * 5.0, sin(a) * 9.0))
+	l.points = pts
+	l.position = pos
+	l.rotation = dir.angle()
+	_stage.add_child(l)
+	_stage.move_child(l, _bullet.get_index())
+	_rings.append({"line": l, "age": 0.0, "size": _logo.size.y / 420.0})
+
+
+func _hit() -> void:
+	_hit_done = true
+	_holes[0][1] = _t
+	var p := _uv_to_stage(_holes[0][0])
+	_bullet.visible = false
+	var tw := create_tween()
+	tw.tween_property(_trail, "modulate:a", 0.0, 0.25).set_delay(T_FREEZE * 0.5)
+	_flash.color = Color(1, 0.95, 0.85, 0.16)
+	_shake = 0.9
+	_shock.visible = true
+	_sparks(p, Vector2.LEFT, 40, T_FREEZE)
+	for i in 22:
+		var spr := Sprite2D.new()
+		spr.texture = PUFF
+		spr.modulate = Color(0.78, 0.7, 0.6, 0.0)
+		spr.visible = false
+		_stage.add_child(spr)
+		var a := randf() * TAU
+		_dust.append({"sprite": spr, "origin": p, "vel": Vector2(cos(a), sin(a) * 0.7) * randf_range(60, 260) * (_logo.size.y / 420.0),
+			"spin": randf_range(-1.5, 1.5), "size": randf_range(0.45, 0.95) * (_logo.size.y / 420.0), "delay": randf() * 0.06})
+	Sfx.play("boom_small", 1.0, 0.55)
+	Sfx.play("hit", 1.0, 0.6)
+	Sfx.play("gun_heavy_1", 0.9, 0.7)
+
+
 func _shoot(i: int) -> void:
 	var h: Array = _holes[i]
 	h[1] = _t
-	var p := _uv_to_screen(h[0])
+	var p := _uv_to_stage(h[0])
 	var vp := _root.size
-	# a tracer from off screen
 	var from := Vector2(-40.0 if randf() < 0.5 else vp.x + 40.0, randf_range(vp.y * 0.1, vp.y * 0.9))
 	var tr := Line2D.new()
 	tr.points = PackedVector2Array([from, p])
@@ -265,16 +445,23 @@ func _shoot(i: int) -> void:
 	tr.material = _add_mat()
 	_stage.add_child(tr)
 	create_tween().tween_property(tr, "modulate:a", 0.0, 0.09).finished.connect(tr.queue_free)
-	# sparks
+	_sparks(p, (from - p).normalized(), 26, 0.0)
+	_shake = min(1.0, _shake + 0.45)
+	_flash.color.a = max(_flash.color.a, 0.10)
+	Sfx.play(["gun_heavy_1", "gun_heavy_2", "gun_heavy_3"][i % 3], 0.9, randf_range(0.92, 1.05))
+	Sfx.play("hit", 0.8, randf_range(0.8, 1.1))
+
+
+func _sparks(p: Vector2, dir: Vector2, n: int, hold: float) -> void:
 	var sp := CPUParticles2D.new()
 	sp.one_shot = true
 	sp.explosiveness = 1.0
-	sp.amount = 26
-	sp.lifetime = 0.55
-	sp.direction = (from - p).normalized()
-	sp.spread = 70.0
+	sp.amount = n
+	sp.lifetime = 0.6
+	sp.direction = dir
+	sp.spread = 75.0
 	sp.initial_velocity_min = 180.0
-	sp.initial_velocity_max = 520.0
+	sp.initial_velocity_max = 560.0
 	sp.gravity = Vector2(0, 900)
 	sp.scale_amount_min = 1.5
 	sp.scale_amount_max = 3.5
@@ -283,35 +470,7 @@ func _shoot(i: int) -> void:
 	sp.position = p
 	_stage.add_child(sp)
 	sp.emitting = true
-	get_tree().create_timer(1.0).timeout.connect(sp.queue_free)
-	_shake = min(1.0, _shake + 0.45)
-	_flash.color.a = 0.10
-	Sfx.play(["gun_heavy_1", "gun_heavy_2", "gun_heavy_3"][i % 3], 0.9, randf_range(0.92, 1.05))
-	Sfx.play("hit", 0.8, randf_range(0.8, 1.1))
-
-
-func _ignite() -> void:
-	_ignited = true
-	_embers.emitting = true
-	Sfx.play("boom_small", 0.8, 0.9)
-	Sfx.play("flame", 0.9)
-	_flash.color = Color(1, 0.5, 0.15, 0.22)
-	_shake = 0.6
-	# flames from every bullet hole, then along the horns and the crown
-	var spots: Array = []
-	for h in _holes:
-		spots.append([h[0], 0.0])
-	for uv in [Vector2(0.07, 0.12), Vector2(0.93, 0.12), Vector2(0.3, 0.35), Vector2(0.7, 0.35), Vector2(0.5, 0.62), Vector2(0.5, 0.9)]:
-		spots.append([uv, 0.45 + randf() * 0.5])
-	for s in spots:
-		var spr := Sprite2D.new()
-		spr.texture = FIRE
-		spr.hframes = 6
-		spr.vframes = 6
-		var m := CanvasItemMaterial.new()
-		m.blend_mode = CanvasItemMaterial.BLEND_MODE_PREMULT_ALPHA
-		spr.material = m
-		spr.scale = Vector2.ZERO
-		_stage.add_child(spr)
-		_stage.move_child(spr, _stage.get_child_count() - 2)   # in front of the emblem, behind the credit
-		_flames.append({"sprite": spr, "uv": s[0], "born": _t + s[1], "size": _logo.size.y / 420.0 * randf_range(0.38, 0.62), "phase": randf() * 3.0})
+	if hold > 0.0:   # frozen with the rest of the picture, then let go
+		sp.speed_scale = 0.06
+		get_tree().create_timer(hold).timeout.connect(func(): if is_instance_valid(sp): sp.speed_scale = 1.0)
+	get_tree().create_timer(1.6).timeout.connect(sp.queue_free)

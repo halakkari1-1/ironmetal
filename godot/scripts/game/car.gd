@@ -76,7 +76,8 @@ var crown: Node3D
 var bubble: MeshInstance3D
 var smoke_fx: GPUParticles3D
 var fire_fx: GPUParticles3D
-var dust_fx: GPUParticles3D
+var dust_fx: GPUParticles3D       # dust kicked up behind the left rear wheel...
+var dust_fx2: GPUParticles3D      # ...and the right one
 var trail_fx: GPUParticles3D
 var flash: MeshInstance3D
 var _flash_t := 0.0
@@ -156,6 +157,7 @@ var _sp := Vector3.ZERO        # pitch, roll, heave (heave in metres)
 var _sv := Vector3.ZERO
 var _last_speed := 0.0
 var _bump := 0.0
+var _track: Dictionary = {}    # tracked machines: {path, len, shoes (MultiMeshInstance3D), offset}
 
 
 func _rig(s: float) -> void:
@@ -182,6 +184,9 @@ func _rig(s: float) -> void:
 		_wheels.append({"node": node, "front": w.front})
 	var ys: Array = spec.map(func(w): return w[1])
 	_pivot = Vector3(0, ys.min() if ys.size() else 0.0, 0)
+	_track = {}
+	if Data.TRACKS.has(data.id):
+		_build_tracks(Data.TRACKS[data.id])
 
 
 static func _root_xf(n: Node, root: Node) -> Transform3D:
@@ -311,6 +316,9 @@ func animate(dt: float, spd: float, steer_amt: float, airborne := false) -> void
 		for w in _wheels:
 			var n: MeshInstance3D = w.node
 			n.rotation = Vector3(0, steer_a if w.front else 0.0, _spin)
+		if not _track.is_empty() and abs(spd) > 0.05:
+			_track.offset = fposmod(float(_track.offset) + spd * dt / max(_model_scale, 0.01), float(_track.shape.len))
+			_update_tracks()
 	# body on its spring: pitch (squat / dive), roll (lean in turns), heave (bumps)
 	var fast: float = clamp(abs(spd) / 30.0, 0.0, 1.0)
 	var want := Vector3(clamp(-accel * 0.0022, -0.05, 0.05), clamp(-steer_amt * fast * 0.045, -0.05, 0.05), 0.0)
@@ -336,6 +344,172 @@ func animate(dt: float, spd: float, steer_amt: float, airborne := false) -> void
 		(b[0] as MeshInstance3D).transform = susp * (b[1] as Transform3D)
 
 
+# ---------- tracks ----------
+# The tracked machines' belts are one piece with the rest of the model, so they can't turn. Instead a belt is
+# laid over each one (a dark band following the belt's path, a little proud of it) with track shoes that run
+# round it at the vehicle's speed: still on the ground, sliding along the top, round the sprockets.
+
+const SHOE_PITCH := 0.042      # model units between shoes
+
+static var _track_cache := {}  # car id -> {path, cum, len, belt mesh}
+
+
+static func _track_path(spec: Dictionary) -> PackedVector2Array:
+	var pts := PackedVector2Array()
+	for p in spec.pulleys:
+		for k in 40:
+			var a := TAU * k / 40.0
+			pts.append(Vector2(p[0] + p[2] * cos(a), p[1] + p[2] * sin(a)))
+	var hull := Geometry2D.convex_hull(pts)
+	hull.remove_at(hull.size() - 1)   # closed: drop the repeated first point
+	# run so the bottom stretch goes towards +x (the back): shoes there then stay put on the ground
+	var lo := 0
+	for i in hull.size():
+		if hull[i].y < hull[lo].y:
+			lo = i
+	if hull[(lo + 1) % hull.size()].x < hull[lo].x:
+		hull.reverse()
+	# resample evenly
+	var out := PackedVector2Array()
+	var n := hull.size()
+	var step := 0.006
+	for i in n:
+		var a := hull[i]
+		var b := hull[(i + 1) % n]
+		var segs: int = max(1, int(ceil(a.distance_to(b) / step)))
+		for k in segs:
+			out.append(a.lerp(b, float(k) / segs))
+	return out
+
+
+static func _track_shape(spec: Dictionary) -> Dictionary:
+	var path := _track_path(spec)
+	var n := path.size()
+	var cum := PackedFloat32Array()
+	cum.resize(n + 1)
+	for i in n:
+		cum[i + 1] = cum[i] + path[i].distance_to(path[(i + 1) % n])
+	var h: float = spec.thick * 0.5
+	var hide_y: float = spec.get("hide_above", 9.0)
+	var hide_x: float = spec.get("hide_x_max", -9.0)
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for side in [1.0, -1.0]:
+		var zi: float = spec.zin * side
+		var zo: float = spec.zout * side
+		for i in n:
+			var a := path[i]
+			var b := path[(i + 1) % n]
+			var m := (a + b) * 0.5
+			if m.y > hide_y and m.x < hide_x:
+				continue
+			var t := (b - a).normalized()
+			var nrm := Vector2(t.y, -t.x)   # outward for a counter-clockwise loop seen from +z
+			if (m - _centre(spec)).dot(nrm) < 0:
+				nrm = -nrm
+			var ao := a + nrm * h
+			var bo := b + nrm * h
+			var ai := a - nrm * h
+			var bi := b - nrm * h
+			var N := Vector3(nrm.x, nrm.y, 0)
+			_quad(st, Vector3(ao.x, ao.y, zi), Vector3(bo.x, bo.y, zi), Vector3(bo.x, bo.y, zo), Vector3(ao.x, ao.y, zo), N)        # tread face
+			_quad(st, Vector3(ai.x, ai.y, zo), Vector3(bi.x, bi.y, zo), Vector3(bi.x, bi.y, zi), Vector3(ai.x, ai.y, zi), -N)       # inner face
+			_quad(st, Vector3(ao.x, ao.y, zo), Vector3(bo.x, bo.y, zo), Vector3(bi.x, bi.y, zo), Vector3(ai.x, ai.y, zo), Vector3(0, 0, side))   # outer side
+			_quad(st, Vector3(ai.x, ai.y, zi), Vector3(bi.x, bi.y, zi), Vector3(bo.x, bo.y, zi), Vector3(ao.x, ao.y, zi), Vector3(0, 0, -side))  # inner side
+	var belt := st.commit()
+	return {"path": path, "cum": cum, "len": cum[n], "belt": belt}
+
+
+static func _centre(spec: Dictionary) -> Vector2:
+	var c := Vector2.ZERO
+	for p in spec.pulleys:
+		c += Vector2(p[0], p[1])
+	return c / spec.pulleys.size()
+
+
+static func _quad(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3, n: Vector3) -> void:
+	# both windings, so the face shows whichever way it is seen (cheap and the belt is thin)
+	for tri in [[a, b, c], [a, c, d], [a, c, b], [a, d, c]]:
+		for v in tri:
+			st.set_normal(n)
+			st.add_vertex(v)
+
+
+static var _belt_mat: StandardMaterial3D
+static var _shoe_mat: StandardMaterial3D
+
+
+func _build_tracks(spec: Dictionary) -> void:
+	if not _track_cache.has(data.id):
+		_track_cache[data.id] = _track_shape(spec)
+	var shape: Dictionary = _track_cache[data.id]
+	if _belt_mat == null:
+		_belt_mat = StandardMaterial3D.new()
+		_belt_mat.albedo_color = Color(0.075, 0.07, 0.065)
+		_belt_mat.metallic = 0.5
+		_belt_mat.roughness = 0.7
+		_shoe_mat = StandardMaterial3D.new()
+		_shoe_mat.albedo_color = Color(0.24, 0.225, 0.21)
+		_shoe_mat.metallic = 0.85
+		_shoe_mat.roughness = 0.38
+	var belt := MeshInstance3D.new()
+	belt.mesh = shape.belt
+	belt.material_override = _belt_mat
+	model.add_child(belt)
+	var count := int(shape.len / SHOE_PITCH)
+	var box := BoxMesh.new()
+	box.size = Vector3(SHOE_PITCH * 0.55, spec.thick * 0.55, spec.zout - spec.zin + 0.012)
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.mesh = box
+	mm.instance_count = count * 2
+	var mmi := MultiMeshInstance3D.new()
+	mmi.multimesh = mm
+	mmi.material_override = _shoe_mat
+	model.add_child(mmi)
+	_track = {"shape": shape, "spec": spec, "mm": mm, "count": count, "pitch": shape.len / count, "offset": 0.0,
+		"zmid": (spec.zin + spec.zout) * 0.5, "h": spec.thick * 0.5 + spec.thick * 0.2}
+	_update_tracks()
+
+
+## Places the shoes along the belt for the current offset; the ones under the fenders are hidden (scaled to 0).
+func _update_tracks() -> void:
+	var tr := _track
+	var shape: Dictionary = tr.shape
+	var path: PackedVector2Array = shape.path
+	var cum: PackedFloat32Array = shape.cum
+	var L: float = shape.len
+	var n := path.size()
+	var spec: Dictionary = tr.spec
+	var hide_y: float = spec.get("hide_above", 9.0)
+	var hide_x: float = spec.get("hide_x_max", -9.0)
+	var c := _centre(spec)
+	var mm: MultiMesh = tr.mm
+	var j := 0   # walks the path along with the shoes (they come in order of s)
+	var s0: float = fposmod(tr.offset, tr.pitch)
+	for k in tr.count:
+		var s: float = s0 + k * tr.pitch
+		while j < n - 1 and cum[j + 1] < s:
+			j += 1
+		var a := path[j]
+		var b := path[(j + 1) % n]
+		var f: float = clamp((s - cum[j]) / max(cum[j + 1] - cum[j], 1e-6), 0.0, 1.0)
+		var p := a.lerp(b, f)
+		var t := (b - a).normalized()
+		var nrm := Vector2(t.y, -t.x)
+		if (p - c).dot(nrm) < 0:
+			nrm = -nrm
+		var hidden := p.y > hide_y and p.x < hide_x
+		var q: Vector2 = p + nrm * float(tr.h)
+		var bx := Vector3(t.x, t.y, 0)
+		var by := Vector3(nrm.x, nrm.y, 0)
+		var basis := Basis(bx, by, bx.cross(by))
+		if hidden:
+			basis = basis.scaled(Vector3.ZERO)
+		mm.set_instance_transform(k, Transform3D(basis, Vector3(q.x, q.y, tr.zmid)))
+		mm.set_instance_transform(k + tr.count, Transform3D(basis, Vector3(q.x, q.y, -float(tr.zmid))))
+
+
 ## A hit or a hard landing jolts the body.
 func jolt(strength: float) -> void:
 	_sv.z -= strength * 0.8
@@ -355,12 +529,15 @@ func attach_fx(fx: FX) -> void:
 	smoke_fx = fx.burn_emitter()
 	fire_fx = fx.flame_emitter(0.8, 5)
 	dust_fx = fx.dust_emitter()
-	for e in [smoke_fx, fire_fx, dust_fx]:
+	dust_fx2 = fx.dust_emitter()
+	for e in [smoke_fx, fire_fx, dust_fx, dust_fx2]:
 		e.get_parent().remove_child(e)
 		add_child(e)
 	smoke_fx.position = Vector3(0, dims.y * 0.7, dims.z * 0.2)
 	fire_fx.position = Vector3(0, dims.y * 0.55, dims.z * 0.25)
-	dust_fx.position = Vector3(0, 0.3, -dims.z * 0.45)
+	# just behind each rear wheel (or the back of each track), low to the ground
+	dust_fx.position = Vector3(dims.x * 0.36, 0.25, -dims.z * 0.42)
+	dust_fx2.position = Vector3(-dims.x * 0.36, 0.25, -dims.z * 0.42)
 
 
 ## Muzzle flash: a fireball frame flashed on a camera-facing quad for a few hundredths of a second.
@@ -403,6 +580,7 @@ func update_fx(map_dusty: bool) -> void:
 	smoke_fx.emitting = dmg < 0.4 or (not alive and death_t < 8)
 	fire_fx.emitting = dmg < 0.2 or (not alive and death_t < 5)
 	dust_fx.emitting = alive and abs(speed) > (8.0 if map_dusty else 12.0)
+	dust_fx2.emitting = dust_fx.emitting
 
 
 static var _pbr := {}

@@ -452,8 +452,9 @@ func tower_smoke_emitter(big := true) -> GPUParticles3D:
 
 
 func dust_emitter() -> GPUParticles3D:
-	return _emitter({"continuous": true, "tex": "puff", "amount": 14, "life": 1.1, "size": [1.2, 4.0], "vel": [0.5, 1.6], "spread": 60.0,
-		"colors": [Color(0.6, 0.52, 0.42, 0.28), Color(0.6, 0.52, 0.42, 0)], "damping": 1.0, "shape_r": 0.6})
+	# thrown back and up from the tyre, then hanging in the air behind the car
+	return _emitter({"continuous": true, "tex": "puff", "amount": 9, "life": 1.1, "size": [0.9, 3.4], "vel": [1.2, 2.8], "spread": 35.0,
+		"dir": Vector3(0, 0.55, -1).normalized(), "colors": [Color(0.6, 0.52, 0.42, 0.3), Color(0.6, 0.52, 0.42, 0)], "damping": 1.6, "shape_r": 0.25})
 
 
 ## Rocket exhaust: a hot core and a fading smoke trail.

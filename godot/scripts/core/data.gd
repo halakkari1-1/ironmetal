@@ -128,6 +128,15 @@ const WHEELS := {
 	"wraith": [[-0.5238, -0.1589, 0.1535, 0.2927, 0.4222], [0.5297, -0.1573, 0.1564, 0.2868, 0.4227]],
 }
 
+## Tracked machines: the belt runs round the convex hull of its pulleys ([x, y, radius] along the belt's middle,
+## model space, front at -x), between zin and zout on each side. A belt and moving track shoes are drawn over the
+## model's own (static) belt. hide_above / hide_x_max: the stretch hidden under the fenders, left undrawn.
+const TRACKS := {
+	"titan": {"pulleys": [[-0.61, -0.30, 0.082], [-0.47, -0.408, 0.047], [0.62, -0.408, 0.047], [0.797, -0.287, 0.080]],
+		"zin": 0.335, "zout": 0.468, "thick": 0.036, "hide_above": -0.235, "hide_x_max": 0.12},
+	"reaper": {"pulleys": [[-0.168, -0.335, 0.142], [0.674, -0.335, 0.142]], "zin": 0.345, "zout": 0.552, "thick": 0.036},
+}
+
 ## Offers shown in the shop window. For now they are previews only: locked, "soon", no price.
 const OFFERS := [
 	{"id": "wraith_pack", "name": "AZURE WRAITH PACK", "card": "res://assets/ui/offers/wraith_card.jpg", "car": "wraith", "scrap": 10000,

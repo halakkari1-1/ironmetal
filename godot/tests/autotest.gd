@@ -34,6 +34,7 @@ func _ready() -> void:
 		"wheels": await _wheels()
 		"victory": await _victory()
 		"engines": await _engines()
+		"dumpmesh": _dumpmesh()
 		"net_host": await _net_host()
 		"net_join": await _net_join()
 	get_tree().quit()
@@ -67,6 +68,30 @@ func _simulate(g: Match, seconds: float) -> void:
 		g._process(1.0 / 30)
 		if g.player.respawn_t <= 0 and not g.player.alive and g.player.lives == 0:
 			break
+
+
+## Writes each tracked car's vertices (model space) and triangles to <out>/<id>.bin, for measuring the tracks.
+func _dumpmesh() -> void:
+	for id in ["titan", "reaper"]:
+		var model: Node3D = load("res://assets/cars/%s.glb" % id).instantiate()
+		var f := FileAccess.open("%s/%s.bin" % [out, id], FileAccess.WRITE)
+		for mi_ in model.find_children("*", "MeshInstance3D", true, false):
+			var mi: MeshInstance3D = mi_
+			var xf := Car._root_xf(mi, model)
+			for si in mi.mesh.get_surface_count():
+				var arr: Array = mi.mesh.surface_get_arrays(si)
+				var v: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+				var idx: PackedInt32Array = arr[Mesh.ARRAY_INDEX] if arr[Mesh.ARRAY_INDEX] else PackedInt32Array(range(v.size()))
+				f.store_32(v.size())
+				f.store_32(idx.size())
+				for p in v:
+					var q := xf * p
+					f.store_float(q.x); f.store_float(q.y); f.store_float(q.z)
+				for i in idx:
+					f.store_32(i)
+		f.close()
+		print("TEST dumped ", id)
+		model.free()
 
 
 ## Every car's engine through a run: idle, full throttle up through the gears, lift off, brake to a stop.
@@ -404,7 +429,7 @@ func _intro() -> void:
 	var it: Intro = main.get_node("Intro")
 	it.set_process(false)
 	var t := 0.0
-	for at in [0.6, 1.0, 1.75, 2.4, 3.0, 3.6, 4.4, 5.0]:
+	for at in [0.8, 1.4, 2.1, 2.5, 2.65, 2.85, 3.2, 3.5, 4.4, 5.2]:
 		while t < at:
 			it._process(1.0 / 30.0)
 			t += 1.0 / 30.0
@@ -526,7 +551,7 @@ func _wheels() -> void:
 			n.visible = false
 	for c in g.cars:
 		c.visible = false
-	var ids := ["ghost", "venom", "toxic", "megalodon", "siren", "rex", "colossus", "wraith", "titan"]
+	var ids := ["titan", "reaper"] if OS.get_cmdline_user_args().has("--tracked") else ["ghost", "venom", "toxic", "megalodon", "siren", "rex", "colossus", "wraith", "titan"]
 	var sun := DirectionalLight3D.new()
 	sun.rotation = Vector3(-0.8, 0.5, 0)
 	g.add_child(sun)
