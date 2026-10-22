@@ -33,6 +33,7 @@ func _ready() -> void:
 		"wraith": await _wraith()
 		"wheels": await _wheels()
 		"victory": await _victory()
+		"engines": await _engines()
 		"net_host": await _net_host()
 		"net_join": await _net_join()
 	get_tree().quit()
@@ -66,6 +67,24 @@ func _simulate(g: Match, seconds: float) -> void:
 		g._process(1.0 / 30)
 		if g.player.respawn_t <= 0 and not g.player.alive and g.player.lives == 0:
 			break
+
+
+## Every car's engine through a run: idle, full throttle up through the gears, lift off, brake to a stop.
+func _engines() -> void:
+	for c in Data.CARS:
+		Sfx.engine_start(c.id)
+		var sp := 0.0
+		var log := []
+		for i in 360:   # 6 s at 60 fps
+			var t := i / 60.0
+			var th := 1.0 if t > 0.5 and t < 4.5 else 0.0
+			sp = clamp(sp + (0.28 if th > 0 else -0.35) / 60.0, 0.0, 1.0)
+			Sfx.engine_set(th, sp, 1.0 / 60.0)
+			if i % 60 == 30:
+				var live := Sfx._engine_layers.filter(func(p): return p.playing and not p.stream_paused).size()
+				log.append("%.1fs g%d %d voices" % [t, Sfx._gear, live])
+		print("TEST engine %s (%s): %s" % [c.id, Sfx._engine_class, ", ".join(log)])
+		Sfx.engine_stop()
 
 
 ## The end-of-match screen: a win with the player as MVP, then a loss with a bot as MVP (in Arabic).

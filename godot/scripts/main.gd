@@ -464,7 +464,8 @@ func _settings() -> void:
 			+ _t("Environment art") + ": Post Apocalypse Kitbash · Oleg Ushenok (Fab)\n" \
 			+ _t("Music") + ": THE COST · Kill Dyll\n" \
 			+ _t("Visual effects") + ": CGHeven (CC0) · Unity Labs (CC0)\n" \
-			+ _t("Sound effects") + ": Freesound · CGEffex, EvanBoyerman, Iwiploppenisse, Zagge28, Henaway, kyles, qubodup, kodack, tommccann, mikewest, zapsplat\n" \
+			+ _t("Sound effects") + ": Freesound · CGEffex, EvanBoyerman, Iwiploppenisse, Zagge28, qubodup, kodack, tommccann, mikewest, zapsplat\n" \
+			+ _t("Engine sounds") + ": Engine Simulator · AngeTheGreat (MIT)\n" \
 			+ _t("Fonts") + ": Saira · Omnibus-Type, Cairo · Mohamed Gaber (SIL OFL)\n" + _t("Engine") + ": Godot Engine (MIT)", 19, UI.DIM)
 		credits.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		v.add_child(credits)

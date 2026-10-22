@@ -15,12 +15,12 @@ const BANKS := {
 const ONESHOTS := ["click", "confirm", "denied", "purchase", "ready", "ability_end", "crunch", "hit", "hurt", "pickup",
 	"powerup", "flame", "railgun", "alarm", "wind", "streak", "count", "count_go", "win", "lose", "incoming", "incoming_hit", "boom_nuke",
 	"ab_smoke", "ab_dash", "ab_toxic", "ab_riptide", "ab_zap", "ab_charge", "ab_roar", "ab_cannon", "ab_shield"]
-## Engine sound groups, as play-tested: the sports cars (Megalodon included); the jeeps (the police car and the
-## Rex), which borrow the sports recording tuned low and rough; the tracked Reaper and the Colossus on the
-## tracked loop; and the Titan tank on the same loop tuned deeper. ENGINE_TUNE shifts one car's pitch.
-const ENGINE_CLASS := {"venom": "sport", "toxic": "sport", "ghost": "sport", "megalodon": "sport", "wraith": "sport",
-	"siren": "sport", "rex": "sport", "reaper": "tank", "colossus": "tank", "titan": "tank"}
-const ENGINE_TUNE := {"siren": 0.84, "rex": 0.74, "megalodon": 0.93, "titan": 0.8}
+## Which engine each car runs (play-tested groups): the sports cars on the two race engines, the police car on a
+## V8, the Rex on a big-block truck V8, the Titan tank on a 9-cylinder radial (the engine of the Second World War tanks), the tracked Reaper and the Colossus
+## on their tracked loop. ENGINE_TUNE nudges one car's pitch so cars sharing an engine still differ.
+const ENGINE_CLASS := {"wraith": "lfa", "toxic": "lfa", "venom": "f136", "ghost": "f136", "megalodon": "f136",
+	"siren": "ls", "rex": "c454", "titan": "radial", "reaper": "tank", "colossus": "tank"}
+const ENGINE_TUNE := {"toxic": 0.94, "venom": 1.06, "megalodon": 0.88, "titan": 0.95}
 const WORLD_VOICES := 28
 const UI_VOICES := 8
 const GUN_VOICES := 10
@@ -31,7 +31,7 @@ var _world_t: Array[float] = []
 var _ui: Array[AudioStreamPlayer] = []
 var _ui_i := 0
 var _engine_layers: Array[AudioStreamPlayer] = []
-var _engine_class := "truck"
+var _engine_class := "lfa"
 var _tune := 1.0
 var _engine_on := false
 var _gear := 1
@@ -53,11 +53,9 @@ func _ready() -> void:
 			_load(n)
 	for n in ONESHOTS:
 		_load(n)
-	for k in ENGINES:
-		for l in ENGINES[k].layers:
-			var s := _load("eng_%s_%s" % [k, l[0]])
-			if s is AudioStreamOggVorbis:
-				s.loop = true
+	var tl := _load("eng_tank_loop")
+	if tl is AudioStreamOggVorbis:
+		tl.loop = true
 	for i in WORLD_VOICES:
 		var p := AudioStreamPlayer3D.new()
 		p.bus = "SFX"
@@ -74,7 +72,7 @@ func _ready() -> void:
 		u.bus = "SFX"
 		add_child(u)
 		_ui.append(u)
-	for i in 3:
+	for i in ENGINE_VOICES:
 		var e := AudioStreamPlayer.new()
 		e.bus = "SFX"
 		add_child(e)
@@ -223,34 +221,76 @@ func incoming_hit(pos: Vector3, vol := 1.0) -> void:
 
 
 # ---------- engine ----------
-# Each class has constant-pitch loops recorded at a few engine speeds ("layers": name, its pitch in Hz along
-# the tracked harmonic, and the engine pitch where it plays alone). A simulated rev counter and gearbox set
-# the engine pitch; the nearest layers crossfade and are re-pitched to it, so the engine climbs through the
-# gears, drops on each shift, idles steadily when stopped and revs when the throttle is pressed standing still.
-# Offline copy of this model for listening tests: sim.py next to the sound build scripts.
+# Most cars run on engines rendered with Engine Simulator (AngeTheGreat, MIT licence): every engine was held on a
+# dynamometer at seven speeds, once with the throttle open (on load) and once closed (off load), plus idle. In
+# game a simulated rev counter and gearbox give the engine speed; the two recorded speeds either side of it
+# crossfade and are re-pitched to it, and the throttle blends on-load into off-load, so the engine pulls through
+# the gears, drops on each shift, and burbles when the pedal is lifted, like a racing game.
+# The tracked machines keep their single recorded loop ("tank"), re-pitched the same way.
 
-const ENGINES := {
-	"sport": {"layers": [["low", 73.1, 70.0], ["mid", 141.1, 145.0], ["high", 218.9, 230.0]], "idle": 66.0, "top": 265.0,
-		"gears": [0.13, 0.27, 0.44, 0.62, 0.81, 1.0]},
-	"jeep": {"layers": [["low", 152.8, 140.0], ["high", 156.2, 290.0]], "idle": 132.0, "top": 320.0,
-		"gears": [0.16, 0.34, 0.55, 0.77, 1.0]},
-	"truck": {"layers": [["low", 38.0, 38.0], ["mid", 46.6, 52.0], ["high", 89.2, 95.0]], "idle": 37.0, "top": 112.0,
+## Recorded engines: the speeds each was held at (rpm), its idle and where the game's rev range tops out.
+const REV := {
+	"lfa": {"rpms": [1400, 2600, 3800, 5000, 6300, 7600, 8800], "idle": 780.0, "top": 8600.0, "vol": 0.95,
+		"gears": [0.16, 0.31, 0.47, 0.63, 0.8, 1.0]},
+	"f136": {"rpms": [1400, 2600, 3800, 5000, 6300, 7600, 8800], "idle": 1010.0, "top": 8600.0, "vol": 0.95,
+		"gears": [0.16, 0.31, 0.47, 0.63, 0.8, 1.0]},
+	"ls": {"rpms": [1000, 1800, 2600, 3500, 4400, 5300, 6300], "idle": 640.0, "top": 6200.0, "vol": 1.0,
+		"gears": [0.17, 0.35, 0.55, 0.77, 1.0]},
+	"c454": {"rpms": [1000, 1700, 2400, 3100, 3800, 4500, 5300], "idle": 950.0, "top": 5200.0, "vol": 1.0,
 		"gears": [0.18, 0.38, 0.6, 0.8, 1.0]},
-	"tank": {"layers": [["loop", 1.0, 1.0]], "idle": 0.82, "top": 1.45, "gears": [0.25, 0.5, 0.75, 1.0]},
+	"radial": {"rpms": [900, 1250, 1600, 1950, 2300, 2650, 2950], "idle": 820.0, "top": 2900.0, "vol": 1.0,
+		"gears": [0.25, 0.5, 0.75, 1.0]},
 }
+## The old single-loop engine (the tracked machines).
+const TANK := {"idle": 0.82, "top": 1.45, "gears": [0.25, 0.5, 0.75, 1.0]}
+const ENGINE_VOICES := 15   # idle + 7 speeds x on/off
+
+
+func _engine_streams(id: String) -> Array:
+	# [rpm, stream] pairs for on and off load, idle first (it serves as both)
+	var r: Dictionary = REV[id]
+	var idle := _load("eng_%s_idle" % id)
+	var on := [[r.idle, idle]]
+	var off := [[r.idle, idle]]
+	for rpm in r.rpms:
+		on.append([float(rpm), _load("eng_%s_%d_on" % [id, rpm])])
+		off.append([float(rpm), _load("eng_%s_%d_off" % [id, rpm])])
+	for list in [on, off]:
+		for e in list:
+			if e[1] is AudioStreamOggVorbis:
+				e[1].loop = true
+	return [on, off]
+
+
+var _rev_on: Array = []
+var _rev_off: Array = []
 
 
 func engine_start(car_id: String) -> void:
-	_engine_class = ENGINE_CLASS.get(car_id, "truck")
+	_engine_class = ENGINE_CLASS.get(car_id, "lfa")
 	_tune = ENGINE_TUNE.get(car_id, 1.0)
-	var layers: Array = ENGINES[_engine_class].layers
-	for i in _engine_layers.size():
-		var p := _engine_layers[i]
+	for p in _engine_layers:
 		p.stop()
-		if i < layers.size():
-			p.stream = streams.get("eng_%s_%s" % [_engine_class, layers[i][0]])
-			p.volume_db = -60.0
-			p.play(randf() * 0.4)
+		p.stream = null
+	_rev_on = []
+	_rev_off = []
+	if _engine_class == "tank":
+		var p := _engine_layers[0]
+		p.stream = streams.get("eng_tank_loop")
+		p.volume_db = -60.0
+		p.play(randf() * 0.4)
+	else:
+		var lists := _engine_streams(_engine_class)
+		_rev_on = lists[0]
+		_rev_off = lists[1]
+		# voice 0 = idle, then 7 on-load, then 7 off-load
+		var all: Array = [_rev_on[0]] + _rev_on.slice(1) + _rev_off.slice(1)
+		for i in all.size():
+			var p := _engine_layers[i]
+			p.stream = all[i][1]
+			p.volume_db = -80.0
+			p.play(randf() * 1.2)
+			p.stream_paused = true
 	_gear = 1
 	_rpm = 0.0
 	_load_amt = 0.0
@@ -262,7 +302,7 @@ func engine_start(car_id: String) -> void:
 func engine_set(throttle: float, speed_frac: float, dt: float) -> void:
 	if not _engine_on or dt <= 0.0:
 		return
-	var c: Dictionary = ENGINES[_engine_class]
+	var c: Dictionary = TANK if _engine_class == "tank" else REV[_engine_class]
 	var b: Array = c.gears
 	var sp: float = min(abs(speed_frac), 1.2)
 	var th: float = abs(throttle)
@@ -270,35 +310,68 @@ func engine_set(throttle: float, speed_frac: float, dt: float) -> void:
 		th = 0.0                                       # pressing against the motion is braking, not accelerating
 	while _gear < b.size() and sp > b[_gear - 1]:
 		_gear += 1
-		_shift_t = 0.16
+		_shift_t = 0.18
 	while _gear > 1 and sp < float(b[_gear - 2]) * 0.85:
 		_gear -= 1
 	var lo: float = b[_gear - 2] if _gear > 1 else 0.0
-	var frac: float = clamp((sp - lo) / (float(b[_gear - 1]) - lo), 0.0, 1.15)
-	var target: float = (0.06 + 0.94 * frac) if _gear == 1 else (0.4 + 0.6 * frac)
+	var frac: float = clamp((sp - lo) / (float(b[_gear - 1]) - lo), 0.0, 1.1)
+	var target: float = (0.08 + 0.92 * frac) if _gear == 1 else (0.45 + 0.55 * frac)
 	if sp < 0.1 and th > 0.1:
-		target = max(target, 0.62 * th)
-	if th < 0.1:
-		target *= 0.9
+		target = max(target, 0.7 * th)                 # revving standing still
+	if sp < 0.03 and th < 0.1:
+		target = 0.0                                   # idle
 	_shift_t -= dt
-	var rate := 4.0 if target < _rpm else 1.6
+	if _shift_t > 0.0:
+		th = 0.0                                       # the throttle lifts for the shift: off-load burble
+	var rate := 3.2 if target < _rpm else 1.4
 	_rpm += clamp(target - _rpm, -rate * dt, rate * dt)
-	_load_amt += (th - _load_amt) * min(1.0, dt * 8.0)
-	var f: float = c.idle * pow(c.top / c.idle, _rpm)
-	var vol: float = (0.45 + 0.35 * _load_amt + 0.2 * _rpm) * (0.7 if _shift_t > 0.0 else 1.0) * 0.62
-	var layers: Array = c.layers
-	var lf := log(f)
-	for i in layers.size():
-		var w := 1.0
-		if layers.size() > 1:
-			var at := log(float(layers[i][2]))
-			if lf < at:
-				w = 1.0 if i == 0 else max(0.0, 1.0 - (at - lf) / (at - log(float(layers[i - 1][2]))))
-			else:
-				w = 1.0 if i == layers.size() - 1 else max(0.0, 1.0 - (lf - at) / (log(float(layers[i + 1][2])) - at))
-		var p := _engine_layers[i]
-		p.pitch_scale = clamp(f * _tune / float(layers[i][1]), 0.3, 3.0)
-		p.volume_db = linear_to_db(max(sqrt(w) * vol, 0.0005))
+	_load_amt += (th - _load_amt) * min(1.0, dt * 10.0)
+	if _engine_class == "tank":
+		var f: float = c.idle * pow(c.top / c.idle, _rpm)
+		var p := _engine_layers[0]
+		p.pitch_scale = clamp(f * _tune, 0.3, 3.0)
+		p.volume_db = linear_to_db((0.5 + 0.3 * _load_amt + 0.2 * _rpm) * 0.62)
+		return
+	var rpm: float = c.idle * pow(c.top / c.idle, _rpm)
+	var vol: float = c.vol * (0.75 if _shift_t > 0.0 else 1.0)
+	# weights along the recorded speeds (in log rpm), then split between on and off load
+	var n: int = _rev_on.size()
+	var w := PackedFloat32Array()
+	w.resize(n)
+	var lr := log(rpm)
+	if rpm <= _rev_on[0][0]:
+		w[0] = 1.0
+	elif rpm >= _rev_on[n - 1][0]:
+		w[n - 1] = 1.0
+	else:
+		for i in n - 1:
+			var r0: float = _rev_on[i][0]
+			var r1: float = _rev_on[i + 1][0]
+			if rpm >= r0 and rpm < r1:
+				var t: float = (lr - log(r0)) / (log(r1) - log(r0))
+				w[i] = cos(t * PI * 0.5)
+				w[i + 1] = sin(t * PI * 0.5)
+				break
+	var on_w: float = sqrt(_load_amt)
+	var off_w: float = sqrt(1.0 - _load_amt)
+	for i in n:
+		var pitch: float = clamp(rpm * _tune / float(_rev_on[i][0]), 0.25, 4.0)
+		if i == 0:
+			_voice(_engine_layers[0], w[0] * vol * 1.7, pitch)   # idle was recorded much quieter than load
+		else:
+			_voice(_engine_layers[i], w[i] * on_w * vol, pitch)
+			_voice(_engine_layers[i + n - 1], w[i] * off_w * vol, pitch)
+
+
+func _voice(p: AudioStreamPlayer, gain: float, pitch: float) -> void:
+	if gain < 0.004:
+		if not p.stream_paused:
+			p.stream_paused = true
+			p.volume_db = -80.0
+		return
+	p.stream_paused = false
+	p.pitch_scale = pitch
+	p.volume_db = linear_to_db(gain)
 
 
 func engine_stop() -> void:

@@ -7,10 +7,11 @@ boom_car / rocket / small 156031 "Explosion"                                   I
   layered with          258195  "Deep explosion"                               kodack         CC0
 boom_nuke               719426  "Missile or bomb incoming whoosh and explosion" zapsplat      CC0
   layered with          235968  "explosion_01" (tommccann, CC0) and 258195 (kodack, CC0)
-engine     sport        755999  "Car Revving (Engine and Exhaust Mix)"         EvanBoyerman   CC BY 4.0
-engine     jeep         127980, 127981 "Big Block V8 Rev" 1 and 2              Henaway        CC0
-engine     truck        405086  "truck large diesel ... APC accelerate"        kyles          CC0
 engine     tank         200303  "Tank Engine Loop"                             qubodup        CC BY 4.0 / CC0
+eng_lfa_*, eng_f136_*, eng_ls_*, eng_c454_*, eng_radial_*
+           rendered with Engine Simulator by AngeTheGreat (Ange Yaghi), https://github.com/ange-yaghi/engine-sim,
+           MIT licence, Copyright 2022 AngeTheGreat. Each engine (the simulator's example engines) was held on its
+           dynamometer at seven speeds with the throttle open and closed, then cut into seamless loops.
 gun_*                   482122, 183656 (qubodup, CC0), 239596 (mikewest, CC0)
 Interface and ability sounds are synthesized for the game.
 
