@@ -15,12 +15,12 @@ const BANKS := {
 const ONESHOTS := ["click", "confirm", "denied", "purchase", "ready", "ability_end", "crunch", "hit", "hurt", "pickup",
 	"powerup", "flame", "railgun", "alarm", "wind", "streak", "count", "count_go", "win", "lose", "incoming", "incoming_hit", "boom_nuke",
 	"ab_smoke", "ab_dash", "ab_toxic", "ab_riptide", "ab_zap", "ab_charge", "ab_roar", "ab_cannon", "ab_shield"]
-## Engine recording per kind of vehicle: sports cars, the big V8 truck, and the tracked/armoured machines.
-## The jeeps share the truck's recording (it sounded best in play-testing), each tuned a little higher so no two
-## cars sound the same.
-const ENGINE_CLASS := {"venom": "sport", "toxic": "sport", "ghost": "truck", "megalodon": "truck", "siren": "truck",
-	"rex": "truck", "reaper": "tank", "titan": "tank", "colossus": "tank", "wraith": "sport"}
-const ENGINE_TUNE := {"ghost": 1.28, "siren": 1.17, "megalodon": 1.07}
+## Engine sound groups, as play-tested: the sports cars (Megalodon included); the jeeps (the police car and the
+## Rex), which borrow the sports recording tuned low and rough; the tracked Reaper and the Colossus on the
+## tracked loop; and the Titan tank on the same loop tuned deeper. ENGINE_TUNE shifts one car's pitch.
+const ENGINE_CLASS := {"venom": "sport", "toxic": "sport", "ghost": "sport", "megalodon": "sport", "wraith": "sport",
+	"siren": "sport", "rex": "sport", "reaper": "tank", "colossus": "tank", "titan": "tank"}
+const ENGINE_TUNE := {"siren": 0.84, "rex": 0.74, "megalodon": 0.93, "titan": 0.8}
 const WORLD_VOICES := 28
 const UI_VOICES := 8
 const GUN_VOICES := 10
