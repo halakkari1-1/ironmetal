@@ -154,7 +154,10 @@ func _discovery(dt: float) -> void:
 		if _beacon_t <= 0:
 			_beacon_t = 1.0
 			_send_udp("255.255.255.255", _beacon())
-	elif browsing:
+	elif browsing and role == "":
+		# looking for rooms: only while not in one. (A joined phone used to keep asking all 254 addresses of
+		# the network every 2.5 s through the whole match; on phones each burst froze the game for a second or
+		# two while the system looked up addresses that don't exist.)
 		_scan_t -= dt
 		if _scan_t <= 0:
 			_scan_t = 2.5
@@ -205,6 +208,7 @@ func join(ip: String) -> void:
 		return
 	multiplayer.multiplayer_peer = peer
 	role = "client"
+	_scan_list.clear()
 	_connect_t = 7.0
 	status.emit(I18n.t("Connecting…"))
 
