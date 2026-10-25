@@ -440,11 +440,14 @@ const DETAIL_PX := 1024
 func _ground() -> void:
 	var mat := ShaderMaterial.new()
 	mat.shader = load("res://scripts/game/ground.gdshader")
-	mat.set_shader_parameter("dirt_albedo", load("res://assets/ground/dirt_albedo.jpg"))
-	mat.set_shader_parameter("dirt_normal", load("res://assets/ground/dirt_normal.png"))
-	mat.set_shader_parameter("concrete_tex", load("res://assets/kit/ground_concrete.jpg"))
-	mat.set_shader_parameter("tint", map.ground.lerp(Color(0.6, 0.59, 0.57), 0.45))
-	mat.set_shader_parameter("tile", 1.0 / 3.5)
+	var fl: Dictionary = map.floor
+	var base := "res://assets/ground/%s_" % fl.tex
+	mat.set_shader_parameter("dirt_albedo", load(base + "color.jpg"))
+	mat.set_shader_parameter("dirt_normal", load(base + "normal.jpg"))
+	mat.set_shader_parameter("dirt_rough", load(base + "rough.jpg"))
+	mat.set_shader_parameter("concrete_tex", load("res://assets/ground/concrete047a_color.jpg"))
+	mat.set_shader_parameter("tint", Color.WHITE.lerp(map.ground, 0.15) * float(fl.bright))
+	mat.set_shader_parameter("tile", 1.0 / float(fl.tile))
 	mat.set_shader_parameter("concrete_half", map.size * map.concrete * 0.5)
 	mat.set_shader_parameter("arena_half", half)
 	var maps := _detail_maps()

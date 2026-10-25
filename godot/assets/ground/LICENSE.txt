@@ -1,0 +1,3 @@
+Arena floor textures (road012b, concrete047a, ground097, ground111, ground079s) are from ambientCG
+(https://ambientcg.com), released under the Creative Commons CC0 1.0 Universal licence. The ambient
+occlusion map was multiplied into each colour map for the game.
