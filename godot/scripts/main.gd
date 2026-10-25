@@ -1138,9 +1138,16 @@ func _on_session_over(reason: String) -> void:
 var _exit_layer: CanvasLayer
 
 
+var _exit_t := 0
+
+
 func _confirm_exit() -> void:
 	if _intro:
 		return
+	# Android can report one back gesture twice; don't let the second close the question at once
+	if Time.get_ticks_msec() - _exit_t < 400:
+		return
+	_exit_t = Time.get_ticks_msec()
 	if _exit_layer:
 		_exit_layer.queue_free()
 		_exit_layer = null

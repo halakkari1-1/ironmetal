@@ -41,6 +41,8 @@ var _power_label: Label
 var _stick_base: Control
 var _stick_knob: Control
 var _stick_id := -1
+var _look_id := -1             # a finger dragging on the free right side turns the camera round the car
+var _look_last := Vector2.ZERO
 var _stick_origin := Vector2.ZERO
 var _jx := 0.0
 var _jy := 0.0
@@ -246,6 +248,10 @@ func _input(e: InputEvent) -> void:
 	elif e is InputEventScreenDrag:
 		if e.index == _stick_id:
 			_drag_stick(e.position)
+		elif e.index == _look_id:
+			var d: Vector2 = e.position - _look_last
+			_look_last = e.position
+			match_.look_drag(d.x / _root.size.x)
 	elif e is InputEventKey and not e.echo:
 		_keys[e.physical_keycode] = e.pressed
 		if e.pressed:
@@ -279,7 +285,14 @@ func _on_touch(idx: int, pos: Vector2, pressed: bool) -> void:
 			_stick_base.visible = true
 			_stick_base.position = pos - _stick_base.size / 2
 			_stick_knob.position = (_stick_base.size - _stick_knob.size) / 2
+		elif pos.x >= _root.size.x * 0.5 and _look_id == -1:
+			_look_id = idx
+			_look_last = pos
+			match_.look_hold(true)
 	else:
+		if idx == _look_id:
+			_look_id = -1
+			match_.look_hold(false)
 		if idx == _stick_id:
 			_stick_id = -1
 			_jx = 0

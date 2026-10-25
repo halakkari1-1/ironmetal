@@ -49,6 +49,9 @@ var break_t := 0.0
 var end_t := 0.0
 var result := ""
 var cam_mode := "near"
+var look_yaw := 0.0            # the player turned the camera round the car with a finger
+var _look_held := false
+var _look_idle := 0.0
 var _cam_mode_t := 0.0
 var _cam_pos := Vector3.ZERO
 var _cam_look := Vector3.ZERO
@@ -2066,12 +2069,27 @@ func view_car() -> Car:
 	return player
 
 
+## Free look: a horizontal drag turns the camera round the car; let go and it swings back behind after a moment.
+func look_drag(frac: float) -> void:
+	look_yaw = wrapf(look_yaw - frac * TAU * 0.9, -PI, PI)
+	_look_idle = 0.0
+
+
+func look_hold(on: bool) -> void:
+	_look_held = on
+	_look_idle = 0.0
+
+
 func _update_camera(dt: float, snap := false) -> void:
 	if state == "ending" and mvp and is_instance_valid(mvp):
 		_orbit_mvp(dt)
 		return
 	var p := view_car()
-	var f := p.forward()
+	if not _look_held:
+		_look_idle += dt
+		if _look_idle > 1.2:   # let go: swing back behind the car
+			look_yaw = lerp_angle(look_yaw, 0.0, min(1.0, dt * 2.5))
+	var f := p.forward().rotated(Vector3.UP, look_yaw)
 	var size: float = max(1.0, p.dims.z / 5.2)
 	var mode_ := cam_mode
 	if mode_ == "hood" and not p.alive:
