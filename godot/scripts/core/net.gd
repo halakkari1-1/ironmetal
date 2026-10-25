@@ -13,7 +13,7 @@ signal session_over(reason: String)    # the room closed under us (host left, ki
 
 const PORT := 24680
 const DISCO_PORT := 24681
-const PROTO := 1                       # bump whenever the messages change: older builds are refused politely
+const PROTO := 2                       # bump whenever the messages change: older builds are refused politely
 const MAX_PLAYERS := 9
 const SNAP_HZ := 20.0
 const INPUT_HZ := 30.0
@@ -452,13 +452,15 @@ func tick(m: Match, dt: float) -> void:
 			_ping.rpc_id(1, Time.get_ticks_msec())
 
 
-@rpc("authority", "call_remote", "unreliable_ordered")
+# Snapshots and inputs travel on their own channels: on the shared channel a lost reliable event (a rocket,
+# a kill) held every later snapshot back until it was resent, which froze the other players' screens.
+@rpc("authority", "call_remote", "unreliable_ordered", 1)
 func _snap(t: float, st: String, data: PackedFloat32Array) -> void:
 	if game and game.net_role == "client":
 		game.on_snap(t, st, data)
 
 
-@rpc("any_peer", "call_remote", "unreliable_ordered")
+@rpc("any_peer", "call_remote", "unreliable_ordered", 2)
 func _net_input(th: float, st: float, fire: bool) -> void:
 	if role != "host" or game == null:
 		return

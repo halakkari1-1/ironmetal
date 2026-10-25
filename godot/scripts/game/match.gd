@@ -72,6 +72,9 @@ var _rid := 0
 var _did := 0
 var _snaps: Array = []        # client: [host_time, {nid: PackedFloat32Array}]
 var _clock := -1.0            # client: estimate of the host's match time
+var _interp := 0.1            # client: how far in the past other cars are shown (grows with network jitter)
+var _jitter := 0.0
+var _arrive := -1.0
 var _hp_seen := -1.0
 var mvp: Car = null           # shown when the match ends
 var _slow := 1.0              # slow motion at the end
@@ -2320,6 +2323,14 @@ func on_snap(t: float, st: String, a: PackedFloat32Array) -> void:
 	_snaps.append([t, d])
 	if _snaps.size() > 40:
 		_snaps.pop_front()
+	# measure how unevenly snapshots arrive (phone Wi-Fi often delivers them in bursts) and keep enough of a
+	# buffer to play other cars smoothly through it
+	var now := Time.get_ticks_msec() / 1000.0
+	if _arrive >= 0:
+		var gap := now - _arrive
+		_jitter = lerp(_jitter, abs(gap - 1.0 / Net.SNAP_HZ), 0.08)
+		_interp = lerp(_interp, clamp(0.1 + _jitter * 2.5, 0.1, 0.32), 0.05)
+	_arrive = now
 	if _clock < 0 or abs(t - _clock) > 0.5:
 		_clock = t
 	else:
@@ -2362,13 +2373,13 @@ func on_snap(t: float, st: String, a: PackedFloat32Array) -> void:
 		_hp_seen = -1.0
 
 
-const INTERP := 0.1   # other cars are shown this far in the past, between two snapshots, so they move smoothly
+## Other cars are shown _interp seconds in the past, between two snapshots, so they move smoothly.
 
 
 func _pose_remote(c: Car, dt: float) -> void:
 	if _snaps.is_empty():
 		return
-	var rt := _clock - INTERP
+	var rt := _clock - _interp
 	var a: PackedFloat32Array
 	var b: PackedFloat32Array
 	var k := 1.0
@@ -2392,7 +2403,7 @@ func _pose_remote(c: Car, dt: float) -> void:
 	c.z = lerp(a[2], b[2], k)
 	c.heading = lerp_angle(a[3], b[3], k)
 	if rt > _snaps[-1][0]:   # snapshots late: carry on briefly along the last known motion
-		var ahead: float = min(0.15, rt - _snaps[-1][0])
+		var ahead: float = min(0.25, rt - _snaps[-1][0])
 		c.x += sin(c.heading) * b[4] * ahead
 		c.z += cos(c.heading) * b[4] * ahead
 	c.speed = b[4]
@@ -2426,7 +2437,7 @@ func _reconcile(dt: float) -> void:
 		var dh := wrapf(v[3] - player.heading, -PI, PI)
 		if abs(dh) > 0.35:
 			player.heading = wrapf(player.heading + dh * kk, -PI, PI)
-	player.position = Vector3(player.x, 0, player.z)
+	player.position = Vector3(player.x, player.y, player.z)   # keep the height _drive gave it (hills, jumps)
 
 
 ## Client: something the host decided, shown here through the same code the host ran.
