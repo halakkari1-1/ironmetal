@@ -49,7 +49,7 @@ void fragment() {
 	ALBEDO = col;
 	float rough = texture(dirt_rough, q).r;
 	ROUGHNESS = mix(mix(rough, 0.88, conc), 0.06, max(wet * 0.75, water));
-	SPECULAR = 0.5 + 0.4 * water;
+	SPECULAR = 0.32 + 0.5 * water;
 	NORMAL_MAP = mix(n_t, vec3(0.5, 0.5, 1.0), max(conc * 0.6, water));
 	NORMAL_MAP_DEPTH = 0.9;
 }

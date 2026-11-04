@@ -1,0 +1,25 @@
+[remap]
+
+importer="wavefront_obj"
+importer_version=1
+type="Mesh"
+uid="uid://ddl7mpr2240bv"
+path="res://.godot/imported/spire.obj-bcf3f558e848ef261e7546ac6b782ceb.mesh"
+
+[deps]
+
+files=["res://.godot/imported/spire.obj-bcf3f558e848ef261e7546ac6b782ceb.mesh"]
+
+source_file="res://assets/buildings/lo/spire.obj"
+dest_files=["res://.godot/imported/spire.obj-bcf3f558e848ef261e7546ac6b782ceb.mesh", "res://.godot/imported/spire.obj-bcf3f558e848ef261e7546ac6b782ceb.mesh"]
+
+[params]
+
+generate_tangents=true
+generate_lods=true
+generate_shadow_mesh=true
+generate_lightmap_uv2=false
+generate_lightmap_uv2_texel_size=0.2
+scale_mesh=Vector3(1, 1, 1)
+offset_mesh=Vector3(0, 0, 0)
+force_disable_mesh_compression=false

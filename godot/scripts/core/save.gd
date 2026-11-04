@@ -24,7 +24,9 @@ func _fresh() -> Dictionary:
 		"sound": true,
 		"music": true,
 		"graphics": "auto",   # auto | high | medium | low
-		"fps": 60,            # 60 or 30 (battery saver)
+		"fps": 60,            # frame cap: 30 (battery saver), 60, 90 or 120
+		"auto_tier": "high",  # the tier auto graphics settled on for this phone
+		"show_fps": false,    # small frame counter on screen
 		"scheme": "classic",
 		"layout": null,
 		"camera": "near",
@@ -100,7 +102,7 @@ func _normalize() -> void:
 	for k in state.stats:
 		state.stats[k] = int(state.stats[k])
 	state.best.wave = int(state.best.wave)
-	state.fps = int(state.fps)
+	state.fps = int(state.fps) if int(state.fps) in [30, 60, 90, 120] else 60
 	state.player_color = int(state.get("player_color", 0))
 
 

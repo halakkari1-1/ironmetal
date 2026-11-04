@@ -446,8 +446,15 @@ func _settings() -> void:
 			Save.state.graphics = x
 			Save.write()
 			Quality.apply_setting()))
-		v.add_child(_seg(_t("Frame rate"), [[60, "60 FPS"], [30, _t("30 FPS · battery saver")]], int(Save.state.fps), func(x):
+		v.add_child(_seg(_t("Frame rate"), [[30, _t("30 · saver")], [60, "60"], [90, "90"], [120, "120"]], int(Save.state.fps), func(x):
 			Save.state.fps = x
+			Save.write()
+			Quality.apply_setting()))
+		var fps_note := UI.label(_t("90 and 120 need a phone whose screen runs that fast; turn on the counter to see what yours reaches."), 20, UI.DIM)
+		fps_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		v.add_child(fps_note)
+		v.add_child(_seg(_t("Frame counter"), [[false, _t("Off")], [true, _t("On")]], bool(Save.state.get("show_fps", false)), func(x):
+			Save.state.show_fps = x
 			Save.write()
 			Quality.apply_setting()))
 		v.add_child(_seg(_t("Steering"), [["classic", _t("Classic")], ["direction", _t("Direction")], ["autogas", _t("Auto gas")]], Save.state.scheme, func(x):
@@ -603,6 +610,7 @@ func _map_card(m: Dictionary, on: bool, cb: Callable) -> Control:
 
 func _start_match(cfg: Dictionary) -> void:
 	_last_cfg = cfg
+	Quality.match_begin()
 	_show("loading", func(root: Control):
 		var bg := UI.full(ColorRect.new())
 		bg.color = Color(0.05, 0.045, 0.04)

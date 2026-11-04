@@ -37,6 +37,7 @@ func _ready() -> void:
 		"dumpmesh": _dumpmesh()
 		"arenas": await _arenas()
 		"jump": await _jump()
+		"perf": await _perf()
 		"net_host": await _net_host()
 		"net_join": await _net_join()
 	get_tree().quit()
@@ -690,3 +691,87 @@ func _wheels() -> void:
 		c.setup(c.data, load("res://assets/cars/%s.glb" % id))
 		c.free()
 	print("TEST cutting all cars took %d ms" % ((Time.get_ticks_usec() - t0) / 1000))
+
+
+## Per map: what one gameplay frame draws (from the player's camera) and what the match logic costs on the CPU.
+func _perf() -> void:
+	var only := _arg("map", "")
+	for i in Data.MAPS.size():
+		if only != "" and Data.MAPS[i].id != only:
+			continue
+		var g := await _start(i, "toxic", 1)
+		_simulate(g, 4)
+		for f in 20:
+			await get_tree().process_frame
+		var lights := 0
+		var meshes := 0
+		var parts := 0
+		var stack: Array = [g]
+		while stack.size():
+			var n: Node = stack.pop_back()
+			if n is Light3D and n.visible: lights += 1
+			if n is MeshInstance3D or n is MultiMeshInstance3D: meshes += 1
+			if n is GPUParticles3D or n is CPUParticles3D: parts += 1
+			stack.append_array(n.get_children())
+		var tally := {}
+		stack = [g]
+		while stack.size():
+			var n: Node = stack.pop_back()
+			stack.append_array(n.get_children())
+			var mesh: Mesh = null
+			var mult := 1
+			if n is MeshInstance3D: mesh = n.mesh
+			elif n is MultiMeshInstance3D and n.multimesh:
+				mesh = n.multimesh.mesh
+				mult = n.multimesh.visible_instance_count if n.multimesh.visible_instance_count >= 0 else n.multimesh.instance_count
+			if mesh == null or not n.is_visible_in_tree(): continue
+			var tris := 0
+			for si in mesh.get_surface_count():
+				var a := mesh.surface_get_arrays(si)
+				var idx = a[Mesh.ARRAY_INDEX]
+				tris += (idx.size() if idx != null else a[Mesh.ARRAY_VERTEX].size()) / 3
+			var key := "%s/%s" % [n.get_parent().name, n.name] if not (n.owner is Car or n.get_parent() is Car) else "car"
+			var o: Node = n
+			while o != null and not (o is Car): o = o.get_parent()
+			if o != null: key = "car:" + o.data.id
+			var sh := "S" if n.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF else "-"
+			key += "[" + sh + "]"
+			tally[key] = tally.get(key, 0) + tris * mult
+		var keys := tally.keys()
+		keys.sort_custom(func(a, b): return tally[a] > tally[b])
+		for k in keys.slice(0, 18):
+			print("TEST   %8d %s" % [tally[k], k])
+		var groups := {"wrecks": [], "cars": [], "buildings": [], "particles": []}
+		stack = [g]
+		while stack.size():
+			var n: Node = stack.pop_back()
+			stack.append_array(n.get_children())
+			if n is MultiMeshInstance3D and n.material_override == Arena._wreck_mat: groups.wrecks.append(n)
+			elif n is Car: groups.cars.append(n)
+			elif n is GPUParticles3D or n is CPUParticles3D: groups.particles.append(n)
+			elif n.get_parent() == g.arena and n.scene_file_path.contains("buildings"): groups.buildings.append(n)
+		var base := RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME)
+		for gk in groups:
+			for n in groups[gk]: n.visible = false
+			for f in 4: await get_tree().process_frame
+			var now := RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME)
+			var dc := RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME)
+			print("TEST   hiding %s (%d nodes): prims %d -> %d  draws now %d" % [gk, groups[gk].size(), base, now, dc])
+			for n in groups[gk]: n.visible = true
+			for f in 4: await get_tree().process_frame
+		for th in [1.5, 4.0, 8.0, 16.0]:
+			get_viewport().mesh_lod_threshold = th
+			for f in 4: await get_tree().process_frame
+			print("TEST   lod threshold %.1f: prims %d" % [th, RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME)])
+		get_viewport().mesh_lod_threshold = 1.5
+		var t0 := Time.get_ticks_usec()
+		for k in 60:
+			g._process(1.0 / 60)
+		var cpu := (Time.get_ticks_usec() - t0) / 60.0 / 1000.0
+		print("TEST perf %s draws=%d objs=%d prims=%d lights=%d meshes=%d particles=%d match_cpu_ms=%.2f" % [g.map.id,
+			RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME),
+			RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_OBJECTS_IN_FRAME),
+			RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME),
+			lights, meshes, parts, cpu])
+		main._lobby()
+		await get_tree().process_frame

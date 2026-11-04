@@ -6,6 +6,7 @@ extends Node3D
 
 const PS := 1.5   # prop scale: kit props are true-to-life, game cars are a bit oversized
 const BS := 1.7   # landmark building scale
+const BUILDING_NEAR := 80.0   # metres: front-row buildings closer than this use their detailed version
 const WS := 1.6   # wall (jersey barrier) scale
 ## Building models around the arena (assets/buildings/<id>.glb). tall: ruined tower; otherwise wide works.
 const SKYLINE := [
@@ -57,6 +58,15 @@ func build(m: Dictionary) -> void:
 
 # ---------- sky, light ----------
 
+## Follows the quality tier when auto mode changes it mid-match: shadows and glow.
+func _quality_changed() -> void:
+	if sun:
+		sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS if Quality.tier.splits == 2 else DirectionalLight3D.SHADOW_ORTHOGONAL
+		sun.directional_shadow_max_distance = Quality.tier.shadow_dist
+	if env:
+		env.glow_enabled = Quality.tier.glow
+
+
 func _environment() -> void:
 	var sk: Dictionary = map.sky
 	var sky_mat := ShaderMaterial.new()
@@ -80,18 +90,20 @@ func _environment() -> void:
 	env.ambient_light_color = sk.ambient
 	env.ambient_light_energy = sk.ambient_energy * 0.95
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
-	env.tonemap_mode = Environment.TONE_MAPPER_ACES
-	env.tonemap_exposure = 1.2
-	env.tonemap_white = 6.0
+	# Filmic rolls highlights off gently (ACES crushed shadows and blew out sand, sun and metal); glow only on what
+	# is really bright (fires, muzzle flashes, the sun), screen-blended so it lifts without adding contrast
+	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	env.tonemap_exposure = 1.25
+	env.tonemap_white = 8.0
 	env.glow_enabled = Quality.tier.glow
-	env.glow_intensity = 0.7
-	env.glow_bloom = 0.05
-	env.glow_hdr_threshold = 1.0
-	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SOFTLIGHT
+	env.glow_intensity = 0.3
+	env.glow_bloom = 0.0
+	env.glow_hdr_threshold = 1.4
+	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SCREEN
 	env.adjustment_enabled = true
-	env.adjustment_contrast = 1.0
-	env.adjustment_saturation = 1.05
-	env.adjustment_brightness = 1.06
+	env.adjustment_contrast = 0.96
+	env.adjustment_saturation = 1.0
+	env.adjustment_brightness = 1.02
 	# a light distance haze in the horizon colour: depth, and it softens the district
 	env.fog_enabled = false   # fog turns the premultiplied fire sprites into glowing boxes on some renderers
 	env.fog_light_color = map.horizon.lerp(map.sky_top, 0.35)
@@ -108,8 +120,8 @@ func _environment() -> void:
 	sun.light_energy = sk.sun_energy
 	sun.rotation = Vector3(deg_to_rad(-sk.elev), deg_to_rad(sk.az), 0)
 	sun.shadow_enabled = true
-	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
-	sun.directional_shadow_max_distance = Quality.tier.shadow_dist
+	_quality_changed()
+	Quality.changed.connect(_quality_changed)
 	sun.shadow_bias = 0.04
 	sun.shadow_normal_bias = 1.2
 	sun.shadow_blur = 0.8
@@ -386,8 +398,8 @@ func _ramp_mesh(r: Dictionary, ang: float) -> void:
 		_ramp_mat.albedo_texture = load("res://assets/arena/ramp_albedo.png")
 		_ramp_mat.normal_enabled = true
 		_ramp_mat.normal_texture = load("res://assets/arena/ramp_normal.png")
-		_ramp_mat.metallic = 0.55
-		_ramp_mat.roughness = 0.5
+		_ramp_mat.metallic = 0.3
+		_ramp_mat.roughness = 0.68
 		_ramp_mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	var L: float = r.L
 	var W: float = r.W
@@ -720,7 +732,24 @@ func _skyline(edge: float, D1: float) -> void:
 		var probe := scene.instantiate()
 		var box := _aabb(probe)
 		probe.free()
-		kinds.append({"id": k.id, "tall": k.tall, "scene": scene, "box": box})
+		# light versions with textures baked from the original (tools/buildings): "mid" ~24k triangles, "lo" ~12k,
+		# instead of the original ~100k
+		var kind := {"id": k.id, "tall": k.tall, "scene": scene, "box": box}
+		if not OS.has_environment("IM_HIPOLY"):
+			for v in ["mid", "lo"]:
+				var sfx := "_mid" if v == "mid" else ""
+				var mat := StandardMaterial3D.new()
+				mat.albedo_texture = load("res://assets/buildings/lo/%s%s_albedo.jpg" % [k.id, sfx])
+				var orm: Texture2D = load("res://assets/buildings/lo/%s%s_orm.jpg" % [k.id, sfx])
+				mat.roughness_texture = orm
+				mat.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_GREEN
+				mat.metallic_texture = orm
+				mat.metallic_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_BLUE
+				mat.metallic = 1.0
+				mat.roughness = 1.0
+				mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+				kind[v] = [load("res://assets/buildings/lo/%s%s.obj" % [k.id, sfx]), mat]
+		kinds.append(kind)
 	var tall := kinds.filter(func(k): return k.tall)
 	var wide := kinds.filter(func(k): return not k.tall)
 	var turn := 0
@@ -805,8 +834,8 @@ static func container_mesh() -> ArrayMesh:
 	_cont_mat.normal_enabled = true
 	_cont_mat.normal_texture = load("res://assets/arena/container_normal.png")
 	_cont_mat.vertex_color_use_as_albedo = true
-	_cont_mat.roughness = 0.62
-	_cont_mat.metallic = 0.35
+	_cont_mat.roughness = 0.78
+	_cont_mat.metallic = 0.12
 	_cont_mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	return _cont_mesh
 
@@ -918,6 +947,19 @@ func _building(kind: Dictionary, sc: float, ry: float, pos: Vector3, hgt: float,
 	node.position = pos - c.rotated(Vector3.UP, ry) + Vector3(0, -box.position.y * sc - 1.2, 0)  # sunk a little
 	for mi in node.find_children("*", "GeometryInstance3D", true, false):
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		if mi is MeshInstance3D and kind.has("lo"):
+			# the back row and the low tier: light version only; the front row: the detailed one near, light far
+			mi.mesh = kind.lo[0]
+			mi.material_override = kind.lo[1]
+			if front_row and Quality.tier_id != "low":
+				var near := MeshInstance3D.new()
+				near.mesh = kind.mid[0]
+				near.material_override = kind.mid[1]
+				near.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				near.visibility_range_end = BUILDING_NEAR
+				mi.visibility_range_begin = BUILDING_NEAR
+				mi.add_sibling(near)
+				near.transform = mi.transform
 	add_child(node)
 	if front_row:
 		_occluder(Vector2(pos.x, pos.z), ry, Vector3(box.size.x, box.size.y, box.size.z) * sc * 0.6, hgt * 0.3)
