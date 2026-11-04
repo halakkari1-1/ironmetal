@@ -7,8 +7,10 @@ extends Control
 signal done
 
 ## Default layout: [x, y] in fractions of the screen, and size multiplier.
-const DEFAULTS := {"fire": [0.906, 0.822, 1.0], "rocket": [0.805, 0.872, 1.0], "special": [0.928, 0.628, 1.0]}
-const BASE := {"fire": 116.0, "rocket": 80.0, "special": 80.0}
+const DEFAULTS := {"fire": [0.906, 0.822, 1.0], "rocket": [0.805, 0.872, 1.0], "special": [0.928, 0.628, 1.0], "boost": [0.81, 0.672, 1.0]}
+const BASE := {"fire": 116.0, "rocket": 80.0, "special": 80.0, "boost": 76.0}
+
+const BOOST_COLOR := Color("4fc3ff")
 
 var layout := {}
 var stick_scale := 1.0
@@ -50,9 +52,9 @@ func _ready() -> void:
 	stick_hint.offset_left = 60
 	stick_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(stick_hint)
-	for k in ["fire", "rocket", "special"]:
-		var label: String = {"fire": I18n.t("FIRE"), "rocket": I18n.t("RKT"), "special": I18n.t("Ability")}[k]
-		var b := TouchButton.make(label, BASE[k], UI.ACCENT if k == "fire" else (UI.GOOD if k == "special" else Color("e8e0d0")))
+	for k in ["fire", "rocket", "special", "boost"]:
+		var label: String = {"fire": I18n.t("FIRE"), "rocket": I18n.t("RKT"), "special": I18n.t("Ability"), "boost": I18n.t("BOOST")}[k]
+		var b := TouchButton.make(label, BASE[k], UI.ACCENT if k == "fire" else (UI.GOOD if k == "special" else (BOOST_COLOR if k == "boost" else Color("e8e0d0"))))
 		add_child(b)
 		_buttons[k] = b
 	var panel := UI.panel(0.85)

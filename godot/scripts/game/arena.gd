@@ -7,6 +7,7 @@ extends Node3D
 const PS := 1.5   # prop scale: kit props are true-to-life, game cars are a bit oversized
 const BS := 1.7   # landmark building scale
 const BUILDING_NEAR := 80.0   # metres: front-row buildings closer than this use their detailed version
+const BUILDING_CLOSE := 42.0  # metres: closer than this (high quality only), the original model
 const WS := 1.6   # wall (jersey barrier) scale
 ## Building models around the arena (assets/buildings/<id>.glb). tall: ruined tower; otherwise wide works.
 const SKYLINE := [
@@ -93,7 +94,7 @@ func _environment() -> void:
 	# Filmic rolls highlights off gently (ACES crushed shadows and blew out sand, sun and metal); glow only on what
 	# is really bright (fires, muzzle flashes, the sun), screen-blended so it lifts without adding contrast
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	env.tonemap_exposure = 1.25
+	env.tonemap_exposure = 1.15
 	env.tonemap_white = 8.0
 	env.glow_enabled = Quality.tier.glow
 	env.glow_intensity = 0.3
@@ -462,6 +463,7 @@ func _ground() -> void:
 	mat.set_shader_parameter("tile", 1.0 / float(fl.tile))
 	mat.set_shader_parameter("concrete_half", map.size * map.concrete * 0.5)
 	mat.set_shader_parameter("arena_half", half)
+	mat.set_shader_parameter("mud", float(fl.get("mud", 0.0)))
 	var maps := _detail_maps()
 	mat.set_shader_parameter("grime_map", maps[0])
 	mat.set_shader_parameter("wet_map", maps[1])
@@ -745,7 +747,7 @@ func _skyline(edge: float, D1: float) -> void:
 				mat.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_GREEN
 				mat.metallic_texture = orm
 				mat.metallic_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_BLUE
-				mat.metallic = 1.0
+				mat.metallic = 0.35   # the baked metal map is noisy on these light meshes: full metal glittered
 				mat.roughness = 1.0
 				mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 				kind[v] = [load("res://assets/buildings/lo/%s%s.obj" % [k.id, sfx]), mat]
@@ -948,7 +950,12 @@ func _building(kind: Dictionary, sc: float, ry: float, pos: Vector3, hgt: float,
 	for mi in node.find_children("*", "GeometryInstance3D", true, false):
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		if mi is MeshInstance3D and kind.has("lo"):
-			# the back row and the low tier: light version only; the front row: the detailed one near, light far
+			# the back row and the low tier: light version only. The front row on medium: the detailed version within
+			# BUILDING_NEAR, the light one beyond; on high: the detailed one at any distance, and the original model
+			# for the few right up close.
+			var orig := MeshInstance3D.new()
+			orig.mesh = mi.mesh
+			orig.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			mi.mesh = kind.lo[0]
 			mi.material_override = kind.lo[1]
 			if front_row and Quality.tier_id != "low":
@@ -956,10 +963,21 @@ func _building(kind: Dictionary, sc: float, ry: float, pos: Vector3, hgt: float,
 				near.mesh = kind.mid[0]
 				near.material_override = kind.mid[1]
 				near.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-				near.visibility_range_end = BUILDING_NEAR
-				mi.visibility_range_begin = BUILDING_NEAR
+				if Quality.tier_id == "medium":   # on high the front row keeps the detailed version at any distance
+					near.visibility_range_end = BUILDING_NEAR
+					mi.visibility_range_begin = BUILDING_NEAR
+				else:
+					mi.visible = false
 				mi.add_sibling(near)
 				near.transform = mi.transform
+				if Quality.tier_id == "high":
+					near.visibility_range_begin = BUILDING_CLOSE
+					orig.visibility_range_end = BUILDING_CLOSE
+					mi.add_sibling(orig)
+					orig.transform = mi.transform
+					orig = null
+			if orig:
+				orig.free()
 	add_child(node)
 	if front_row:
 		_occluder(Vector2(pos.x, pos.z), ry, Vector3(box.size.x, box.size.y, box.size.z) * sc * 0.6, hgt * 0.3)

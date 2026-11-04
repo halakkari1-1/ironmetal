@@ -62,6 +62,10 @@ var hide_t := 0.0
 var spin_t := 0.0
 var bounty := false
 var dmg_dealt := 0.0     # damage this car has done to others this match (for the MVP card)
+var boost_t := 0.0       # turbo running (seconds left)
+var boost_cd := 0.0      # turbo recharging (seconds left)
+var boost_fx: GPUParticles3D
+var lock: Car            # the enemy a human player's guns are locked on (sticky aim assist)
 var ai: Dictionary = {}
 
 # shape

@@ -11,7 +11,12 @@ varying vec3 wpos;
 varying vec3 wnrm;
 varying vec3 paint;
 
-float hash(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
+// sin()-free hash: the usual fract(sin(x) * 43758) falls apart on phone GPUs at arena-sized coordinates
+float hash(vec3 p) {
+	p = fract(p * vec3(0.1031, 0.1030, 0.0973));
+	p += dot(p, p.yxz + 33.33);
+	return fract((p.x + p.y) * p.z);
+}
 float noise(vec3 p) {
 	vec3 i = floor(p); vec3 f = fract(p);
 	f = f * f * (3.0 - 2.0 * f);
@@ -36,7 +41,9 @@ void fragment() {
 	col = mix(col, ash_color, ash * 0.5);
 	col *= 0.8 + 0.4 * noise(wpos * 12.0);
 	ALBEDO = col;
-	ROUGHNESS = mix(0.55, 0.85, burnt);
-	METALLIC = mix(0.55, 0.3, rust);
+	// burnt, rusted metal is dull: the old glossy values made the small facets of the light meshes sparkle
+	ROUGHNESS = mix(0.82, 0.95, max(burnt, rust));
+	METALLIC = mix(0.3, 0.1, max(burnt, rust));
+	SPECULAR = 0.3;
 	if (!FRONT_FACING) { NORMAL = -NORMAL; }
 }

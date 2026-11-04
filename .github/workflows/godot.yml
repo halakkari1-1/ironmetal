@@ -26,7 +26,7 @@ jobs:
 
       - name: Version
         # 0.7 started at run 21 (0.7.0); the version code keeps counting runs so updates always install over
-        run: echo "VERSION=0.7.$(( ${{ github.run_number }} - 21 ))" >> "$GITHUB_ENV"
+        run: echo "VERSION=0.8.$(( ${{ github.run_number }} - 29 ))" >> "$GITHUB_ENV"
 
       - uses: actions/setup-java@v4
         with:

@@ -270,7 +270,12 @@ func _garage() -> void:
 
 func _garage_view() -> void:
 	showroom.show_car(_garage_pick)
-	_focus_right_of(336 + 430)
+	if I18n.is_ar():
+		# Arabic: the car list on the right, the details card on the far left, the car between them
+		var w := get_viewport().get_visible_rect().size.x
+		showroom.set_focus((24 + 430 + w - 324) / 2.0)
+	else:
+		_focus_right_of(336 + 430)
 	_show("garage", func(root: Control):
 		_top_bar(root, _t("Garage"))
 		var sc := _scroll(root, 24, 96, 0, -16)
@@ -300,6 +305,11 @@ func _garage_view() -> void:
 		p.set_anchors_and_offsets_preset(Control.PRESET_LEFT_WIDE)
 		p.offset_left = 336
 		p.offset_right = 336 + 430
+		if I18n.is_ar():   # the screen is mirrored: anchoring to the far edge puts the card on the left
+			p.anchor_left = 1.0
+			p.anchor_right = 1.0
+			p.offset_left = -(24 + 430)
+			p.offset_right = -24
 		p.offset_top = 96
 		p.offset_bottom = -16
 		var col := UI.vbox(10)
@@ -457,6 +467,9 @@ func _settings() -> void:
 			Save.state.show_fps = x
 			Save.write()
 			Quality.apply_setting()))
+		v.add_child(_seg(_t("Auto fire"), [[true, _t("On")], [false, _t("Off")]], bool(Save.state.get("autofire", true)), func(x):
+			Save.state.autofire = x
+			Save.write()))
 		v.add_child(_seg(_t("Steering"), [["classic", _t("Classic")], ["direction", _t("Direction")], ["autogas", _t("Auto gas")]], Save.state.scheme, func(x):
 			Save.state.scheme = x
 			Save.write()))

@@ -38,6 +38,7 @@ func _ready() -> void:
 		"arenas": await _arenas()
 		"jump": await _jump()
 		"perf": await _perf()
+		"lockon": await _lockon()
 		"net_host": await _net_host()
 		"net_join": await _net_join()
 	get_tree().quit()
@@ -287,6 +288,9 @@ func _shots() -> void:
 	main._workshop()
 	await get_tree().process_frame
 	await _shot("4c_workshop_ar")
+	main._garage()
+	await get_tree().process_frame
+	await _shot("4d_garage_ar")
 	Save.state.lang = "en"
 	I18n.set_lang("en")
 	main._setup_screen()
@@ -696,6 +700,8 @@ func _wheels() -> void:
 ## Per map: what one gameplay frame draws (from the player's camera) and what the match logic costs on the CPU.
 func _perf() -> void:
 	var only := _arg("map", "")
+	Save.state.graphics = _arg("tier", "high")
+	Quality.apply_setting()
 	for i in Data.MAPS.size():
 		if only != "" and Data.MAPS[i].id != only:
 			continue
@@ -775,3 +781,27 @@ func _perf() -> void:
 			lights, meshes, parts, cpu])
 		main._lobby()
 		await get_tree().process_frame
+
+
+## An enemy parked in front of the player: the lock reticle, auto fire and damage numbers.
+func _lockon() -> void:
+	var g := await _start(0, "toxic", 1)
+	g.countdown = 0.01
+	while g.state != "fight":
+		await get_tree().process_frame
+	var p := g.player
+	var e: Car = g.cars.filter(func(c): return c != p)[0]
+	for c in g.cars:
+		if c != p and c != e:
+			c.x = 999; c.z = 999
+	e.ai = {}
+	e.x = p.x + sin(p.heading) * 18
+	e.z = p.z + cos(p.heading) * 18
+	e.heading = p.heading
+	for f in 50:
+		e.x = p.x + sin(p.heading) * 18
+		e.z = p.z + cos(p.heading) * 18
+		e.speed = 0
+		await get_tree().process_frame
+	print("TEST lock=%s firing=%s enemy_hp=%.0f/%.0f numbers=%d" % [p.lock.data.name if p.lock else "none", p.firing, e.hp, e.max_hp, g.hud._numbers.get_child_count()])
+	await _shot("lockon")

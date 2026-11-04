@@ -14,6 +14,13 @@ const TIME_LIMIT := 300.0
 const STREAKS := {2: ["DOUBLE WRECK", 40], 3: ["TRIPLE WRECK", 80], 4: ["RAMPAGE", 150], 5: ["UNSTOPPABLE", 220]}
 const BULLET_SPEED := 120.0
 const MAX_BULLETS := 160
+const BOOST_TIME := 1.2       # turbo: seconds of extra speed
+const BOOST_CD := 6.0         # turbo: seconds to recharge
+const BOOST_SPEED := 1.55
+const LOCK_RANGE := 58.0      # aim assist: how far, and how wide a cone in front, a lock can be taken
+const LOCK_CONE := 0.62
+const LOCK_KEEP := 0.95       # a lock is kept until the target leaves this wider cone
+const AUTO_FIRE_RANGE := 48.0
 
 var hud  # the HUD node (scripts/ui/hud.gd)
 var arena: Arena
@@ -421,6 +428,40 @@ func player_rocket() -> void:
 			fire_rocket(player)
 
 
+func player_boost() -> void:
+	if state == "fight" and player.alive:
+		if player.boost_cd > 0:
+			Sfx.play("denied")
+		elif net_role == "client":
+			player.boost_cd = BOOST_CD   # shown at once; the host runs the real one
+			Net.send_button("boost")
+		else:
+			use_boost(player)
+
+
+## Turbo: a short burst of speed with flames from the exhausts, on any car, recharging in a few seconds.
+func use_boost(c: Car) -> void:
+	if not c.alive or c.boost_cd > 0 or state != "fight":
+		return
+	c.boost_t = BOOST_TIME
+	c.boost_cd = BOOST_CD
+	_ev("boost", [c.nid])
+	_boost_fx(c)
+
+
+func _boost_fx(c: Car) -> void:
+	c.boost_t = BOOST_TIME
+	if c.boost_fx == null:
+		c.boost_fx = fx.color_trail_emitter(Color(1.0, 0.55, 0.15))
+		c.boost_fx.get_parent().remove_child(c.boost_fx)
+		c.add_child(c.boost_fx)
+		c.boost_fx.position = Vector3(0, 0.6, -c.dims.z * 0.5)
+	c.boost_fx.emitting = true
+	if c.is_player:
+		Sfx.play("ab_dash", 0.8)
+		shake = max(shake, 0.25)
+
+
 func player_special() -> void:
 	if state == "fight" and player.alive:
 		if net_role == "client":
@@ -440,6 +481,8 @@ func remote_button(c: Car, what: String) -> void:
 		fire_rocket(c)
 	elif what == "special":
 		use_special(c)
+	elif what == "boost":
+		use_boost(c)
 
 
 func cycle_camera() -> String:
@@ -510,6 +553,7 @@ func _process(dt_real: float) -> void:
 		if c.crown:
 			c.crown.rotation.y += dt * 2
 	_collide_cars()
+	_flush_damage_numbers(dt)
 	if net_role == "client":
 		_reconcile(dt)
 	wrecks = wrecks.filter(func(w):
@@ -633,8 +677,9 @@ func _drive(c: Car, dt: float) -> void:
 	var ram := c.special_on == "ram"
 	var dash := c.special_on == "dash" or c.special_on == "phase"
 	var slow := 0.5 if c.slow_t > 0 else 1.0
-	var max_s: float = s.max_speed * (1.75 if nitro else 1.0) * (2.1 if ram else 1.0) * (2.0 if dash else 1.0) * slow
-	var acc: float = s.accel * (2.0 if nitro else 1.0) * (4.0 if dash else 1.0) * slow
+	var boost: float = BOOST_SPEED if c.boost_t > 0 else 1.0
+	var max_s: float = s.max_speed * (1.75 if nitro else 1.0) * (2.1 if ram else 1.0) * (2.0 if dash else 1.0) * slow * boost
+	var acc: float = s.accel * (2.0 if nitro else 1.0) * (4.0 if dash else 1.0) * slow * (2.6 if boost > 1.0 else 1.0)
 	if c.skid_t > 0:
 		c.throttle = 0
 		c.steer = 0
@@ -647,7 +692,7 @@ func _drive(c: Car, dt: float) -> void:
 	else:
 		c.speed -= c.speed * min(1.0, 2.2 * dt)  # let go of the stick: the car settles quickly
 	c.speed = clamp(c.speed, -s.max_speed * 0.45, max_s)
-	if not ram and not dash and c.speed > s.max_speed * (1.75 if nitro else 1.0) * slow:
+	if not ram and not dash and c.speed > s.max_speed * (1.75 if nitro else 1.0) * slow * boost:
 		c.speed -= (c.speed - s.max_speed * slow) * 2 * dt
 	# steering eases in and out instead of snapping, which keeps the car stable on a touch stick
 	c.steer_s += (c.steer - c.steer_s) * min(1.0, dt * (20.0 if c.human else 12.0))
@@ -904,6 +949,13 @@ func _weapons(c: Car, dt: float) -> void:
 	c.special_cd -= dt
 	if c.is_player and was_cooling and c.special_cd <= 0 and state == "fight":
 		Sfx.play("ready", 0.8)
+	c.boost_cd = max(0.0, c.boost_cd - dt)
+	if c.boost_t > 0:
+		c.boost_t -= dt
+		if c.boost_t <= 0 and c.boost_fx:
+			c.boost_fx.emitting = false
+	if c.human:
+		_update_lock(c)
 	c.slow_t = max(0.0, c.slow_t - dt)
 	c.jam_t = max(0.0, c.jam_t - dt)
 	c.skid_t = max(0.0, c.skid_t - dt)
@@ -936,8 +988,25 @@ func _weapons(c: Car, dt: float) -> void:
 ## Who a car shoots at: aim assist for people, the AI's chosen target for bots.
 func target_of(c: Car, rng: float, cone: float) -> Car:
 	if c.human or c.ai.is_empty():
-		return aim_at(c, rng, cone)
+		if c.lock and Vector2(c.lock.x - c.x, c.lock.z - c.z).length() <= rng:
+			return c.lock
+		return aim_at(c, rng, max(cone, LOCK_CONE))
 	return c.ai.target
+
+
+## Sticky aim assist for people: the lock holds on one enemy while it stays roughly in front, instead of
+## jumping between targets; a new one is taken in a cone wide enough that you don't have to point dead at it.
+func _update_lock(c: Car) -> void:
+	var l := c.lock
+	if l:
+		var dx := l.x - c.x
+		var dz := l.z - c.z
+		var ang: float = abs(wrapf(atan2(dx, dz) - c.heading, -PI, PI))
+		if not l.alive or l.hide_t > 0 or not foes(c, l) or Vector2(dx, dz).length() > LOCK_RANGE * 1.1 or ang > LOCK_KEEP:
+			l = null
+	if l == null:
+		l = aim_at(c, LOCK_RANGE, LOCK_CONE)
+	c.lock = l if c.alive else null
 
 
 func aim_at(c: Car, rng: float, cone: float) -> Car:
@@ -973,7 +1042,7 @@ func _fire_gun(c: Car) -> void:
 		var tx := t.x + sin(t.heading) * t.speed * lead
 		var tz := t.z + cos(t.heading) * t.speed * lead
 		var want := atan2(tx - m.x, tz - m.z)
-		if abs(wrapf(want - c.heading, -PI, PI)) < 0.45:
+		if abs(wrapf(want - c.heading, -PI, PI)) < (LOCK_KEEP if c.human else 0.45):
 			dir = want
 	var spread: float = 0.03 if c.human else 0.03 + (1 - diff.accuracy) * 0.16
 	dir += randf_range(-spread, spread)
@@ -1004,7 +1073,7 @@ func fire_rocket(c: Car, opts := {}) -> void:
 		var t: Car = target_of(c, 70, 0.4)
 		if t and t.alive:
 			var want := atan2(t.x - m.x, t.z - m.z)
-			if abs(wrapf(want - c.heading, -PI, PI)) < 0.5:
+			if abs(wrapf(want - c.heading, -PI, PI)) < (LOCK_KEEP if c.human else 0.5):
 				dir = want
 		if not c.human:
 			dir += randf_range(-1, 1) * (1 - diff.accuracy) * 0.2
@@ -1709,6 +1778,11 @@ func damage(c: Car, amt: float, by: Car, quiet := false, cause := "gun") -> void
 	c.hp -= amt
 	if by and by != c:
 		by.dmg_dealt += amt
+		if by.human:   # damage numbers for people, gathered and shown a few times a second
+			var key := [by, c]
+			_dn[key] = _dn.get(key, [0.0, ""])
+			_dn[key][0] += amt
+			_dn[key][1] = cause
 	c.last_hit = time
 	if not quiet:
 		c.jolt(clamp(amt / 35.0, 0.1, 1.0))
@@ -1725,6 +1799,26 @@ func damage(c: Car, amt: float, by: Car, quiet := false, cause := "gun") -> void
 		_kill(c)
 
 
+var _dn := {}      # [attacker, victim] -> [damage, cause] not yet shown
+var _dn_t := 0.0
+
+
+func _flush_damage_numbers(dt: float) -> void:
+	_dn_t -= dt
+	if _dn_t > 0 or _dn.is_empty():
+		return
+	_dn_t = 0.22
+	for key in _dn:
+		var by: Car = key[0]
+		var v: Car = key[1]
+		var amt: float = _dn[key][0]
+		if by == player:
+			hud.damage_number(v, amt, _dn[key][1])
+		elif net_role == "host":
+			_ev("dn", [by.nid, v.nid, amt, _dn[key][1]])
+	_dn.clear()
+
+
 func _kill(c: Car) -> void:
 	_ev("kill", [c.nid, _nid_of(c.last_attacker), c.last_cause])
 	c.alive = false
@@ -1735,6 +1829,10 @@ func _kill(c: Car) -> void:
 	if c.lives > 0:
 		c.respawn_t = 3.2
 	c.special_on = ""
+	c.boost_t = 0.0
+	c.lock = null
+	if c.boost_fx:
+		c.boost_fx.emitting = false
 	if c.bubble:
 		c.bubble.visible = false
 	if c.trail_fx:
@@ -2027,6 +2125,9 @@ func _think(c: Car, dt: float) -> void:
 	if ai.rocket_t <= 0 and dist < (70 if not c.power.is_empty() else 55) and aim < 0.2:
 		fire_rocket(c)
 		ai.rocket_t = randf_range(2.5, 5) / diff.get("aggression", 1.0)
+	if c.boost_cd <= 0 and state == "fight" and ((dist > 34 and aim < 0.4) or (c.hp < c.max_hp * 0.35 and time - c.last_hit < 1.0)) \
+			and randf() < dt * 0.6 * diff.get("aggression", 1.0):
+		use_boost(c)
 	ai.special_t -= dt
 	if ai.special_t <= 0 and c.special_cd <= 0:
 		var sp: String = c.data.special.id
@@ -2461,6 +2562,14 @@ func _reconcile(dt: float) -> void:
 ## Client: something the host decided, shown here through the same code the host ran.
 func net_event(name: String, a: Array) -> void:
 	match name:
+		"dn":
+			if a[0] == player.nid and car_by(a[1]):
+				hud.damage_number(car_by(a[1]), a[2], a[3])
+		"boost":
+			var bc := car_by(a[0])
+			if bc:
+				_boost_fx(bc)
+				bc.boost_cd = BOOST_CD
 		"go":
 			state = "countdown"
 			countdown = 3.5

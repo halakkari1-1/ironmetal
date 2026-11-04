@@ -49,7 +49,13 @@ var _jy := 0.0
 var _btn_fire: TouchButton
 var _btn_rocket: TouchButton
 var _btn_special: TouchButton
+var _btn_boost: TouchButton
 var _btn_cam: TouchButton
+var _reticle: Control           # brackets round the enemy the guns are locked on
+var _ret_car: Car
+var _ret_t := 0.0
+var _ret_hit := 0.0
+var _numbers: Control           # floating damage numbers
 var _btn_pause: TouchButton
 var _touch_btn := {}      # finger index -> TouchButton
 var _gun := false
@@ -206,9 +212,19 @@ func _build_controls() -> void:
 	_btn_fire = TouchButton.make(I18n.t("FIRE"), ControlsEditor.BASE.fire, UI.ACCENT)
 	_btn_rocket = TouchButton.make(I18n.t("RKT"), ControlsEditor.BASE.rocket, Color("e8e0d0"))
 	_btn_special = TouchButton.make("", ControlsEditor.BASE.special, UI.GOOD)
+	_btn_boost = TouchButton.make(I18n.t("BOOST"), ControlsEditor.BASE.boost, ControlsEditor.BOOST_COLOR)
 	_btn_cam = TouchButton.make("", 62, Color("e8e0d0"))
 	_btn_pause = TouchButton.make("II", 62, Color("e8e0d0"))
-	for b in [_btn_fire, _btn_rocket, _btn_special, _btn_cam, _btn_pause]:
+	_reticle = Control.new()
+	_reticle.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_reticle.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_reticle.draw.connect(_draw_reticle)
+	_root.add_child(_reticle)
+	_numbers = Control.new()
+	_numbers.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_numbers.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_root.add_child(_numbers)
+	for b in [_btn_fire, _btn_rocket, _btn_special, _btn_boost, _btn_cam, _btn_pause]:
 		_root.add_child(b)
 	_root.resized.connect(_place_controls)
 	_place_controls()
@@ -219,7 +235,7 @@ func _place_controls() -> void:
 	var w := _root.size.x
 	var h := _root.size.y
 	var L := ControlsEditor.current()
-	for pair in [[_btn_fire, "fire"], [_btn_rocket, "rocket"], [_btn_special, "special"]]:
+	for pair in [[_btn_fire, "fire"], [_btn_rocket, "rocket"], [_btn_special, "special"], [_btn_boost, "boost"]]:
 		var b: TouchButton = pair[0]
 		var p: Array = L[pair[1]]
 		var d: float = ControlsEditor.BASE[pair[1]] * float(p[2])
@@ -258,13 +274,14 @@ func _input(e: InputEvent) -> void:
 			match e.physical_keycode:
 				KEY_F: match_.player_rocket()
 				KEY_E: match_.player_special()
+				KEY_SHIFT: match_.player_boost()
 				KEY_C: _cycle_cam()
 				KEY_ESCAPE, KEY_P: pause_pressed.emit()
 
 
 func _on_touch(idx: int, pos: Vector2, pressed: bool) -> void:
 	if pressed:
-		for b in [_btn_pause, _btn_cam, _btn_fire, _btn_rocket, _btn_special]:
+		for b in [_btn_pause, _btn_cam, _btn_fire, _btn_rocket, _btn_special, _btn_boost]:
 			if b.hit(pos):
 				_touch_btn[idx] = b
 				b.down = true
@@ -274,6 +291,8 @@ func _on_touch(idx: int, pos: Vector2, pressed: bool) -> void:
 					match_.player_rocket()
 				elif b == _btn_special:
 					match_.player_special()
+				elif b == _btn_boost:
+					match_.player_boost()
 				elif b == _btn_cam:
 					_cycle_cam()
 				elif b == _btn_pause:
@@ -361,7 +380,12 @@ func _apply_input() -> void:
 	elif scheme == "autogas" and DisplayServer.is_touchscreen_available() and match_.state == "fight":
 		th = 1.0
 		st = 0.0
-	match_.set_input(th, st, _gun or k.call(KEY_SPACE))
+	# auto fire: the gun runs by itself while it is locked on an enemy in range (Settings), so the right thumb is
+	# free for rockets, the ability and turbo; the fire button still works for spraying at will
+	var auto := false
+	if bool(Save.state.get("autofire", true)) and match_.state == "fight" and p.alive and p.lock:
+		auto = Vector2(p.lock.x - p.x, p.lock.z - p.z).length() < Match.AUTO_FIRE_RANGE
+	match_.set_input(th, st, _gun or auto or k.call(KEY_SPACE))
 
 
 # ---------- called by the match ----------
@@ -419,7 +443,14 @@ func update_hud(m: Match, dt: float) -> void:
 	_btn_special.cooldown = cd
 	_btn_special.badge = str(ceili(p.special_cd)) if p.special_cd > 0 else ""
 	_btn_special.queue_redraw()
+	_btn_boost.cooldown = clamp(p.boost_cd / Match.BOOST_CD, 0.0, 1.0)
+	_btn_boost.down = p.boost_t > 0
+	_btn_boost.queue_redraw()
+	_btn_fire.badge = I18n.t("AUTO") if bool(Save.state.get("autofire", true)) else ""
+	_btn_fire.down = _gun or p.firing
 	_btn_fire.queue_redraw()
+	_update_reticle(m, dt)
+	_update_numbers(m, dt)
 	# fades
 	if _ann_t > 0:
 		_ann_t -= dt
@@ -627,3 +658,85 @@ func _draw_minimap() -> void:
 		else:
 			var mate: bool = car.team != 0 and car.team == m.player.team
 			c.draw_circle(pos, 3.5, Color("ffd25a") if car.bounty else (UI.GOOD if mate else (car.color if car.human else UI.BAD)))
+
+
+# ---------- lock-on reticle and damage numbers ----------
+
+func _update_reticle(m: Match, dt: float) -> void:
+	var l: Car = m.player.lock if m.player.alive and m.state == "fight" else null
+	if l != _ret_car:
+		_ret_car = l
+		_ret_t = 0.0
+		if l:
+			Sfx.play("click", 0.35)
+	_ret_t += dt
+	_ret_hit = max(0.0, _ret_hit - dt * 4.0)
+	_reticle.queue_redraw()
+
+
+## Four red corner brackets that snap in round the locked enemy, turning slowly; they tighten and flash white on a hit.
+func _draw_reticle() -> void:
+	if _ret_car == null or match_ == null or not is_instance_valid(_ret_car):
+		return
+	var cam := match_.camera
+	var wp := _ret_car.global_position + Vector3.UP * 1.1
+	if cam.is_position_behind(wp):
+		return
+	var sp := cam.unproject_position(wp) * (_root.size / Vector2(get_viewport().get_visible_rect().size))
+	var dist := cam.global_position.distance_to(wp)
+	var snap: float = 1.0 + 1.5 * pow(1.0 - min(1.0, _ret_t / 0.18), 2)   # pops in from wide
+	var r: float = clamp(900.0 / max(dist, 1.0), 26.0, 70.0) * snap * (1.0 - 0.12 * _ret_hit)
+	var col := Color(1, 0.25, 0.15).lerp(Color.WHITE, _ret_hit)
+	var a := _ret_t * 0.8
+	for k in 4:
+		var ang := a + k * PI / 2
+		var c := sp + Vector2(cos(ang), sin(ang)) * r
+		var t1 := Vector2(cos(ang + PI * 0.75), sin(ang + PI * 0.75)) * r * 0.35
+		var t2 := Vector2(cos(ang - PI * 0.75), sin(ang - PI * 0.75)) * r * 0.35
+		_reticle.draw_polyline(PackedVector2Array([c + t1, c, c + t2]), Color(0, 0, 0, 0.5), 6.0, true)
+		_reticle.draw_polyline(PackedVector2Array([c + t1, c, c + t2]), col, 3.0, true)
+	_reticle.draw_circle(sp, 3.0, col)
+
+
+## A number that pops out of the enemy you hit and floats up: orange for bullets, big gold for rockets and abilities.
+func damage_number(v: Car, amt: float, cause: String) -> void:
+	if _numbers == null or not is_instance_valid(v):
+		return
+	var big := cause != "gun"
+	var l := Label.new()
+	l.text = str(roundi(amt))
+	l.add_theme_font_override("font", UI.font_head)
+	l.add_theme_font_size_override("font_size", 46 if big else 34)
+	l.add_theme_color_override("font_color", Color("ffd24a") if big else Color("ff8a3a"))
+	l.add_theme_constant_override("outline_size", 8)
+	l.add_theme_color_override("font_outline_color", Color(0.08, 0.03, 0.0, 0.95))
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	l.set_meta("car", v)
+	l.set_meta("t", 0.0)
+	l.set_meta("off", Vector2(randf_range(46, 96), randf_range(-14, 14)))   # beside the car, clear of its name bar
+	_numbers.add_child(l)
+	_ret_hit = 1.0
+	if _numbers.get_child_count() > 14:
+		_numbers.get_child(0).queue_free()
+
+
+func _update_numbers(m: Match, dt: float) -> void:
+	var cam := m.camera
+	var k := _root.size / Vector2(get_viewport().get_visible_rect().size)
+	for l in _numbers.get_children():
+		var t: float = l.get_meta("t") + dt
+		l.set_meta("t", t)
+		var v = l.get_meta("car")
+		if t > 0.9 or not is_instance_valid(v):
+			l.queue_free()
+			continue
+		var wp: Vector3 = v.global_position + Vector3.UP * 1.2
+		if cam.is_position_behind(wp):
+			l.visible = false
+			continue
+		l.visible = true
+		var pop: float = 1.0 + 0.6 * max(0.0, 1.0 - t / 0.12)
+		l.scale = Vector2.ONE * pop
+		l.pivot_offset = l.size / 2
+		l.position = cam.unproject_position(wp) * k + l.get_meta("off") - l.size / 2 + Vector2(0, -t * 70)
+		l.modulate.a = 1.0 - max(0.0, (t - 0.55) / 0.35)

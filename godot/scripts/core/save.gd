@@ -27,6 +27,7 @@ func _fresh() -> Dictionary:
 		"fps": 60,            # frame cap: 30 (battery saver), 60, 90 or 120
 		"auto_tier": "high",  # the tier auto graphics settled on for this phone
 		"show_fps": false,    # small frame counter on screen
+		"autofire": true,     # the gun fires by itself while locked on an enemy
 		"scheme": "classic",
 		"layout": null,
 		"camera": "near",

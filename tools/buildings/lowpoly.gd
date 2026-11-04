@@ -50,12 +50,31 @@ func _init() -> void:
 			var idx := im.get_surface_lod_indices(0, l)
 			if idx.size() / 3 >= target * 0.7:
 				best = idx
-		# flat-shaded copy (hard edges are right for buildings), then a fresh UV layout
+		# normals smoothed across gentle bends and kept sharp at real edges (flat shading made every small face
+		# catch the light on its own, so the simplified buildings looked shattered), then a fresh UV layout
+		var nt := best.size() / 3
+		var fn := PackedVector3Array(); fn.resize(nt)
+		var around := {}   # welded vertex -> faces using it
+		for t in nt:
+			var a := WV[best[t * 3]]; var b := WV[best[t * 3 + 1]]; var c := WV[best[t * 3 + 2]]
+			fn[t] = (b - a).cross(c - a)
+			for k in 3:
+				var vi := best[t * 3 + k]
+				if not around.has(vi): around[vi] = []
+				around[vi].append(t)
+		var crease := cos(deg_to_rad(38.0))
 		var st := SurfaceTool.new()
 		st.begin(Mesh.PRIMITIVE_TRIANGLES)
-		for x in best:
-			st.add_vertex(WV[x])
-		st.generate_normals()
+		for t in nt:
+			var own := fn[t].normalized()
+			for k in 3:
+				var vi := best[t * 3 + k]
+				var n := Vector3.ZERO
+				for o in around[vi]:
+					if fn[o].normalized().dot(own) > crease:
+						n += fn[o]
+				st.set_normal(n.normalized() if n.length() > 1e-9 else own)
+				st.add_vertex(WV[vi])
 		var am := st.commit()
 		var size: float = am.get_aabb().size.length()
 		var err := am.lightmap_unwrap(Transform3D.IDENTITY, size / 1400.0)
