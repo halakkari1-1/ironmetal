@@ -39,6 +39,7 @@ func _ready() -> void:
 		"jump": await _jump()
 		"perf": await _perf()
 		"lockon": await _lockon()
+		"determinism": await _determinism()
 		"net_host": await _net_host()
 		"net_join": await _net_join()
 	get_tree().quit()
@@ -86,8 +87,12 @@ func _jump() -> void:
 			await get_tree().process_frame
 			continue
 		var r: Dictionary = g.arena.ramps[0]
-		p.x = r.x - r.fx * 30
-		p.z = r.z - r.fz * 30
+		# run-up of up to 30 m, starting inside the walls (ramps near an edge leave less room)
+		var back := 30.0
+		while back > 12.0 and (abs(r.x - r.fx * back) > g.arena.half - 3.0 or abs(r.z - r.fz * back) > g.arena.half - 3.0):
+			back -= 1.0
+		p.x = r.x - r.fx * back
+		p.z = r.z - r.fz * back
 		p.heading = atan2(r.fx, r.fz)
 		p.speed = 0
 		p.y = 0
@@ -412,6 +417,7 @@ func _wait(cond: Callable, secs: float) -> bool:
 func _net_host() -> void:
 	Engine.max_fps = 60
 	Save.state.player_name = "Host"
+	_force_tier()
 	Net.host()
 	Net.set_room("mode", _arg("mode", "deathmatch"))
 	Net.set_room("bots", int(_arg("bots", "2")))
@@ -426,6 +432,7 @@ func _net_host() -> void:
 	await _wait(func(): return main.game != null and is_instance_valid(main.game) and main.game.state == "fight", 30.0)
 	var g: Match = main.game
 	print("TEST host fight started, cars=", g.cars.size())
+	print("TEST host tier=%s world=%s" % [Quality.tier_id, arena_fingerprint(g.arena).md5_text().substr(0, 10)])
 	g.finished.connect(func(r): print("TEST host finished t=%.1f fs=%.1f mvp=%s " % [g.time, g.fight_start, g.mvp.label() if g.mvp else "-"], r.result, " ", r.get("ranking", []), " alive=", g.cars.map(func(c): return [c.alive, c.lives, c.respawn_t])))
 	_autodrive(g)
 	await get_tree().create_timer(float(_arg("secs", "40"))).timeout
@@ -439,6 +446,7 @@ func _net_host() -> void:
 func _net_join() -> void:
 	Engine.max_fps = 60
 	Save.state.player_name = "Guest"
+	_force_tier()
 	main._mp_home()
 	var found := await _wait(func(): return not Net.rooms.is_empty(), 6.0)
 	print("TEST rooms found by discovery: ", Net.rooms.keys() if found else "none")
@@ -456,6 +464,7 @@ func _net_join() -> void:
 	var g: Match = main.game
 	await _wait(func(): return not is_instance_valid(g) or g.state == "fight", 20.0)
 	print("TEST client fight, cars=", g.cars.size(), " me=", g.player.label(), " nid=", g.player.nid)
+	print("TEST client tier=%s world=%s" % [Quality.tier_id, arena_fingerprint(g.arena).md5_text().substr(0, 10)])
 	var f0 := Engine.get_process_frames()
 	var t0 := Time.get_ticks_msec()
 	get_tree().create_timer(1.0).timeout.connect(func(): print("TEST client fps≈", (Engine.get_process_frames() - f0) * 1000.0 / max(1, Time.get_ticks_msec() - t0)))
@@ -805,3 +814,65 @@ func _lockon() -> void:
 		await get_tree().process_frame
 	print("TEST lock=%s firing=%s enemy_hp=%.0f/%.0f numbers=%d" % [p.lock.data.name if p.lock else "none", p.firing, e.hp, e.max_hp, g.hud._numbers.get_child_count()])
 	await _shot("lockon")
+
+
+## Every map built at each graphics tier must give the same gameplay world: walls, obstacles, barrels, hills,
+## ramps, fires, spawn points and pickup spots. Prints one fingerprint per map and tier, and a verdict per map.
+func _determinism() -> void:
+	var bad := 0
+	for m in Data.MAPS:
+		var prints := {}
+		for tier in ["high", "medium", "low"]:
+			Save.state.graphics = tier
+			Quality.apply_setting()
+			var a := Arena.new()
+			add_child(a)
+			a.build(m)
+			var fp := arena_fingerprint(a)
+			prints[tier] = fp
+			print("TEST det %s %-6s obstacles=%d barrels=%d hills=%d ramps=%d fires=%d spawns=%d pickups=%d hash=%s" % [m.id, tier,
+				a.obstacles.size(), a.obstacles.filter(func(o): return o.get("barrel", false)).size(), a.hills.size(),
+				a.ramps.size(), a.ground_fires.size(), a.spawns.size(), a.pickup_spots.size(), fp.md5_text().substr(0, 10)])
+			a.queue_free()
+			await get_tree().process_frame
+		var same: bool = prints.high == prints.medium and prints.high == prints.low
+		if not same:
+			bad += 1
+		print("TEST det %s %s" % [m.id, "SAME" if same else "DIFFERENT"])
+	print("TEST det verdict %s" % ("PASS" if bad == 0 else "FAIL (%d maps differ)" % bad))
+	Save.state.graphics = "auto"
+	Quality.apply_setting()
+
+
+## Everything in the arena that gameplay or the network depends on, as text (positions rounded to 1 mm).
+static func arena_fingerprint(a: Arena) -> String:
+	var s := PackedStringArray()
+	for o in a.obstacles:
+		var keys: Array = o.keys()
+		keys.sort()
+		var row := PackedStringArray()
+		for k in keys:
+			var v = o[k]
+			if v is Object:
+				continue
+			row.append("%s=%s" % [k, ("%.3f" % v) if v is float else str(v)])
+		s.append("o " + ",".join(row))
+	for h in a.hills:
+		s.append("h %.3f %.3f %.3f %.3f" % [h.x, h.z, h.h, h.s])
+	for r in a.ramps:
+		s.append("r %.3f %.3f %.3f %.3f" % [r.x, r.z, r.fx, r.fz])
+	for f in a.ground_fires:
+		s.append("f %.3f %.3f" % [f.x, f.z])
+	for p in a.spawns:
+		s.append("s " + str(p))
+	for p in a.pickup_spots:
+		s.append("p " + str(p))
+	return "\n".join(s)
+
+
+## --tier=high|medium|low: run this test with that graphics tier (net tests: host and client can differ).
+func _force_tier() -> void:
+	var t := _arg("tier", "")
+	if t != "":
+		Save.state.graphics = t
+		Quality.apply_setting()

@@ -26,13 +26,24 @@ var sun: DirectionalLight3D
 var env: Environment
 var barrel_mm: MultiMeshInstance3D
 
+# Two random streams. _rng shapes the gameplay world (walls, terrain, obstacles, barrels, fires, ground marks,
+# spawns, pickups) and must give the same result on every device; nothing that depends on the graphics tier may
+# draw from it. _deco is for scenery only (the district and skyline outside the walls, light flicker), where the
+# tier may change how much is drawn. Keep it that way: tests/autotest.gd --test=determinism checks it.
 var _rng := RandomNumberGenerator.new()
+var _deco := RandomNumberGenerator.new()
 var _instances := {}        # prop name -> [Transform3D]
 var _barrels: Array = []
 
 
+## Gameplay randomness: identical on every device for the same map.
 func R() -> float:
 	return _rng.randf()
+
+
+## Scenery randomness: may be drawn more or fewer times depending on the graphics tier.
+func D() -> float:
+	return _deco.randf()
 
 
 func build(m: Dictionary) -> void:
@@ -40,6 +51,7 @@ func build(m: Dictionary) -> void:
 	map = m
 	half = m.size / 2.0
 	_rng.seed = hash(m.id) + int(m.size) * 13
+	_deco.seed = hash(m.id) * 31 + 977
 	var prof := OS.has_environment("IM_PROFILE")
 	var t0 := Time.get_ticks_usec()
 	for step in [_environment, _walls, _district, _atmosphere, _terrain, _layout, _ground, _flush_props, func(): _flush_district(true)]:
@@ -206,9 +218,11 @@ func _atmosphere() -> void:
 		lamp.material_override = em
 		head.add_child(lamp)
 		var yaw := atan2(-c.x, -c.y)
-		_lights.append({"node": head, "base_yaw": yaw, "phase": R() * TAU, "speed": 0.25 + R() * 0.2, "kind": "search"})
-	# fires on the ground, out of the way along the walls
-	var count: int = int(sk.fires * Quality.tier.fx) if Quality.tier_id != "low" else 2
+		_lights.append({"node": head, "base_yaw": yaw, "phase": D() * TAU, "speed": 0.25 + D() * 0.2, "kind": "search"})
+	# fires on the ground, out of the way along the walls. Each is also an obstacle, so the count is the map's, the
+	# same on every tier; the tier only decides how many of them cast light.
+	var count: int = int(sk.fires)
+	var max_lit: int = {"high": 4, "medium": 3, "low": 2}.get(Quality.tier_id, 4)
 	var lit := 0
 	for k in count:
 		var side := int(R() * 4)
@@ -216,8 +230,8 @@ func _atmosphere() -> void:
 		var pos := Vector3(p.x, 0.0, p.y)
 		ground_fires.append(pos)
 		obstacles.append({"kind": "circle", "x": pos.x, "z": pos.z, "r": 1.4, "h": 0.6})
-		add_prop("drums", pos.x + 1.6, pos.z + 0.4, R() * TAU, 0.8, false)
-		if lit < 4:
+		add_prop("drums", pos.x + 1.6, pos.z + 0.4, D() * TAU, 0.8, false)
+		if lit < max_lit:
 			lit += 1
 			var ol := OmniLight3D.new()
 			ol.light_color = Color(1.0, 0.55, 0.2)
@@ -226,7 +240,7 @@ func _atmosphere() -> void:
 			ol.position = pos + Vector3(0, 2.0, 0)
 			ol.shadow_enabled = false
 			add_child(ol)
-			_lights.append({"node": ol, "phase": R() * 10, "base": ol.light_energy, "kind": "fire"})
+			_lights.append({"node": ol, "phase": D() * 10, "base": ol.light_energy, "kind": "fire"})
 
 
 func _process(dt: float) -> void:
@@ -713,13 +727,13 @@ func _district() -> void:
 		var span := half + D1 + 2 if side < 2 else half
 		var u := -span
 		while u < span - 4:
-			var wreck := R() < wreck_share
-			var seg: float = min(span - u, (10.0 + R() * 8.0) if wreck else (CONT_L + 0.6) * (1 + int(R() * 3)))
+			var wreck := D() < wreck_share
+			var seg: float = min(span - u, (10.0 + D() * 8.0) if wreck else (CONT_L + 0.6) * (1 + int(D() * 3)))
 			if wreck:
 				_wreck_pile(side, u, seg, edge)
 			else:
 				_container_stacks(side, u, seg, edge)
-			u += seg + R() * 1.5
+			u += seg + D() * 1.5
 		_occluder(_side_point(side, 0, edge + D1 / 2), _side_rot(side), Vector3(span * 2, 5, D1 * 0.6))
 	_flush_district()
 	_skyline(edge, D1)
@@ -765,25 +779,25 @@ func _skyline(edge: float, D1: float) -> void:
 				var list: Array = tall if (turn % 2 == 0 or row == 1) else wide
 				var kind: Dictionary = list[(turn / 2) % list.size()]
 				turn += 1
-				var hgt: float = (58 + R() * 24 + row * 10) if kind.tall else (36 + R() * 10)
+				var hgt: float = (58 + D() * 24 + row * 10) if kind.tall else (36 + D() * 10)
 				var size: Vector3 = kind.box.size
 				var sc := hgt / size.y
-				var quarter := int(R() * 4)
+				var quarter := int(D() * 4)
 				var along := (size.z if quarter % 2 else size.x) * sc
 				var deep := (size.x if quarter % 2 else size.z) * sc
 				var mid := u + along / 2
 				var dist := row_start + deep / 2
 				var xz := _side_point(side, mid, dist)
-				_building(kind, sc, quarter * PI / 2 + (R() - 0.5) * 0.12, Vector3(xz.x, 0, xz.y), hgt, deep, row == 0)
+				_building(kind, sc, quarter * PI / 2 + (D() - 0.5) * 0.12, Vector3(xz.x, 0, xz.y), hgt, deep, row == 0)
 				u += along * 0.82  # slight overlap: never a gap
 	# corner towers close the four corners
 	for cx in [-1, 1]:
 		for cz in [-1, 1]:
 			var kind: Dictionary = tall[(cx + 1 + (cz + 1) / 2) % tall.size()]
-			var hgt := 70 + R() * 15
+			var hgt := 70 + D() * 15
 			var sc: float = hgt / kind.box.size.y
 			var p: Vector3 = Vector3(cx, 0, cz) * (edge + D1 + 3 + max(kind.box.size.x, kind.box.size.z) * sc / 2)
-			_building(kind, sc, R() * TAU, p, hgt, max(kind.box.size.x, kind.box.size.z) * sc, true)
+			_building(kind, sc, D() * TAU, p, hgt, max(kind.box.size.x, kind.box.size.z) * sc, true)
 
 
 # ---------- containers and wrecks ----------
@@ -844,8 +858,8 @@ static func container_mesh() -> ArrayMesh:
 
 func _put_container(pos: Vector3, ry: float, col := Color(-1, 0, 0)) -> void:
 	if col.r < 0:
-		col = CONT_COLORS[int(R() * CONT_COLORS.size())]
-	col = col * (0.85 + R() * 0.25)
+		col = CONT_COLORS[int(D() * CONT_COLORS.size())]
+	col = col * (0.85 + D() * 0.25)
 	col.a = 1.0
 	_cont_xf.append([Transform3D(Basis(Vector3.UP, ry), pos), col])
 
@@ -857,17 +871,17 @@ func _container_stacks(side: int, u0: float, seg: float, edge: float) -> void:
 	var n: int = max(1, int(seg / (CONT_L + 0.5)))
 	for row in 2:
 		for i in n:
-			var along := u0 + (i + 0.5) * seg / n + (R() - 0.5) * 0.8
-			var dist := edge + 2.0 + row * (CONT_W + 0.4) + R() * 0.3
+			var along := u0 + (i + 0.5) * seg / n + (D() - 0.5) * 0.8
+			var dist := edge + 2.0 + row * (CONT_W + 0.4) + D() * 0.3
 			var hmax := (2 if row == 0 else 4)
-			var levels := 1 + int(R() * hmax)
+			var levels := 1 + int(D() * hmax)
 			var base := _side_point(side, along, dist)
 			for lv in levels:
-				var jitter := (R() - 0.5) * (0.08 if lv == 0 else 0.16)
-				var off := Vector2((R() - 0.5) * 0.5, 0) if lv > 0 else Vector2.ZERO
+				var jitter := (D() - 0.5) * (0.08 if lv == 0 else 0.16)
+				var off := Vector2((D() - 0.5) * 0.5, 0) if lv > 0 else Vector2.ZERO
 				_put_container(Vector3(base.x + off.x, lv * CONT_H, base.y + off.y), ry + jitter)
-			if R() < 0.18:   # one dropped crooked on top
-				_put_container(Vector3(base.x, levels * CONT_H, base.y), ry + PI / 2 + (R() - 0.5) * 0.6)
+			if D() < 0.18:   # one dropped crooked on top
+				_put_container(Vector3(base.x, levels * CONT_H, base.y), ry + PI / 2 + (D() - 0.5) * 0.6)
 
 
 static func wreck_mesh(id: String) -> Mesh:
@@ -887,21 +901,21 @@ var wreck_spots: Array = []   # pile centres (for tests and screenshots)
 func _wreck_pile(side: int, u0: float, seg: float, edge: float) -> void:
 	var c := _side_point(side, u0 + seg / 2, edge + 6.0)
 	wreck_spots.append(Vector3(c.x, 0, c.y))
-	var layers := [[5 + int(R() * 3), 0.0, 0.15], [3 + int(R() * 2), 1.5, 0.45], [1 + int(R() * 2), 2.9, 0.7]]
+	var layers := [[5 + int(D() * 3), 0.0, 0.15], [3 + int(D() * 2), 1.5, 0.45], [1 + int(D() * 2), 2.9, 0.7]]
 	for L in layers:
 		for i in L[0]:
-			var along := u0 + R() * seg
-			var dist: float = edge + 2.5 + R() * 8.5 * (1.0 - float(L[1]) / 6.0)
+			var along := u0 + D() * seg
+			var dist: float = edge + 2.5 + D() * 8.5 * (1.0 - float(L[1]) / 6.0)
 			var p := _side_point(side, along, dist)
-			var id: String = WRECK_IDS[int(R() * WRECK_IDS.size())]
+			var id: String = WRECK_IDS[int(D() * WRECK_IDS.size())]
 			var tilt: float = L[2]
-			var flip := PI if (L[1] > 0 and R() < 0.3) else 0.0
-			var b := Basis.from_euler(Vector3((R() - 0.5) * tilt * 2 + flip, R() * TAU, (R() - 0.5) * tilt * 2))
-			var sc := 2.8 + R() * 0.3
-			b = b * Basis.from_scale(Vector3(sc, sc * (0.7 + R() * 0.2), sc))
+			var flip := PI if (L[1] > 0 and D() < 0.3) else 0.0
+			var b := Basis.from_euler(Vector3((D() - 0.5) * tilt * 2 + flip, D() * TAU, (D() - 0.5) * tilt * 2))
+			var sc := 2.8 + D() * 0.3
+			b = b * Basis.from_scale(Vector3(sc, sc * (0.7 + D() * 0.2), sc))
 			if not _wreck_xf.has(id):
 				_wreck_xf[id] = []
-			var paint: Color = [Color("8a2a22"), Color("2c4a6e"), Color("4a5a2e"), Color("6a6a66"), Color("a0742a"), Color("3a3a3a")][int(R() * 6)]
+			var paint: Color = [Color("8a2a22"), Color("2c4a6e"), Color("4a5a2e"), Color("6a6a66"), Color("a0742a"), Color("3a3a3a")][int(D() * 6)]
 			_wreck_xf[id].append([Transform3D(b, Vector3(p.x, L[1] + 0.9, p.y)), paint])
 
 
@@ -983,13 +997,13 @@ func _building(kind: Dictionary, sc: float, ry: float, pos: Vector3, hgt: float,
 		_occluder(Vector2(pos.x, pos.z), ry, Vector3(box.size.x, box.size.y, box.size.z) * sc * 0.6, hgt * 0.3)
 	# smoke off the broken top, fires in the floors facing the arena
 	var fx_k: float = Quality.tier.fx
-	if R() < 0.55 * fx_k + 0.2:
-		stacks.append({"pos": Vector3(pos.x + (R() - 0.5) * deep * 0.3, hgt * 0.95, pos.z + (R() - 0.5) * deep * 0.3), "big": true})
+	if D() < 0.55 * fx_k + 0.2:
+		stacks.append({"pos": Vector3(pos.x + (D() - 0.5) * deep * 0.3, hgt * 0.95, pos.z + (D() - 0.5) * deep * 0.3), "big": true})
 	var toward := atan2(-pos.x, -pos.z)
 	for k in (2 if kind.tall else 1):
-		if R() < 0.6 * fx_k:
-			var fy := hgt * (0.3 + R() * 0.45 if kind.tall else 0.35 + R() * 0.3)
-			var sw := (R() - 0.5) * 0.6
+		if D() < 0.6 * fx_k:
+			var fy := hgt * (0.3 + D() * 0.45 if kind.tall else 0.35 + D() * 0.3)
+			var sw := (D() - 0.5) * 0.6
 			blazes.append(Vector3(pos.x + sin(toward + sw) * deep * 0.45, fy, pos.z + cos(toward + sw) * deep * 0.45))
 
 
