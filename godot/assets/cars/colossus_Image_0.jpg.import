@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://cn6hk8oy6ts84"
-path="res://.godot/imported/colossus_Image_0.jpg-44f33a4f3d41024381578dd8beec244e.ctex"
+path.s3tc="res://.godot/imported/colossus_Image_0.jpg-44f33a4f3d41024381578dd8beec244e.s3tc.ctex"
+path.etc2="res://.godot/imported/colossus_Image_0.jpg-44f33a4f3d41024381578dd8beec244e.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "3dcbe6bcac170a704c7a62aa45884777"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/cars/colossus_Image_0.jpg"
-dest_files=["res://.godot/imported/colossus_Image_0.jpg-44f33a4f3d41024381578dd8beec244e.ctex"]
+dest_files=["res://.godot/imported/colossus_Image_0.jpg-44f33a4f3d41024381578dd8beec244e.s3tc.ctex", "res://.godot/imported/colossus_Image_0.jpg-44f33a4f3d41024381578dd8beec244e.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://c43tlu4ms45tr"
-path="res://.godot/imported/ascent_Image_0.jpg-20c6373f88431dd1f5bc818b62bbe0a6.ctex"
+path.s3tc="res://.godot/imported/ascent_Image_0.jpg-20c6373f88431dd1f5bc818b62bbe0a6.s3tc.ctex"
+path.etc2="res://.godot/imported/ascent_Image_0.jpg-20c6373f88431dd1f5bc818b62bbe0a6.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "3de66d9ab1c65d0dee8f56f22e4ca3e5"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/buildings/ascent_Image_0.jpg"
-dest_files=["res://.godot/imported/ascent_Image_0.jpg-20c6373f88431dd1f5bc818b62bbe0a6.ctex"]
+dest_files=["res://.godot/imported/ascent_Image_0.jpg-20c6373f88431dd1f5bc818b62bbe0a6.s3tc.ctex", "res://.godot/imported/ascent_Image_0.jpg-20c6373f88431dd1f5bc818b62bbe0a6.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

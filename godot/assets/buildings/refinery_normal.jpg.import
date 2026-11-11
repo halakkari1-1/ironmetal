@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://b7c7ptcuewp21"
-path="res://.godot/imported/refinery_normal.jpg-d69b5ec473f7c136446094466ba027af.ctex"
+path.s3tc="res://.godot/imported/refinery_normal.jpg-d69b5ec473f7c136446094466ba027af.s3tc.ctex"
+path.etc2="res://.godot/imported/refinery_normal.jpg-d69b5ec473f7c136446094466ba027af.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "f1dd1c2f5149177c8e020dcf32d31590"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/buildings/refinery_normal.jpg"
-dest_files=["res://.godot/imported/refinery_normal.jpg-d69b5ec473f7c136446094466ba027af.ctex"]
+dest_files=["res://.godot/imported/refinery_normal.jpg-d69b5ec473f7c136446094466ba027af.s3tc.ctex", "res://.godot/imported/refinery_normal.jpg-d69b5ec473f7c136446094466ba027af.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

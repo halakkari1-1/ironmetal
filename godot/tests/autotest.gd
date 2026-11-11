@@ -40,6 +40,9 @@ func _ready() -> void:
 		"perf": await _perf()
 		"lockon": await _lockon()
 		"determinism": await _determinism()
+		"physics_fps": await _physics_fps()
+		"assets": await _assets()
+		"texmem": await _texmem()
 		"net_host": await _net_host()
 		"net_join": await _net_join()
 	get_tree().quit()
@@ -876,3 +879,123 @@ func _force_tier() -> void:
 	if t != "":
 		Save.state.graphics = t
 		Quality.apply_setting()
+
+
+## Measurement only: the same driving inputs simulated with the time step of 30, 60 and 120 frames a second, on a
+## flat empty floor. Shows how much the frame cap changes the car's motion (the simulation step follows the frame).
+func _physics_fps() -> void:
+	var g := await _start(0, _arg("car", "toxic"), 1)
+	g.running = false
+	var p := g.player
+	g.arena.obstacles = []
+	g.arena.hills = []
+	g.arena.ramps = []
+	for fps in [30, 60, 120]:
+		var dt: float = 1.0 / fps
+		p.x = 0; p.z = 0; p.y = 0; p.vy = 0; p.air = false; p.heading = 0; p.speed = 0
+		var t := 0.0
+		var top := 0.0
+		var marks := {}
+		while t < 7.0:
+			p.throttle = 1.0 if t < 5.5 else -1.0
+			p.steer = 0.7 if (t >= 3.0 and t < 5.5) else 0.0
+			g._drive(p, dt)
+			t += dt
+			top = max(top, p.speed)
+			for m in [3.0, 5.5, 7.0]:
+				if not marks.has(m) and t >= m - 1e-6:
+					marks[m] = [p.x, p.z, p.speed, rad_to_deg(p.heading)]
+		print("TEST physics %s fps=%3d top=%.2f | at 3s straight: x=%.2f z=%.2f v=%.2f | at 5.5s after turn: x=%.2f z=%.2f v=%.2f hdg=%.1f | at 7s after brake: x=%.2f z=%.2f v=%.2f" % [
+			p.data.id, fps, top, marks[3.0][0], marks[3.0][1], marks[3.0][2], marks[5.5][0], marks[5.5][1], marks[5.5][2], marks[5.5][3],
+			marks[7.0][0], marks[7.0][1], marks[7.0][2]])
+
+
+# ---------- asset trace: which files under assets/ the game actually loads ----------
+
+var _trace_all: PackedStringArray = []
+var _trace_used := {}
+
+
+func _trace_list(dir: String) -> void:
+	for f in DirAccess.get_files_at(dir):
+		if f.ends_with(".import") or f.ends_with(".uid") or f.ends_with(".txt") or f.ends_with(".md"):
+			continue
+		_trace_all.append(dir + "/" + f)
+	for d in DirAccess.get_directories_at(dir):
+		_trace_list(dir + "/" + d)
+
+
+func _trace_sample() -> void:
+	for p in _trace_all:
+		if not _trace_used.has(p) and ResourceLoader.has_cached(p):
+			_trace_used[p] = true
+
+
+func _trace_wait(frames: int) -> void:
+	for i in frames:
+		await get_tree().process_frame
+		if i % 3 == 0:
+			_trace_sample()
+
+
+## Walks the intro, every menu screen and backdrop, every car in the showroom, and a match with every car on
+## every map (both single-player modes), sampling the resource cache all along. Lists the files never loaded.
+## Report only: files are candidates to review, never deleted by this.
+func _assets() -> void:
+	_trace_list("res://assets")
+	var intro := Intro.new()
+	add_child(intro)
+	await _trace_wait(420)
+	if is_instance_valid(intro):
+		intro.queue_free()
+	for screen in ["_lobby", "_garage", "_workshop", "_settings", "_controls_editor", "_setup_screen", "_mp_home", "_profile", "_pick_avatar", "_offers", "_lobby"]:
+		main.call(screen)
+		await _trace_wait(20)
+	for b in main.showroom.BACKDROPS:
+		main.showroom.set_backdrop(b)
+		await _trace_wait(10)
+	main._garage()
+	for c in Data.CARS:
+		main.showroom.show_car(c.id)
+		await _trace_wait(10)
+	var n := 0
+	for mi in Data.MAPS.size():
+		for c in Data.CARS:
+			var g := await _start(mi, c.id, 1, "survival" if n % 3 == 2 else "deathmatch")
+			g.countdown = 0.01
+			_simulate(g, 6.0)
+			await _trace_wait(30)
+			if n % 4 == 0:   # some matches run to their end screen
+				g.fight_start -= Match.TIME_LIMIT
+				await _trace_wait(400)
+			n += 1
+			main._lobby()
+			await _trace_wait(5)
+	var unused: Array = []
+	var size := 0
+	for p in _trace_all:
+		if not _trace_used.has(p):
+			unused.append(p)
+			size += FileAccess.get_file_as_bytes(p).size() if FileAccess.file_exists(p) else 0
+	print("TEST assets total=%d loaded=%d never_loaded=%d (%.1f MB source)" % [_trace_all.size(), _trace_used.size(), unused.size(), size / 1e6])
+	for p in unused:
+		print("TEST unused ", p)
+
+
+## Texture memory on the graphics card: the garage with the Wraith (largest textures), then a match. Also a
+## garage shot of the given car (--car=) for comparing texture quality.
+func _texmem() -> void:
+	var info := func(): return "textures=%.1fMB video=%.1fMB" % [
+		RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TEXTURE_MEM_USED) / 1e6,
+		RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_VIDEO_MEM_USED) / 1e6]
+	main._garage()
+	main.showroom.show_car(_arg("car", "wraith"))
+	for i in 30:
+		await get_tree().process_frame
+	print("TEST texmem garage(%s) %s" % [_arg("car", "wraith"), info.call()])
+	await _shot("garage_" + _arg("car", "wraith"))
+	var g := await _start(0, "toxic", 1)
+	for i in 30:
+		await get_tree().process_frame
+	print("TEST texmem match(scrapyard) %s" % info.call())
+	await _shot("match_scrapyard")

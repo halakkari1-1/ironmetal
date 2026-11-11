@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://xn5kw05vikl3"
-path="res://.godot/imported/crown_normal.jpg-1610bb8e7c4c45b865fa3556c4a4ef22.ctex"
+path.s3tc="res://.godot/imported/crown_normal.jpg-1610bb8e7c4c45b865fa3556c4a4ef22.s3tc.ctex"
+path.etc2="res://.godot/imported/crown_normal.jpg-1610bb8e7c4c45b865fa3556c4a4ef22.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "89d7ca0083dc53223dccc2282dcc672d"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/props/crown_normal.jpg"
-dest_files=["res://.godot/imported/crown_normal.jpg-1610bb8e7c4c45b865fa3556c4a4ef22.ctex"]
+dest_files=["res://.godot/imported/crown_normal.jpg-1610bb8e7c4c45b865fa3556c4a4ef22.s3tc.ctex", "res://.godot/imported/crown_normal.jpg-1610bb8e7c4c45b865fa3556c4a4ef22.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

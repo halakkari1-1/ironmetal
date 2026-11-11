@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://bamxs7ouijaqw"
-path="res://.godot/imported/ammo_Image_1.jpg-9cc06af0cf7c9396286ce15d0a8b1b88.ctex"
+path.s3tc="res://.godot/imported/ammo_Image_1.jpg-9cc06af0cf7c9396286ce15d0a8b1b88.s3tc.ctex"
+path.etc2="res://.godot/imported/ammo_Image_1.jpg-9cc06af0cf7c9396286ce15d0a8b1b88.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "6f0c86498997b801355699d27840446d"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/props/ammo_Image_1.jpg"
-dest_files=["res://.godot/imported/ammo_Image_1.jpg-9cc06af0cf7c9396286ce15d0a8b1b88.ctex"]
+dest_files=["res://.godot/imported/ammo_Image_1.jpg-9cc06af0cf7c9396286ce15d0a8b1b88.s3tc.ctex", "res://.godot/imported/ammo_Image_1.jpg-9cc06af0cf7c9396286ce15d0a8b1b88.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

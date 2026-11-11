@@ -3,19 +3,21 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://envwu8w5jd1m"
-path="res://.godot/imported/concrete047a_color.jpg-3c1f9ad2b9b8fb941865f49b7638b0bc.ctex"
+path.s3tc="res://.godot/imported/concrete047a_color.jpg-3c1f9ad2b9b8fb941865f49b7638b0bc.s3tc.ctex"
+path.etc2="res://.godot/imported/concrete047a_color.jpg-3c1f9ad2b9b8fb941865f49b7638b0bc.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/ground/concrete047a_color.jpg"
-dest_files=["res://.godot/imported/concrete047a_color.jpg-3c1f9ad2b9b8fb941865f49b7638b0bc.ctex"]
+dest_files=["res://.godot/imported/concrete047a_color.jpg-3c1f9ad2b9b8fb941865f49b7638b0bc.s3tc.ctex", "res://.godot/imported/concrete047a_color.jpg-3c1f9ad2b9b8fb941865f49b7638b0bc.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -23,7 +25,7 @@ compress/rdo_quality_loss=0.0
 compress/hdr_compression=1
 compress/normal_map=0
 compress/channel_pack=0
-mipmaps/generate=false
+mipmaps/generate=true
 mipmaps/limit=-1
 roughness/mode=0
 roughness/src_normal=""

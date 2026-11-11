@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://dqjm3tlqidawi"
-path="res://.godot/imported/reaper_Image_1.jpg-855a1eb5eef8e5d0992273a26fae54b6.ctex"
+path.s3tc="res://.godot/imported/reaper_Image_1.jpg-855a1eb5eef8e5d0992273a26fae54b6.s3tc.ctex"
+path.etc2="res://.godot/imported/reaper_Image_1.jpg-855a1eb5eef8e5d0992273a26fae54b6.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "2095b6707b2aae22ff1f6df0e5d7791d"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/cars/reaper_Image_1.jpg"
-dest_files=["res://.godot/imported/reaper_Image_1.jpg-855a1eb5eef8e5d0992273a26fae54b6.ctex"]
+dest_files=["res://.godot/imported/reaper_Image_1.jpg-855a1eb5eef8e5d0992273a26fae54b6.s3tc.ctex", "res://.godot/imported/reaper_Image_1.jpg-855a1eb5eef8e5d0992273a26fae54b6.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

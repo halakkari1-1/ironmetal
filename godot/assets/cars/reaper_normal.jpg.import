@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://c1nfuxn7ci4eb"
-path="res://.godot/imported/reaper_normal.jpg-0c6163ae0d79238eaa34585889be36fc.ctex"
+path.s3tc="res://.godot/imported/reaper_normal.jpg-0c6163ae0d79238eaa34585889be36fc.s3tc.ctex"
+path.etc2="res://.godot/imported/reaper_normal.jpg-0c6163ae0d79238eaa34585889be36fc.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "ca8ef577263501fe50dce010335f28e6"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/cars/reaper_normal.jpg"
-dest_files=["res://.godot/imported/reaper_normal.jpg-0c6163ae0d79238eaa34585889be36fc.ctex"]
+dest_files=["res://.godot/imported/reaper_normal.jpg-0c6163ae0d79238eaa34585889be36fc.s3tc.ctex", "res://.godot/imported/reaper_normal.jpg-0c6163ae0d79238eaa34585889be36fc.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

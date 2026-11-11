@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://ck2na88ns2h4j"
-path="res://.godot/imported/dropcrate_Image_0.jpg-3a8e4fa6f59551dcbab81c4b8d703d6b.ctex"
+path.s3tc="res://.godot/imported/dropcrate_Image_0.jpg-3a8e4fa6f59551dcbab81c4b8d703d6b.s3tc.ctex"
+path.etc2="res://.godot/imported/dropcrate_Image_0.jpg-3a8e4fa6f59551dcbab81c4b8d703d6b.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "e82d7b7c6e0dbe7d90eb88ae1690b3d3"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/props/dropcrate_Image_0.jpg"
-dest_files=["res://.godot/imported/dropcrate_Image_0.jpg-3a8e4fa6f59551dcbab81c4b8d703d6b.ctex"]
+dest_files=["res://.godot/imported/dropcrate_Image_0.jpg-3a8e4fa6f59551dcbab81c4b8d703d6b.s3tc.ctex", "res://.godot/imported/dropcrate_Image_0.jpg-3a8e4fa6f59551dcbab81c4b8d703d6b.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://sxkedb647yxx"
-path="res://.godot/imported/refinery_Image_1.jpg-2de52b9a51a862ae0c980c3fa67c3f4b.ctex"
+path.s3tc="res://.godot/imported/refinery_Image_1.jpg-2de52b9a51a862ae0c980c3fa67c3f4b.s3tc.ctex"
+path.etc2="res://.godot/imported/refinery_Image_1.jpg-2de52b9a51a862ae0c980c3fa67c3f4b.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "3c39eac5e032fc0be71a69e94dabc11b"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/buildings/refinery_Image_1.jpg"
-dest_files=["res://.godot/imported/refinery_Image_1.jpg-2de52b9a51a862ae0c980c3fa67c3f4b.ctex"]
+dest_files=["res://.godot/imported/refinery_Image_1.jpg-2de52b9a51a862ae0c980c3fa67c3f4b.s3tc.ctex", "res://.godot/imported/refinery_Image_1.jpg-2de52b9a51a862ae0c980c3fa67c3f4b.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

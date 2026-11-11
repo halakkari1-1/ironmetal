@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://bgpgor383elek"
-path="res://.godot/imported/spire_Image_0.jpg-2d50fdd3c7fd4efda29bb96732ed2cbd.ctex"
+path.s3tc="res://.godot/imported/spire_Image_0.jpg-2d50fdd3c7fd4efda29bb96732ed2cbd.s3tc.ctex"
+path.etc2="res://.godot/imported/spire_Image_0.jpg-2d50fdd3c7fd4efda29bb96732ed2cbd.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "f38de65f15eb108d1bc96467067ddfc9"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/buildings/spire_Image_0.jpg"
-dest_files=["res://.godot/imported/spire_Image_0.jpg-2d50fdd3c7fd4efda29bb96732ed2cbd.ctex"]
+dest_files=["res://.godot/imported/spire_Image_0.jpg-2d50fdd3c7fd4efda29bb96732ed2cbd.s3tc.ctex", "res://.godot/imported/spire_Image_0.jpg-2d50fdd3c7fd4efda29bb96732ed2cbd.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

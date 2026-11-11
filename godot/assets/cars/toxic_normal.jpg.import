@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://bw8obtedob77a"
-path="res://.godot/imported/toxic_normal.jpg-170ce689cd26d0d1a31a6e91a67ce34a.ctex"
+path.s3tc="res://.godot/imported/toxic_normal.jpg-170ce689cd26d0d1a31a6e91a67ce34a.s3tc.ctex"
+path.etc2="res://.godot/imported/toxic_normal.jpg-170ce689cd26d0d1a31a6e91a67ce34a.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "dfffb4d443fd15104e3e8ced6cfc7db4"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/cars/toxic_normal.jpg"
-dest_files=["res://.godot/imported/toxic_normal.jpg-170ce689cd26d0d1a31a6e91a67ce34a.ctex"]
+dest_files=["res://.godot/imported/toxic_normal.jpg-170ce689cd26d0d1a31a6e91a67ce34a.s3tc.ctex", "res://.godot/imported/toxic_normal.jpg-170ce689cd26d0d1a31a6e91a67ce34a.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://mmlg4lkktqwq"
-path="res://.godot/imported/foundry_normal.jpg-f787cab2349a92d6f05c5d6b2265ef39.ctex"
+path.s3tc="res://.godot/imported/foundry_normal.jpg-f787cab2349a92d6f05c5d6b2265ef39.s3tc.ctex"
+path.etc2="res://.godot/imported/foundry_normal.jpg-f787cab2349a92d6f05c5d6b2265ef39.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "5989818a77c6335a17c30e175c2425ed"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/buildings/foundry_normal.jpg"
-dest_files=["res://.godot/imported/foundry_normal.jpg-f787cab2349a92d6f05c5d6b2265ef39.ctex"]
+dest_files=["res://.godot/imported/foundry_normal.jpg-f787cab2349a92d6f05c5d6b2265ef39.s3tc.ctex", "res://.godot/imported/foundry_normal.jpg-f787cab2349a92d6f05c5d6b2265ef39.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

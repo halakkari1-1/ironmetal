@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://gufbxp0jx4h0"
-path="res://.godot/imported/medkit_Image_1.jpg-2afac95fde2e27bae46eaee25cf21a2a.ctex"
+path.s3tc="res://.godot/imported/medkit_Image_1.jpg-2afac95fde2e27bae46eaee25cf21a2a.s3tc.ctex"
+path.etc2="res://.godot/imported/medkit_Image_1.jpg-2afac95fde2e27bae46eaee25cf21a2a.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "7ac38feceb74e87b062770f694cd81cc"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/props/medkit_Image_1.jpg"
-dest_files=["res://.godot/imported/medkit_Image_1.jpg-2afac95fde2e27bae46eaee25cf21a2a.ctex"]
+dest_files=["res://.godot/imported/medkit_Image_1.jpg-2afac95fde2e27bae46eaee25cf21a2a.s3tc.ctex", "res://.godot/imported/medkit_Image_1.jpg-2afac95fde2e27bae46eaee25cf21a2a.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

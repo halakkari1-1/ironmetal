@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://cerr5tvol3yx4"
-path="res://.godot/imported/megalodon_Image_1.jpg-dde39461b095cd7348c6f9e6b52fb512.ctex"
+path.s3tc="res://.godot/imported/megalodon_Image_1.jpg-dde39461b095cd7348c6f9e6b52fb512.s3tc.ctex"
+path.etc2="res://.godot/imported/megalodon_Image_1.jpg-dde39461b095cd7348c6f9e6b52fb512.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "a593eeb73565bdcdcaaf0148565d8c0c"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/cars/megalodon_Image_1.jpg"
-dest_files=["res://.godot/imported/megalodon_Image_1.jpg-dde39461b095cd7348c6f9e6b52fb512.ctex"]
+dest_files=["res://.godot/imported/megalodon_Image_1.jpg-dde39461b095cd7348c6f9e6b52fb512.s3tc.ctex", "res://.godot/imported/megalodon_Image_1.jpg-dde39461b095cd7348c6f9e6b52fb512.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

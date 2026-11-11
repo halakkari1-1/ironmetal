@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://ej6nlg8rfse6"
-path="res://.godot/imported/venom_Image_0.jpg-096f8becfac173409356defcecd282e4.ctex"
+path.s3tc="res://.godot/imported/venom_Image_0.jpg-096f8becfac173409356defcecd282e4.s3tc.ctex"
+path.etc2="res://.godot/imported/venom_Image_0.jpg-096f8becfac173409356defcecd282e4.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "c00f167a97b0becf42c1ada4e24696d4"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/cars/venom_Image_0.jpg"
-dest_files=["res://.godot/imported/venom_Image_0.jpg-096f8becfac173409356defcecd282e4.ctex"]
+dest_files=["res://.godot/imported/venom_Image_0.jpg-096f8becfac173409356defcecd282e4.s3tc.ctex", "res://.godot/imported/venom_Image_0.jpg-096f8becfac173409356defcecd282e4.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

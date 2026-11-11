@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://dcm56m5br1sok"
-path="res://.godot/imported/siren_Image_0.jpg-cb6533d4eeec2a8aa8ba3de66ef368e5.ctex"
+path.s3tc="res://.godot/imported/siren_Image_0.jpg-cb6533d4eeec2a8aa8ba3de66ef368e5.s3tc.ctex"
+path.etc2="res://.godot/imported/siren_Image_0.jpg-cb6533d4eeec2a8aa8ba3de66ef368e5.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "f45d53547a5cace140fe65b27a5ea098"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/cars/siren_Image_0.jpg"
-dest_files=["res://.godot/imported/siren_Image_0.jpg-cb6533d4eeec2a8aa8ba3de66ef368e5.ctex"]
+dest_files=["res://.godot/imported/siren_Image_0.jpg-cb6533d4eeec2a8aa8ba3de66ef368e5.s3tc.ctex", "res://.godot/imported/siren_Image_0.jpg-cb6533d4eeec2a8aa8ba3de66ef368e5.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

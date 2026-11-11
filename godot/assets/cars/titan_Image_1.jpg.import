@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://b60nvj1nsoet6"
-path="res://.godot/imported/titan_Image_1.jpg-aeb7ba54798c1e2d033b0ba27246b362.ctex"
+path.s3tc="res://.godot/imported/titan_Image_1.jpg-aeb7ba54798c1e2d033b0ba27246b362.s3tc.ctex"
+path.etc2="res://.godot/imported/titan_Image_1.jpg-aeb7ba54798c1e2d033b0ba27246b362.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "dd783bef2fbb497dc661d5cc644f94d2"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/cars/titan_Image_1.jpg"
-dest_files=["res://.godot/imported/titan_Image_1.jpg-aeb7ba54798c1e2d033b0ba27246b362.ctex"]
+dest_files=["res://.godot/imported/titan_Image_1.jpg-aeb7ba54798c1e2d033b0ba27246b362.s3tc.ctex", "res://.godot/imported/titan_Image_1.jpg-aeb7ba54798c1e2d033b0ba27246b362.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
