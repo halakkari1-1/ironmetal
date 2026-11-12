@@ -151,11 +151,16 @@ func _environment() -> void:
 	sun.shadow_enabled = true
 	_quality_changed()
 	Quality.changed.connect(_quality_changed)
-	sun.shadow_bias = 0.04
-	sun.shadow_normal_bias = 1.2
-	sun.shadow_blur = 0.8
-	sun.shadow_opacity = 0.7   # shadows soft enough that nothing disappears in them
-	sun.light_angular_distance = 0.4
+	# A low sun: long shadows across the floor. The lower it stands, the more the floor is lit at a grazing angle,
+	# which is where shadow acne shows first, so the bias grows a little as the sun drops (never enough to lift
+	# shadows off the things that cast them). The blur widens the same filter, so softer edges cost nothing.
+	# Shadows are deep enough for the cool sky light to colour them, never black (shadow: per map).
+	var low: float = clamp(1.0 - float(sk.elev) / 40.0, 0.0, 1.0)
+	sun.shadow_bias = 0.04 + 0.02 * low
+	sun.shadow_normal_bias = 1.2 + 0.4 * low
+	sun.shadow_blur = 1.3
+	sun.shadow_opacity = sk.shadow
+	sun.light_angular_distance = 0.8   # a wide, soft sun disc (soft penumbras where the renderer supports them)
 	add_child(sun)
 	_clouds(sk)
 

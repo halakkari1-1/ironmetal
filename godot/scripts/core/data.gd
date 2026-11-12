@@ -157,31 +157,33 @@ const MAX_UPGRADE := 5
 ## its own time of day ("sky"): the sky dome and clouds, the sun (or moon), the light and shadow
 ## colours, distance haze ("fog": density per metre, "energy": its brightness, and "aerial": how much the haze
 ## takes the colour of the sky behind it), how much of the ambient light comes from the sky ("sky_contrib", the rest is "ambient"),
-## and the searchlights (two colours) and ground fires that light the arena.
+## and the searchlights (two colours) and ground fires that light the arena. The sun stands low on every map
+## ("elev", degrees above the horizon; "az", compass direction) for long shadows; "shadow" is how dark they are
+## (1 = only sky light reaches them).
 const MAPS := [
 	{"id": "scrapyard", "floor": {"tex": "ground079s", "tile": 3.2, "bright": 0.5, "mud": 0.6}, "name": "Scrapyard", "tag": "Junk piles and a watchtower", "size": 132.0, "concrete": 0.0, "event": "artillery",
-		"ground": Color("777069"), "sun": Color("ffc296"), "sky_top": Color("252a52"), "horizon": Color("ff8f52"),
-		"sky": {"fog": {"density": 0.004, "energy": 0.35, "aerial": 0.2}, "sky_contrib": 0.8, "elev": 15.0, "az": -38.0, "sun_energy": 2.2, "ambient": Color("8a7c98"), "ambient_energy": 1.25,
+		"ground": Color("777069"), "sun": Color("ffb886"), "sky_top": Color("252a52"), "horizon": Color("ff8f52"),
+		"sky": {"fog": {"density": 0.004, "energy": 0.35, "aerial": 0.2}, "sky_contrib": 0.62, "elev": 13.0, "az": -38.0, "sun_energy": 2.5, "shadow": 0.82, "ambient": Color("6c7cb4"), "ambient_energy": 1.25,
 			"cloud_lit": Color("ffb090"), "cloud_shade": Color("4a3a5a"), "cover": 0.55, "stars": 0.0, "moon": 0.0,
 			"search": [Color("3d7bff"), Color("ff3b3b")], "fires": 6}},
 	{"id": "refinery", "floor": {"tex": "concrete047a", "tile": 5.0, "bright": 0.48, "mud": 0.3}, "name": "Refinery", "tag": "Fuel tanks ready to blow", "size": 142.0, "concrete": 0.0, "event": "rupture",
 		"ground": Color("6f6c68"), "sun": Color("9db4ff"), "sky_top": Color("060a18"), "horizon": Color("26344f"),
-		"sky": {"fog": {"density": 0.004, "energy": 0.6, "aerial": 0.2}, "sky_contrib": 0.35, "elev": 38.0, "az": 140.0, "sun_energy": 1.15, "ambient": Color("5a6a90"), "ambient_energy": 3.5,
+		"sky": {"fog": {"density": 0.004, "energy": 0.6, "aerial": 0.2}, "sky_contrib": 0.35, "elev": 30.0, "az": 140.0, "sun_energy": 1.25, "shadow": 0.7, "ambient": Color("5a6a90"), "ambient_energy": 3.5,
 			"cloud_lit": Color("6c7aa0"), "cloud_shade": Color("161c2c"), "cover": 0.45, "stars": 1.0, "moon": 1.0,
 			"search": [Color("4a8cff"), Color("ff3030")], "fires": 9}},
 	{"id": "dustbowl", "floor": {"tex": "ground097", "tile": 7.0, "bright": 0.6, "mud": 0.0}, "name": "Dust Bowl", "tag": "Open ground, rock pillars", "size": 150.0, "concrete": 0.0, "event": "sandstorm",
-		"ground": Color("b39470"), "sun": Color("fff0d2"), "sky_top": Color("3a7cc6"), "horizon": Color("f0d6aa"),
-		"sky": {"fog": {"density": 0.0035, "energy": 0.3, "aerial": 0.2}, "sky_contrib": 0.8, "elev": 42.0, "az": -50.0, "sun_energy": 1.45, "ambient": Color("a8bad2"), "ambient_energy": 0.55,
+		"ground": Color("b39470"), "sun": Color("ffe2b4"), "sky_top": Color("3a7cc6"), "horizon": Color("f0d6aa"),
+		"sky": {"fog": {"density": 0.0035, "energy": 0.3, "aerial": 0.2}, "sky_contrib": 0.68, "elev": 25.0, "az": -50.0, "sun_energy": 1.9, "shadow": 0.82, "ambient": Color("96b4e4"), "ambient_energy": 0.55,
 			"cloud_lit": Color("ffffff"), "cloud_shade": Color("a8b4c8"), "cover": 0.35, "stars": 0.0, "moon": 0.0,
 			"search": [Color("ffd27a"), Color("ff6a3a")], "fires": 3}},
 	{"id": "shanty", "floor": {"tex": "ground111", "tile": 3.5, "bright": 0.72, "mud": 0.35}, "name": "Shanty Town", "tag": "Three towers, tight streets", "size": 138.0, "concrete": 0.45, "event": "artillery",
 		"ground": Color("6c6662"), "sun": Color("ffb08a"), "sky_top": Color("1d1838"), "horizon": Color("d07a86"),
-		"sky": {"fog": {"density": 0.0045, "energy": 0.35, "aerial": 0.2}, "sky_contrib": 0.75, "elev": 12.0, "az": 30.0, "sun_energy": 1.5, "ambient": Color("6c7096"), "ambient_energy": 1.6,
+		"sky": {"fog": {"density": 0.0045, "energy": 0.35, "aerial": 0.2}, "sky_contrib": 0.6, "elev": 12.0, "az": 30.0, "sun_energy": 1.75, "shadow": 0.8, "ambient": Color("5e6cae"), "ambient_energy": 1.6,
 			"cloud_lit": Color("ff8a7a"), "cloud_shade": Color("2c2038"), "cover": 0.75, "stars": 0.25, "moon": 0.0,
 			"search": [Color("3d7bff"), Color("ff2e6a")], "fires": 8}},
 	{"id": "outpost", "floor": {"tex": "ground079s", "tile": 3.0, "bright": 0.52, "mud": 0.4}, "name": "The Outpost", "tag": "Fight around the fortress", "size": 142.0, "concrete": 0.42, "event": "artillery",
 		"ground": Color("8a7a66"), "sun": Color("ffd08a"), "sky_top": Color("44699c"), "horizon": Color("ffc27a"),
-		"sky": {"fog": {"density": 0.0035, "energy": 0.32, "aerial": 0.2}, "sky_contrib": 0.8, "elev": 22.0, "az": -120.0, "sun_energy": 1.8, "ambient": Color("8a94b0"), "ambient_energy": 0.75,
+		"sky": {"fog": {"density": 0.0035, "energy": 0.32, "aerial": 0.2}, "sky_contrib": 0.62, "elev": 16.0, "az": -120.0, "sun_energy": 2.1, "shadow": 0.82, "ambient": Color("7894cc"), "ambient_energy": 0.75,
 			"cloud_lit": Color("fff0d0"), "cloud_shade": Color("7a7a90"), "cover": 0.45, "stars": 0.0, "moon": 0.0,
 			"search": [Color("3d7bff"), Color("ff3b3b")], "fires": 5}},
 ]
