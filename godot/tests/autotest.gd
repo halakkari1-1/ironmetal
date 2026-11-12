@@ -193,7 +193,21 @@ func _sun4() -> void:
 			await get_tree().process_frame
 		g.running = false
 		var h: float = g.arena.half
-		var eye := Vector3(h * 0.12, 7.5, -h * 0.08)
+		# the most open spot near the middle (obstacles are the same on every device and every run)
+		var eye := Vector3(0, 7.5, 0)
+		var best := -1.0
+		for gx in range(-4, 5):
+			for gz in range(-4, 5):
+				var c := Vector2(gx, gz) * h * 0.1
+				var near := 999.0
+				for o in g.arena.obstacles:
+					var r: float = o.r if o.kind == "circle" else max(o.hw, o.hd)
+					near = min(near, c.distance_to(Vector2(o.x, o.z)) - r)
+				near -= c.length() * 0.05
+				if near > best:
+					best = near
+					eye = Vector3(c.x, 7.5, c.y)
+		print("TEST sun4 %s eye %s clear %.1f" % [g.map.id, eye, best])
 		var dirs := [Vector3(1, 0, 0), Vector3(0, 0, 1), Vector3(-1, 0, 0), Vector3(0, 0, -1)]
 		for d in 4:
 			g.camera.global_position = eye
