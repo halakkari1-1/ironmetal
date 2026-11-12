@@ -82,6 +82,32 @@ func _quality_changed() -> void:
 			env.sky.radiance_size = _radiance_size()
 
 
+## The map's colour grade: a 32 x 32 x 32 lookup table that every finished pixel of the 3D view goes through
+## (warm highlights, cool shadows, a different pair of colours per map). It is stored as a strip of 32 squares in
+## assets/arena/lut_<map>.png, made by tools/textures/make_luts.py. One texture read per pixel, inside the pass
+## that already applies exposure and contrast. The HUD is drawn afterwards and is not graded.
+func _grade() -> Texture3D:
+	var path := "res://assets/arena/lut_%s.png" % map.id
+	if not ResourceLoader.exists(path):
+		return null
+	var strip: Image = (load(path) as Texture2D).get_image()
+	if strip == null:
+		return null
+	if strip.is_compressed():
+		strip.decompress()
+	strip.convert(Image.FORMAT_RGB8)
+	var n := strip.get_height()
+	if n < 2 or strip.get_width() != n * n:
+		return null
+	var slices: Array[Image] = []
+	for i in n:
+		slices.append(strip.get_region(Rect2i(i * n, 0, n, n)))
+	var lut := ImageTexture3D.new()
+	if lut.create(Image.FORMAT_RGB8, n, n, n, false, slices) != OK:
+		return null
+	return lut
+
+
 ## Resolution of the sky's reflection and ambient map: smaller on the low tier.
 func _radiance_size() -> Sky.RadianceSize:
 	return Sky.RADIANCE_SIZE_128 if Quality.tier_id == "low" else Sky.RADIANCE_SIZE_256
@@ -128,6 +154,7 @@ func _environment() -> void:
 	env.adjustment_contrast = 0.96
 	env.adjustment_saturation = 1.0
 	env.adjustment_brightness = 1.02
+	env.adjustment_color_correction = _grade()
 	# Distance haze: the far rows of the district fade towards the sky behind them, which gives the arena depth.
 	# Density, brightness and aerial perspective (how much the haze takes the colour of the sky in that direction,
 	# rather than one fog colour) are per map. The haze is kept darker than the sky: fog is mixed in linear light,

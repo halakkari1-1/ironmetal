@@ -69,6 +69,7 @@ func _ready() -> void:
 	_root.theme = UI.theme
 	_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_root)
+	_build_vignette()
 	_hurt = UI.full(ColorRect.new())
 	_hurt.color = Color(0.8, 0.05, 0.02, 0)
 	_hurt.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -85,6 +86,28 @@ func _ready() -> void:
 
 
 # ---------- layout ----------
+
+## A soft darkening towards the corners of the picture, under every HUD element (the HUD itself stays at full
+## brightness). Left out on the low tier, where one more full-screen blend is not worth its cost.
+func _build_vignette() -> void:
+	var v := UI.full(ColorRect.new())
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sh := Shader.new()
+	sh.code = """shader_type canvas_item;
+render_mode unshaded;
+uniform float strength = 0.5;
+void fragment() {
+	vec2 d = (UV - 0.5) * vec2(1.0, 0.82);
+	float k = smoothstep(0.30, 0.72, length(d));
+	COLOR = vec4(0.02, 0.015, 0.03, k * k * strength);
+}"""
+	var m := ShaderMaterial.new()
+	m.shader = sh
+	v.material = m
+	_root.add_child(v)
+	v.visible = Quality.tier_id != "low"
+	Quality.changed.connect(func() -> void: v.visible = Quality.tier_id != "low")
+
 
 func _build_top_left() -> void:
 	var box := UI.vbox(4)
