@@ -141,6 +141,7 @@ func _jump() -> void:
 
 ## Every map from the driver's seat and from above, without playing it.
 func _arenas() -> void:
+	_force_tier()
 	var only := _arg("map", "")
 	for i in Data.MAPS.size():
 		if only != "" and Data.MAPS[i].id != only:
@@ -184,6 +185,7 @@ func _arenas() -> void:
 ## Lighting from four directions: one fixed camera spot per map, turned to +X, +Z, -X and -Z, plus one low
 ## view along the ground for shadow edges. Pictures only; the match is paused so nothing moves between runs.
 func _sun4() -> void:
+	_force_tier()
 	var only := _arg("map", "")
 	for i in Data.MAPS.size():
 		if only != "" and Data.MAPS[i].id != only:
