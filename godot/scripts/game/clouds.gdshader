@@ -1,6 +1,9 @@
-// Drifting clouds on a dome high over the arena: two layers of a tileable noise texture scrolling at different
-// speeds and directions, lit from the sun side (bright edges towards it, darker bellies away), thinning out
-// towards the horizon. Unshaded and blended over the sky; a few texture reads per pixel, cheap on phones.
+// Drifting clouds on a dome high over the arena, in three layers read from one tileable noise texture: a low
+// deck (broad shapes plus a finer layer that breaks them up, moving at different speeds) and a thin, high,
+// slower layer of streaks behind it for depth. Lighting needs no extra reads: where a cloud is thin (its edge)
+// the sun shines through, and its thick middle is in its own shade; towards the sun the edges light up (a
+// silver lining) and the whole deck takes the sunset colour. Clouds thin out towards the horizon.
+// Unshaded and blended over the sky; three texture reads per pixel.
 shader_type spatial;
 render_mode unshaded, cull_front, depth_draw_never, shadows_disabled, fog_disabled, blend_mix;
 
@@ -18,26 +21,29 @@ void vertex() {
 	dir = normalize(VERTEX);
 }
 
-float dens(vec2 uv, float t) {
-	float a = texture(noise_tex, uv * 0.35 + vec2(t, t * 0.3)).r;
-	float b = texture(noise_tex, uv * 0.9 - vec2(t * 1.6, -t * 0.5)).g;
-	return a * 0.72 + b * 0.38;
-}
-
 void fragment() {
 	vec3 d = normalize(dir);
 	if (d.y < 0.01) { discard; }
-	// a flat cloud deck seen in perspective: far clouds bunch up towards the horizon
-	vec2 uv = d.xz / (d.y + 0.12);
 	float t = TIME * 0.004 * speed;
-	float den = dens(uv, t);
+	// the low deck: flat, seen in perspective, so far clouds bunch up towards the horizon
+	vec2 uv = d.xz / (d.y + 0.12);
+	float den = texture(noise_tex, uv * 0.35 + vec2(t, t * 0.3)).r * 0.72
+			+ texture(noise_tex, uv * 0.9 - vec2(t * 1.6, -t * 0.5)).g * 0.38;
 	float th = mix(0.72, 0.4, cover);
 	float a = smoothstep(th, th + 0.2, den);
-	// thinner towards the sun = lit edge
-	vec2 off = normalize(sun_dir.xz + vec2(0.0001)) * 0.08;
-	float towards = dens(uv + off, t);
-	float lit = clamp(0.55 + (den - towards) * 5.0, 0.0, 1.0);
-	float sunward = pow(max(dot(d, normalize(sun_dir)), 0.0), 4.0);
-	ALBEDO = mix(shade_color, lit_color, lit) + lit_color * sunward * 0.5;
-	ALPHA = a * opacity * smoothstep(0.01, 0.12, d.y);
+	float thick = smoothstep(th + 0.05, th + 0.45, den);     // 0 at the edge of a cloud, 1 deep inside
+	// the high layer: further up (less bunching), stretched into streaks, drifting slowly the other way
+	vec2 uvh = d.xz / (d.y + 0.34);
+	float hi = texture(noise_tex, uvh * vec2(0.16, 0.42) + vec2(0.37 - t * 0.35, 0.61 + t * 0.12)).g;
+	float ah = smoothstep(0.52, 0.86, hi + (cover - 0.5) * 0.25) * 0.5;
+	// light
+	float sunward = max(dot(d, normalize(sun_dir)), 0.0);
+	float glow = sunward * sunward * sunward;
+	float lit = clamp(0.28 + (1.0 - thick) * 0.6 + glow * 0.35, 0.0, 1.0);
+	vec3 low_col = mix(shade_color, lit_color, lit);
+	low_col += lit_color * (pow(sunward, 7.0) * (1.0 - thick) * 0.85 + glow * 0.25);   // silver lining, sunset wash
+	vec3 hi_col = mix(shade_color, lit_color, 0.72) + lit_color * glow * 0.45;
+	float alpha = a + ah * (1.0 - a);
+	ALBEDO = (low_col * a + hi_col * ah * (1.0 - a)) / max(alpha, 0.001);
+	ALPHA = alpha * opacity * smoothstep(0.01, 0.12, d.y);
 }

@@ -1,5 +1,5 @@
 // Arena sky: a graded dome from the zenith colour to a glowing horizon, the sun (or the moon at night) with a
-// wide halo, a band of haze low down, and stars on the night map. Nothing here moves, so the reflections and
+// scattering glow around it that spreads along the horizon, a band of haze low down, and stars on the night map. Nothing here moves, so the reflections and
 // ambient light computed from it are made once; the moving clouds are a separate dome (clouds.gdshader).
 shader_type sky;
 
@@ -29,7 +29,17 @@ void sky() {
 	// the sun / moon
 	float ang = acos(clamp(dot(d, sdir), -1.0, 1.0));
 	float disc = 1.0 - smoothstep(sun_size * 0.85, sun_size, ang);
-	col += sun_color * pow(to_sun, 8.0) * halo + sun_color * pow(to_sun, 90.0) * halo * 1.5;
+	// the glow around it: forward scattering by dust and haze (the Henyey-Greenstein shape used for Mie
+	// scattering: a tight bright core with a long soft tail), spreading wider along the horizon where the air
+	// is thickest, and gone below the horizon
+	float mu = dot(d, sdir);
+	float g = 0.8;
+	float mie = (1.0 - g * g) / pow(1.0 + g * g - 2.0 * g * mu, 1.5) * 0.0796;
+	float low = pow(1.0 - clamp(h, 0.0, 1.0), 6.0);
+	float above = smoothstep(-0.06, 0.03, h);
+	col += sun_color * halo * above * (mie * (0.55 + 0.6 * low) + pow(to_sun, 350.0) * 0.9);
+	// the far side of the sky from the sun: the horizon glow cools and dims a little
+	col = mix(col, mix(col, top_color, 0.35) * 0.92, (1.0 - smoothstep(-0.6, 0.5, mu)) * smoothstep(0.5, 0.0, h) * above);
 	vec3 disc_col = mix(sun_color * 4.0, vec3(0.92, 0.95, 1.0) * 1.6, moon);
 	col = mix(col, disc_col, disc * step(0.0, h));
 	// stars
