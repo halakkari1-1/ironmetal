@@ -211,10 +211,12 @@ func _sun4() -> void:
 		var dirs := [Vector3(1, 0, 0), Vector3(0, 0, 1), Vector3(-1, 0, 0), Vector3(0, 0, -1)]
 		for d in 4:
 			g.camera.global_position = eye
-			g.camera.look_at(eye + dirs[d] * 40.0 + Vector3(0, -5.0, 0))
+			# --look=<metres>: how far above or below eye level the camera aims 40 m out (up for the sky)
+			var up := float(_arg("look", "-5"))
+			g.camera.look_at(eye + dirs[d] * 40.0 + Vector3(0, up, 0))
 			for f in 6:
 				await get_tree().process_frame
-			await _shot("sun4_%s_%d" % [g.map.id, d])
+			await _shot("%s_%s_%d" % ["sun4" if up < 0 else "sky4", g.map.id, d])
 		main._lobby()
 		await get_tree().process_frame
 
