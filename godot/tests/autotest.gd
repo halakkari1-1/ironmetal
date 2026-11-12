@@ -36,6 +36,7 @@ func _ready() -> void:
 		"engines": await _engines()
 		"dumpmesh": _dumpmesh()
 		"arenas": await _arenas()
+		"sun4": await _sun4()
 		"jump": await _jump()
 		"perf": await _perf()
 		"lockon": await _lockon()
@@ -176,6 +177,30 @@ func _arenas() -> void:
 			for f in 6:
 				await get_tree().process_frame
 			await _shot("arena_%s_4" % g.map.id)
+		main._lobby()
+		await get_tree().process_frame
+
+
+## Lighting from four directions: one fixed camera spot per map, turned to +X, +Z, -X and -Z, plus one low
+## view along the ground for shadow edges. Pictures only; the match is paused so nothing moves between runs.
+func _sun4() -> void:
+	var only := _arg("map", "")
+	for i in Data.MAPS.size():
+		if only != "" and Data.MAPS[i].id != only:
+			continue
+		var g := await _start(i, "toxic", 1)
+		for f in 12:
+			await get_tree().process_frame
+		g.running = false
+		var h: float = g.arena.half
+		var eye := Vector3(h * 0.12, 7.5, -h * 0.08)
+		var dirs := [Vector3(1, 0, 0), Vector3(0, 0, 1), Vector3(-1, 0, 0), Vector3(0, 0, -1)]
+		for d in 4:
+			g.camera.global_position = eye
+			g.camera.look_at(eye + dirs[d] * 40.0 + Vector3(0, -5.0, 0))
+			for f in 6:
+				await get_tree().process_frame
+			await _shot("sun4_%s_%d" % [g.map.id, d])
 		main._lobby()
 		await get_tree().process_frame
 
