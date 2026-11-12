@@ -132,6 +132,10 @@ func _draw_material(spec: Dictionary) -> StandardMaterial3D:
 	m.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
 	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR  # no mipmaps: neighbouring flipbook cells never bleed
 	m.disable_receive_shadows = true
+	# Fog is mixed into a material's colour whatever its alpha. On cards that add their colour to the scene
+	# (additive and premultiplied: fire, blasts, glows) that paints the fog over the whole card, corners included,
+	# and every flame becomes a pale box. These opt out of fog; ordinary alpha-blended smoke and dust keep it.
+	m.disable_fog = spec.get("add", false) or spec.get("premult", false)
 	if spec.get("h", 1) > 1:
 		m.particles_anim_h_frames = spec.h
 		m.particles_anim_v_frames = spec.v
@@ -381,6 +385,7 @@ func ring(pos: Vector3, radius: float, color: Color) -> void:
 		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		m.disable_fog = true   # additive: see _draw_material
 		mi.material_override = m
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(mi)
@@ -410,6 +415,7 @@ func line(a: Vector3, b: Vector3, width: float, color: Color, life: float, alpha
 		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		m.disable_fog = true   # additive: see _draw_material
 		mi.material_override = m
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(mi)

@@ -78,6 +78,13 @@ func _quality_changed() -> void:
 		sun.directional_shadow_max_distance = Quality.tier.shadow_dist
 	if env:
 		env.glow_enabled = Quality.tier.glow
+		if env.sky and env.sky.radiance_size != _radiance_size():
+			env.sky.radiance_size = _radiance_size()
+
+
+## Resolution of the sky's reflection and ambient map: smaller on the low tier.
+func _radiance_size() -> Sky.RadianceSize:
+	return Sky.RADIANCE_SIZE_128 if Quality.tier_id == "low" else Sky.RADIANCE_SIZE_256
 
 
 func _environment() -> void:
@@ -94,13 +101,17 @@ func _environment() -> void:
 	sky_mat.set_shader_parameter("halo", 0.18 if sk.moon > 0 else 0.4)
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
-	sky.radiance_size = Sky.RADIANCE_SIZE_128
+	sky.radiance_size = _radiance_size()
 	sky.process_mode = Sky.PROCESS_MODE_AUTOMATIC
 	env = Environment.new()
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	# Ambient light comes from the sky itself: faces turned up take the zenith colour, faces turned to the horizon
+	# its glow, so shadows are tinted instead of one flat colour everywhere. The map's own ambient colour fills in
+	# the rest (sky_contrib: how much is sky), which keeps the night map readable under its dark sky.
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	env.ambient_light_color = sk.ambient
+	env.ambient_light_sky_contribution = sk.sky_contrib
 	env.ambient_light_energy = sk.ambient_energy * 0.95
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	# Filmic rolls highlights off gently (ACES crushed shadows and blew out sand, sun and metal); glow only on what
@@ -117,13 +128,17 @@ func _environment() -> void:
 	env.adjustment_contrast = 0.96
 	env.adjustment_saturation = 1.0
 	env.adjustment_brightness = 1.02
-	# a light distance haze in the horizon colour: depth, and it softens the district
-	env.fog_enabled = false   # fog turns the premultiplied fire sprites into glowing boxes on some renderers
+	# Distance haze: the far rows of the district fade towards the sky behind them, which gives the arena depth.
+	# Density and aerial perspective (how much the haze takes the colour of the sky in that direction, rather than
+	# one fog colour) are per map. The sky and the cloud dome are not fogged. Particle materials that add light or
+	# are premultiplied opt out of fog in FX._draw_material: fog would be added over their whole card.
+	env.fog_enabled = true
+	env.fog_mode = Environment.FOG_MODE_EXPONENTIAL
 	env.fog_light_color = map.horizon.lerp(map.sky_top, 0.35)
 	env.fog_light_energy = 0.8
-	env.fog_density = 0.0016
+	env.fog_density = sk.fog.density
 	env.fog_sky_affect = 0.0
-	env.fog_aerial_perspective = 0.25
+	env.fog_aerial_perspective = sk.fog.aerial
 	var we := WorldEnvironment.new()
 	we.environment = env
 	add_child(we)
@@ -299,7 +314,7 @@ func _beam_shader() -> Shader:
 		_beam_sh = Shader.new()
 		_beam_sh.code = """
 shader_type spatial;
-render_mode unshaded, blend_add, cull_disabled, depth_draw_never, shadows_disabled;
+render_mode unshaded, blend_add, cull_disabled, depth_draw_never, shadows_disabled, fog_disabled;
 uniform vec3 color : source_color;
 uniform float strength = 0.3;
 void fragment() {
