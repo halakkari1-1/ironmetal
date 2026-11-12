@@ -512,15 +512,50 @@ func _tri3(st: SurfaceTool, p: Array, uv: Array, n: Vector3) -> void:
 const DETAIL_PX := 1024
 
 
+static var _ground_shaders := {}
+
+
+## The floor shader in the version for a graphics tier (see the top of ground.gdshader): the same file with the
+## lines that leave work out switched on.
+static func _ground_shader(tier_id: String, concrete: bool) -> Shader:
+	var key := "%s%d" % [tier_id, int(concrete)]
+	if not _ground_shaders.has(key):
+		var code: String = (load("res://scripts/game/ground.gdshader") as Shader).code
+		if tier_id == "medium":
+			code = code.replace("//#define GROUND_MED", "#define GROUND_MED")
+		elif tier_id == "low":
+			code = code.replace("//#define GROUND_LOW", "#define GROUND_LOW")
+		if concrete:
+			code = code.replace("//#define GROUND_CONCRETE", "#define GROUND_CONCRETE")
+		var sh := Shader.new()
+		sh.code = code
+		_ground_shaders[key] = sh
+	return _ground_shaders[key]
+
+
 func _ground() -> void:
 	var mat := ShaderMaterial.new()
-	mat.shader = load("res://scripts/game/ground.gdshader")
 	var fl: Dictionary = map.floor
+	var concrete: bool = map.concrete > 0.0
+	mat.shader = _ground_shader(Quality.tier_id, concrete)
+	# auto quality can change the tier in the middle of a match: the floor follows (parameters stay on the material)
+	Quality.changed.connect(func() -> void: mat.shader = _ground_shader(Quality.tier_id, concrete))
 	var base := "res://assets/ground/%s_" % fl.tex
+	var layers := "res://assets/ground/layer_"
 	mat.set_shader_parameter("dirt_albedo", load(base + "color.jpg"))
 	mat.set_shader_parameter("dirt_normal", load(base + "normal.jpg"))
 	mat.set_shader_parameter("dirt_rough", load(base + "rough.jpg"))
-	mat.set_shader_parameter("concrete_tex", load("res://assets/ground/concrete047a_color.jpg"))
+	mat.set_shader_parameter("gravel_ch", load(layers + "gravel_ch.png"))
+	mat.set_shader_parameter("gravel_nr", load(layers + "gravel_nr.png"))
+	mat.set_shader_parameter("mud_ch", load(layers + "mud_ch.png"))
+	mat.set_shader_parameter("mud_nr", load(layers + "mud_nr.png"))
+	mat.set_shader_parameter("detail_tex", load(layers + "detail.png"))
+	mat.set_shader_parameter("macro_tex", load(layers + "macro.png"))
+	mat.set_shader_parameter("gravel", float(fl.get("gravel", 0.0)))
+	var gt: Color = fl.get("gravel_tint", Color(0.7, 0.6, 0.55))
+	mat.set_shader_parameter("gravel_tint", Vector3(gt.r, gt.g, gt.b))
+	if concrete:
+		mat.set_shader_parameter("concrete_tex", load("res://assets/ground/concrete047a_color.jpg"))
 	mat.set_shader_parameter("tint", Color.WHITE.lerp(map.ground, 0.15) * float(fl.bright))
 	mat.set_shader_parameter("tile", 1.0 / float(fl.tile))
 	mat.set_shader_parameter("concrete_half", map.size * map.concrete * 0.5)
