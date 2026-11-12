@@ -129,13 +129,14 @@ func _environment() -> void:
 	env.adjustment_saturation = 1.0
 	env.adjustment_brightness = 1.02
 	# Distance haze: the far rows of the district fade towards the sky behind them, which gives the arena depth.
-	# Density and aerial perspective (how much the haze takes the colour of the sky in that direction, rather than
-	# one fog colour) are per map. The sky and the cloud dome are not fogged. Particle materials that add light or
+	# Density, brightness and aerial perspective (how much the haze takes the colour of the sky in that direction,
+	# rather than one fog colour) are per map. The haze is kept darker than the sky: fog is mixed in linear light,
+	# where a few percent of a bright colour is enough to wash out everything dark, near objects included. The sky and the cloud dome are not fogged. Particle materials that add light or
 	# are premultiplied opt out of fog in FX._draw_material: fog would be added over their whole card.
 	env.fog_enabled = true
 	env.fog_mode = Environment.FOG_MODE_EXPONENTIAL
 	env.fog_light_color = map.horizon.lerp(map.sky_top, 0.35)
-	env.fog_light_energy = 0.8
+	env.fog_light_energy = sk.fog.energy
 	env.fog_density = sk.fog.density
 	env.fog_sky_affect = 0.0
 	env.fog_aerial_perspective = sk.fog.aerial
