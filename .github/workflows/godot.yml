@@ -1,9 +1,11 @@
 name: Godot Android build
 
 # Builds the native (Godot 4) game from godot/ into a signed APK and publishes it as a release.
+# main publishes the normal release; a push to a work branch (gfx-*, phase*) publishes a test pre-release that is
+# never marked as the latest version, so testers can try a branch without it replacing the public build.
 on:
   push:
-    branches: [main]
+    branches: [main, "gfx-*", "phase*"]
     paths: ["godot/**", ".github/workflows/godot.yml"]
   workflow_dispatch:
 
@@ -26,7 +28,15 @@ jobs:
 
       - name: Version
         # 0.7 started at run 21 (0.7.0); the version code keeps counting runs so updates always install over
-        run: echo "VERSION=0.8.$(( ${{ github.run_number }} - 29 ))" >> "$GITHUB_ENV"
+        run: |
+          v="0.8.$(( ${{ github.run_number }} - 29 ))"
+          if [ "$GITHUB_REF_NAME" != "main" ]; then
+            v="$v-test-${GITHUB_REF_NAME//\//-}"
+            echo "TEST_BUILD=true" >> "$GITHUB_ENV"
+          else
+            echo "TEST_BUILD=false" >> "$GITHUB_ENV"
+          fi
+          echo "VERSION=$v" >> "$GITHUB_ENV"
 
       - uses: actions/setup-java@v4
         with:
@@ -124,6 +134,8 @@ jobs:
           tag_name: v${{ env.VERSION }}
           name: IronMetal ${{ env.VERSION }} (native)
           target_commitish: ${{ github.sha }}
+          prerelease: ${{ env.TEST_BUILD == 'true' }}
+          make_latest: ${{ env.TEST_BUILD == 'true' && 'false' || 'true' }}
           files: out/*
           body: |
             Native build (Godot 4, Vulkan). Download the .apk on your Android phone and open it to install.
