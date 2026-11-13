@@ -125,10 +125,21 @@ func setup(car_data: Dictionary, scene: PackedScene) -> void:
 
 
 ## Instances the model and scales it to the car's real length. Meshy models face -X, so their length is along X.
+##
+## On the high tier a car that has a full-detail version (assets/cars/hi/<id>.glb with its 4096 px maps, see
+## tools/models/split_glb.py) shows that one. Its size, and so everything the game computes from it (collision
+## radius, muzzles, hit box), is still measured on the standard model: a car is exactly the same machine on
+## every phone whatever it looks like, which multiplayer depends on. The standard model stays on as the
+## shadow caster only, so shadows cost what they did before.
 func _fit_model(scene: PackedScene) -> void:
-	model = scene.instantiate()
+	_hi = Quality.tier_id == "high" and hi_scene(data.id) != null
+	if not _base_box.has(data.id):
+		var probe: Node3D = scene.instantiate()
+		_base_box[data.id] = _aabb(probe)
+		probe.free()
+	var box: AABB = _base_box[data.id]
+	model = (hi_scene(data.id) if _hi else scene).instantiate()
 	add_child(model)
-	var box := _aabb(model)
 	var s: float = data.model.length / box.size.x
 	model.scale = Vector3.ONE * s
 	model.rotation.y = PI / 2
@@ -136,14 +147,41 @@ func _fit_model(scene: PackedScene) -> void:
 	model.position = Vector3(-c.z * s, -box.position.y * s, c.x * s)
 	dims = Vector3(box.size.z * s, box.size.y * s, box.size.x * s)
 	_rig(s)
-	if data.has("pbr"):
-		var mat := pbr_material(data)
+	if _hi or data.has("pbr"):
+		var mat := hi_material(data.id) if _hi else pbr_material(data)
 		for mi in model.find_children("*", "MeshInstance3D", true, false):
 			for i in (mi as MeshInstance3D).get_surface_override_material_count():
 				(mi as MeshInstance3D).set_surface_override_material(i, mat)
 	_materials.clear()
 	for mi in model.find_children("*", "MeshInstance3D", true, false):
 		_materials.append(mi)
+	if _hi:
+		for e in _materials:
+			(e as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		var caster: Node3D = scene.instantiate()
+		for mi in caster.find_children("*", "MeshInstance3D", true, false):
+			(mi as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+		model.add_child(caster)
+
+
+static var _hi_scenes := {}    # car id -> PackedScene, or null when the car has no full-detail version
+static var _hi_mats := {}
+static var _base_box := {}     # car id -> bounding box of the standard model (what the game measures)
+var _hi := false               # this car is showing its full-detail version
+
+
+static func hi_scene(id: String) -> PackedScene:
+	if not _hi_scenes.has(id):
+		var path := "res://assets/cars/hi/%s.glb" % id
+		_hi_scenes[id] = load(path) if ResourceLoader.exists(path) else null
+	return _hi_scenes[id]
+
+
+static func hi_material(id: String) -> StandardMaterial3D:
+	if not _hi_mats.has(id):
+		var base := "res://assets/cars/hi/%s_" % id
+		_hi_mats[id] = pbr_material({"id": id + "+", "pbr": {"albedo": base + "albedo.jpg", "normal": base + "normal.jpg", "orm": base + "orm.jpg"}})
+	return _hi_mats[id]
 
 
 # ---------- wheels and suspension ----------
@@ -174,9 +212,10 @@ func _rig(s: float) -> void:
 	_sv = Vector3.ZERO
 	var spec: Array = Data.WHEELS.get(data.id, [])
 	var meshes: Array = model.find_children("*", "MeshInstance3D", true, false)
-	if spec.size() and not _split.has(data.id):
-		_split[data.id] = _cut(meshes, spec, model)
-	var cut: Dictionary = _split.get(data.id, {})
+	var key: String = data.id + ("+" if _hi else "")   # the two versions of a car are cut separately
+	if spec.size() and not _split.has(key):
+		_split[key] = _cut(meshes, spec, model)
+	var cut: Dictionary = _split.get(key, {})
 	for i in meshes.size():
 		var mi: MeshInstance3D = meshes[i]
 		if cut.has("body"):

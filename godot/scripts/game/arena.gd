@@ -7,7 +7,8 @@ extends Node3D
 const PS := 1.5   # prop scale: kit props are true-to-life, game cars are a bit oversized
 const BS := 1.7   # landmark building scale
 const BUILDING_NEAR := 80.0   # metres: front-row buildings closer than this use their detailed version
-const BUILDING_CLOSE := 42.0  # metres: closer than this (high quality only), the original model
+const BUILDING_CLOSE := 42.0  # metres: closer than this (high quality only), the original model, where a building has no full-detail version
+const BUILDING_HI := 80.0     # metres (high quality): front-row buildings closer than this show their full-detail model
 const WS := 1.6   # wall (jersey barrier) scale
 ## Building models around the arena (assets/buildings/<id>.glb). tall: ruined tower; otherwise wide works.
 const SKYLINE := [
@@ -21,7 +22,7 @@ var obstacles: Array = []   # {kind:"box"|"circle", x, z, hw, hd, rot | r, h, ba
 var spawns: Array = []      # {x, z, heading}
 var pickup_spots: Array = []
 var stacks: Array = []      # smoke columns: {pos, big}
-var blazes: Array = []      # fires in the buildings: Vector3
+var blazes: Array = []      # fires in the buildings: Vector3 (none any more: the buildings only smoke)
 var sun: DirectionalLight3D
 var env: Environment
 var barrel_mm: MultiMeshInstance3D
@@ -848,6 +849,28 @@ func _skyline(edge: float, D1: float) -> void:
 				mat.roughness = 1.0
 				mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 				kind[v] = [load("res://assets/buildings/lo/%s%s.obj" % [k.id, sfx]), mat]
+		# high tier: the full-detail model (assets/buildings/hi, ~295k triangles, 4096 px maps) for the row that
+		# faces the arena, and the standard model for the row behind it. Both carry the engine's automatic levels
+		# of detail, so a building far away or small on screen is drawn with fewer triangles.
+		var hi_path := "res://assets/buildings/hi/%s" % k.id
+		if Quality.tier_id == "high" and ResourceLoader.exists(hi_path + ".glb"):
+			var hp: Node = (load(hi_path + ".glb") as PackedScene).instantiate()
+			var hm: Array = hp.find_children("*", "MeshInstance3D", true, false)
+			if hm.size():
+				var mat := StandardMaterial3D.new()
+				mat.albedo_texture = load(hi_path + "_albedo.jpg")
+				mat.normal_enabled = true
+				mat.normal_texture = load(hi_path + "_normal.jpg")
+				var orm: Texture2D = load(hi_path + "_orm.jpg")
+				mat.roughness_texture = orm
+				mat.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_GREEN
+				mat.roughness = 1.0
+				mat.metallic_texture = orm
+				mat.metallic_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_BLUE
+				mat.metallic = 1.0
+				mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+				kind["hi"] = [(hm[0] as MeshInstance3D).mesh, mat]
+			hp.free()
 		kinds.append(kind)
 	var tall := kinds.filter(func(k): return k.tall)
 	var wide := kinds.filter(func(k): return not k.tall)
@@ -1046,7 +1069,23 @@ func _building(kind: Dictionary, sc: float, ry: float, pos: Vector3, hgt: float,
 	node.position = pos - c.rotated(Vector3.UP, ry) + Vector3(0, -box.position.y * sc - 1.2, 0)  # sunk a little
 	for mi in node.find_children("*", "GeometryInstance3D", true, false):
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		if mi is MeshInstance3D and kind.has("lo"):
+		if mi is MeshInstance3D and kind.has("hi"):
+			# high tier: the full-detail model up to BUILDING_HI metres away and the standard model beyond, where
+			# its extra triangles would be smaller than a pixel. Drawing all of them at any distance came to five
+			# million triangles a frame. The back row stays on the standard model.
+			if front_row:
+				var far := MeshInstance3D.new()
+				far.mesh = mi.mesh
+				far.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				far.visibility_range_begin = BUILDING_HI
+				far.visibility_range_begin_margin = 3.0
+				mi.add_sibling(far)
+				far.transform = mi.transform
+				mi.mesh = kind.hi[0]
+				mi.material_override = kind.hi[1]
+				mi.visibility_range_end = BUILDING_HI
+				mi.visibility_range_end_margin = 3.0
+		elif mi is MeshInstance3D and kind.has("lo"):
 			# the back row and the low tier: light version only. The front row on medium: the detailed version within
 			# BUILDING_NEAR, the light one beyond; on high: the detailed one at any distance, and the original model
 			# for the few right up close.
@@ -1078,7 +1117,8 @@ func _building(kind: Dictionary, sc: float, ry: float, pos: Vector3, hgt: float,
 	add_child(node)
 	if front_row:
 		_occluder(Vector2(pos.x, pos.z), ry, Vector3(box.size.x, box.size.y, box.size.z) * sc * 0.6, hgt * 0.3)
-	# smoke off the broken top, fires in the floors facing the arena
+	# smoke off the broken top. The buildings no longer burn: the fires in their floors are gone (the random
+	# draws that placed them stay, so everything placed after them is where it was).
 	var fx_k: float = Quality.tier.fx
 	if D() < 0.55 * fx_k + 0.2:
 		stacks.append({"pos": Vector3(pos.x + (D() - 0.5) * deep * 0.3, hgt * 0.95, pos.z + (D() - 0.5) * deep * 0.3), "big": true})
@@ -1087,7 +1127,7 @@ func _building(kind: Dictionary, sc: float, ry: float, pos: Vector3, hgt: float,
 		if D() < 0.6 * fx_k:
 			var fy := hgt * (0.3 + D() * 0.45 if kind.tall else 0.35 + D() * 0.3)
 			var sw := (D() - 0.5) * 0.6
-			blazes.append(Vector3(pos.x + sin(toward + sw) * deep * 0.45, fy, pos.z + cos(toward + sw) * deep * 0.45))
+			var _spot := Vector3(pos.x + sin(toward + sw) * deep * 0.45, fy, pos.z + cos(toward + sw) * deep * 0.45)
 
 
 func _occluder(xz: Vector2, ry: float, size: Vector3, y := 0.0) -> void:

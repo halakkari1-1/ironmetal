@@ -47,13 +47,21 @@ func _ready() -> void:
 func apply_setting() -> void:
 	var g: String = Save.state.get("graphics", "auto")
 	_auto = g == "auto"
-	tier_id = Save.state.get("auto_tier", "high") if _auto else g
+	tier_id = Save.state.get("auto_tier", _first_tier()) if _auto else g
 	if not TIERS.has(tier_id):
 		tier_id = "high"
 	tier = TIERS[tier_id]
 	Engine.max_fps = int(Save.state.get("fps", 60))
 	_show_counter(bool(Save.state.get("show_fps", false)))
 	_apply()
+
+
+## Where "auto" starts on a phone that has never played: the high tier loads full-detail cars and buildings
+## (several hundred megabytes of textures), so only phones with 8 GB of memory or more begin there. The rest
+## begin on medium and are moved up later if they prove to have room.
+func _first_tier() -> String:
+	var ram: int = int(OS.get_memory_info().get("physical", 0))
+	return "medium" if ram > 0 and ram < 7_000_000_000 else "high"
 
 
 ## The small frame counter at the top of the screen (settings: Frame counter).
