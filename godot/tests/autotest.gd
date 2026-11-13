@@ -218,7 +218,15 @@ func _sun4() -> void:
 			g.camera.look_at(eye + dirs[d] * 40.0 + Vector3(0, up, 0))
 			for f in 6:
 				await get_tree().process_frame
-			await _shot("%s_%s_%d" % ["sun4" if up < 0 else "sky4", g.map.id, d])
+			if _arg("lod", "") != "":
+				get_viewport().mesh_lod_threshold = float(_arg("lod", "1"))
+				await get_tree().process_frame
+				await get_tree().process_frame
+			print("TEST sun4 %s %d prims=%d draws=%d" % [g.map.id, d,
+				RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME),
+				RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME)])
+			if _arg("noshot", "") == "":
+				await _shot("%s_%s_%d" % ["sun4" if up < 0 else "sky4", g.map.id, d])
 		main._lobby()
 		await get_tree().process_frame
 
@@ -1028,6 +1036,7 @@ func _assets() -> void:
 ## Texture memory on the graphics card: the garage with the Wraith (largest textures), then a match. Also a
 ## garage shot of the given car (--car=) for comparing texture quality.
 func _texmem() -> void:
+	_force_tier()
 	var info := func(): return "textures=%.1fMB video=%.1fMB" % [
 		RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TEXTURE_MEM_USED) / 1e6,
 		RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_VIDEO_MEM_USED) / 1e6]
