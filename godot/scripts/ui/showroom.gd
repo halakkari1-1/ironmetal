@@ -1,6 +1,8 @@
 class_name Showroom
 extends Node3D
-## The lobby: a painted backdrop, with the car standing live in 3D on the glowing ring painted in it.
+## The lobby: a painted backdrop, with the car standing live in 3D on the glowing ring painted in it. In the
+## yard, the painting's towers, cliffs, bridge, outpost, flood lights and platform are 3D models standing on
+## their painted spots, lit to match it (LobbyYard).
 ## The camera is solved from the painted ring (its centre and how flat its ellipse is), with a lens shift so
 ## the car lands exactly on the ring at any screen shape. The car's shadow falls on an invisible catcher plane.
 ## Backdrops: the night yard (the lobby), and the harbour of the Azure Wraith offer, which comes alive: drifting
@@ -12,7 +14,7 @@ const RADIUS := 5.0                    # the ring's radius in metres
 ## as a fraction of the ring's diameter.
 const BACKDROPS := {
 	"yard": {"img": "res://assets/ui/lobby.jpg", "w": 2576.0, "h": 1448.0, "ring": Vector2(0.6724, 0.674), "a": 0.2686, "b": 0.0622, "focal": 0.898, "fit": 0.875,
-		"shader": "res://scripts/ui/yard.gdshader"},
+		"shader": "res://scripts/ui/yard.gdshader", "yard3d": true},
 	"harbor": {"img": "res://assets/ui/offers/harbor.jpg", "w": 1672.0, "h": 941.0, "ring": Vector2(0.6926, 0.661), "a": 0.2703, "b": 0.0659, "focal": 0.898, "fit": 0.86, "alive": true,
 		"shader": "res://scripts/ui/harbor.gdshader", "fireworks": true},
 }
@@ -27,6 +29,9 @@ var _backdrop := ""
 var _fit := 0.875
 var _alive_mat: ShaderMaterial
 var _fireworks: Fireworks
+var _yard: LobbyYard         # the 3D pieces of the yard (see lobby_yard.gd)
+var _stand := 0.0            # height the car stands at (the platform's deck)
+var _catcher: MeshInstance3D
 
 var _bg: TextureRect
 var _layer: CanvasLayer
@@ -64,6 +69,17 @@ func _ready() -> void:
 	env.glow_enabled = true
 	env.glow_intensity = 0.4
 	env.glow_hdr_threshold = 1.2
+	# haze over the far pieces of the 3D yard (towers, cliffs, bridge), as in the painting; it starts beyond
+	# the car and the yard so they stay clear
+	env.fog_enabled = true
+	env.fog_mode = Environment.FOG_MODE_DEPTH
+	env.fog_light_color = Color(0.2, 0.15, 0.17)
+	env.fog_light_energy = 1.0
+	env.fog_density = 1.0
+	env.fog_depth_begin = 35.0
+	env.fog_depth_end = 300.0
+	env.fog_depth_curve = 0.8
+	env.fog_sky_affect = 0.0
 	_env = WorldEnvironment.new()
 	_env.environment = env
 	add_child(_env)
@@ -79,7 +95,8 @@ func _ready() -> void:
 	key.shadow_enabled = true
 	key.directional_shadow_max_distance = 40
 	add_child(key)
-	var warm := DirectionalLight3D.new()          # warm lamps from the yard
+	var warm := DirectionalLight3D.new()          # warm lamps from the yard (on the car only)
+	warm.light_cull_mask = 1
 	warm.light_color = Color(1.0, 0.6, 0.3)
 	warm.light_energy = 0.9
 	warm.rotation = Vector3(deg_to_rad(-20), deg_to_rad(-60), 0)
@@ -90,6 +107,7 @@ func _ready() -> void:
 	_ring_light.light_energy = 1.5
 	add_child(_ring_light)
 	var catcher := MeshInstance3D.new()           # receives the car's shadow, otherwise invisible
+	_catcher = catcher
 	var plane := PlaneMesh.new()
 	plane.size = Vector2(30, 30)
 	catcher.mesh = plane
@@ -131,6 +149,7 @@ func set_backdrop(id: String) -> void:
 		_fireworks.active = true
 	elif _fireworks:
 		_fireworks.active = false
+	_yard_update()
 	if _car:   # refit the car for this ring
 		var id_ := _car_id
 		_car_id = ""
@@ -138,9 +157,29 @@ func set_backdrop(id: String) -> void:
 	_layout()
 
 
+## The 3D yard exists only while the lobby shows the yard: a match frees it (its models and maps would
+## otherwise sit in memory next to the arena's), and coming back builds it again.
+func _yard_update() -> void:
+	var b: Dictionary = BACKDROPS[_backdrop]
+	var want: bool = b.get("yard3d", false) and visible and _layer.visible
+	if want and _yard == null:
+		_yard = LobbyYard.new()
+		add_child(_yard)
+		_yard.setup(Vector2(b.w, b.h), b.ring, b.a, b.b, b.focal, RADIUS)
+	elif not want and _yard:
+		_yard.free()
+		_yard = null
+		LobbyYard.release()
+	_stand = _yard.platform_top if _yard else 0.0
+	_catcher.position.y = _stand + 0.005
+	if _car:
+		_car.position.y = _stand
+
+
 func activate(on: bool) -> void:
 	visible = on
 	_layer.visible = on
+	_yard_update()
 	# only one WorldEnvironment may be active: hand the sky back to the arena while a match runs
 	if on and _env.get_parent() == null:
 		add_child(_env)
@@ -175,7 +214,9 @@ func _layout() -> void:
 	_cam.keep_aspect = Camera3D.KEEP_HEIGHT
 	_cam.size = vp.y / f * _cam.near
 	_cam.frustum_offset = Vector2(-(cx - vp.x / 2) / f * _cam.near, (cy - vp.y / 2) / f * _cam.near)
-	_ring_light.position = Vector3(0, 0.6, 0)
+	_ring_light.position = Vector3(0, 0.6 + _stand, 0)
+	if _yard and _yard.visible:
+		_yard.set_matte(_bg.texture, Rect2(_bg.position, _bg.size), vp)
 
 
 ## Slides the car to a spot across the screen (in canvas pixels), clear of the panels a screen shows.
@@ -201,6 +242,7 @@ func show_car(id: String) -> void:
 	if not BACKDROPS[_backdrop].get("alive", false):
 		fit = min(1.0, fit)   # the lobby never blows a car up; the offer shows it filling the ring as in its art
 	c.scale = Vector3.ONE * fit
+	c.position.y = _stand
 	_car = c
 	add_child(c)
 	_turn = -0.6

@@ -44,6 +44,7 @@ func _ready() -> void:
 		"physics_fps": await _physics_fps()
 		"assets": await _assets()
 		"texmem": await _texmem()
+		"lobby": await _lobby_shots()
 		"net_host": await _net_host()
 		"net_join": await _net_join()
 	get_tree().quit()
@@ -1035,6 +1036,55 @@ func _assets() -> void:
 
 ## Texture memory on the graphics card: the garage with the Wraith (largest textures), then a match. Also a
 ## garage shot of the given car (--car=) for comparing texture quality.
+## The lobby at the painting's own framing (so a picture lines up with the painting pixel for pixel), then
+## the 3D pieces alone on black, then the lobby as the player sees it.
+func _lobby_shots() -> void:
+	_force_tier()
+	main._lobby()
+	var sr: Showroom = main.showroom
+	var w := get_viewport().get_visible_rect().size.x
+	sr.set_focus(sr.RING.x * w)
+	for i in 40:
+		await get_tree().process_frame
+	print("TEST lobby prims=%d draws=%d textures=%.1fMB video=%.1fMB" % [
+		RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME),
+		RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME),
+		RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TEXTURE_MEM_USED) / 1e6,
+		RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_VIDEO_MEM_USED) / 1e6])
+	main.get_node_or_null(".")
+	_hide_ui(true)
+	await _shot("lobby_frame")
+	sr._bg.visible = false
+	await get_tree().process_frame
+	await get_tree().process_frame
+	await _shot("lobby_3d")
+	sr._bg.visible = true
+	_hide_ui(false)
+	sr.set_focus(-1.0)
+	main._lobby()
+	for i in 10:
+		await get_tree().process_frame
+	await _shot("lobby_ui")
+	sr.set_backdrop("harbor")       # the offer's painting: the 3D yard must step aside
+	for i in 10:
+		await get_tree().process_frame
+	await _shot("lobby_harbor")
+	print("TEST lobby harbor yard=%s" % [sr._yard != null and sr._yard.visible])
+	sr.set_backdrop("yard")
+	main._garage()
+	for i in 20:
+		await get_tree().process_frame
+	await _shot("lobby_garage")
+
+
+func _hide_ui(on: bool) -> void:
+	for c in main.get_children():
+		if c is CanvasLayer and c != main.showroom._layer:
+			c.visible = not on
+		elif c is Control:
+			c.visible = not on
+
+
 func _texmem() -> void:
 	_force_tier()
 	var info := func(): return "textures=%.1fMB video=%.1fMB" % [
